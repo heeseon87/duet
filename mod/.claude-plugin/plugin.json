@@ -1,0 +1,8 @@
+{
+  "name": "duet",
+  "version": "0.1.0",
+  "description": "Duet from a terminal: read and change Duet's design maps, take comments and decisions sent from Duet, and see the map in the status line",
+  "author": {
+    "name": "heeseon"
+  }
+}

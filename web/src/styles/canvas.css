@@ -1,0 +1,345 @@
+/* ---------------------------------------------------------------- canvas
+   Box colors say how an element touches the code: new (green), changed (violet),
+   removed (red), data that comes out (amber), untouched (paper). */
+:root {
+  --cv-keep-fill: #ffffff; --cv-keep-line: #cbc6bc;
+  --cv-add-fill: #e9f7ee; --cv-add-line: #2f9e57;
+  --cv-modify-fill: #f2eefd; --cv-modify-line: #8466dd;
+  --cv-delete-fill: #fdeeee; --cv-delete-line: #d64545;
+  --cv-result-fill: #fff6e0; --cv-result-line: #cf9f22;
+  /* Packages: the design-map plugin's own colors (its Mermaid init: clusterBkg #faf6ef, clusterBorder #dcd3c4). */
+  --cv-group-fill: #faf6ef; --cv-group-line: #dcd3c4;
+  --cv-edge: #858b95; --cv-label-bg: #ffffff;
+  --cv-bg: #ffffff; --cv-group-ink: #8a7a50;
+  --cv-note-fill: #fff8e3; --cv-note-line: #e5d391;
+  --cv-dot: rgba(31, 35, 40, 0.08);
+}
+:root[data-theme='dark'] {
+  --cv-keep-fill: #1d1f23; --cv-keep-line: #3b3f47;
+  --cv-add-fill: #15291d; --cv-add-line: #3fb265;
+  --cv-modify-fill: #241f38; --cv-modify-line: #a58cf0;
+  --cv-delete-fill: #2e1a1b; --cv-delete-line: #ef6b62;
+  --cv-result-fill: #2b2412; --cv-result-line: #d8ab3a;
+  --cv-group-fill: rgba(222, 196, 128, 0.06); --cv-group-line: #4a4331;
+  --cv-edge: #7b818c; --cv-label-bg: #0f1012;
+  --cv-bg: var(--bg); --cv-group-ink: #b6a57a;
+  --cv-note-fill: #2a2614; --cv-note-line: #6b5d2a;
+  --cv-dot: rgba(255, 255, 255, 0.06);
+}
+
+.canvas { display: flex; flex-direction: column; height: 100%; min-height: 0; }
+.canvas-bar { display: flex; align-items: center; gap: 8px; padding: 7px 12px; border-bottom: 1px solid var(--line); background: var(--panel); flex: none; container-type: inline-size; }
+/* With the agent panel open the labels would squeeze out the map title; the icons and tooltips stay. */
+@container (max-width: 1000px) { .canvas-bar .bar-label { display: none; } }
+.map-pick { display: inline-flex; align-items: center; gap: 7px; border: 0; background: transparent; padding: 4px 8px; border-radius: 7px; max-width: 360px; min-width: 0; font-size: 13.5px; }
+.map-pick:hover { background: var(--hover); }
+/* A grid, so the detail after rev N can shrink to nothing while rev N and the chevron keep their width. */
+.rev-chip { display: inline-grid; grid-auto-flow: column; align-items: center; gap: 5px; height: 26px; border: 1px solid var(--line); border-radius: 13px; background: var(--panel-2); padding: 0 10px; font-size: 12px; color: var(--ink-2); font-variant-numeric: tabular-nums; }
+.rev-chip:hover { border-color: var(--line-strong); color: var(--ink); }
+.rev-chip .muted { overflow: hidden; text-overflow: ellipsis; }
+.map-pick > svg { flex: none; }
+.compare-chip { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--accent-ink); background: var(--accent-soft); border-radius: 13px; padding: 2px 4px 2px 10px; }
+.timeline { display: grid; gap: 1px; max-height: 420px; overflow: auto; }
+.tl-item { display: flex; align-items: center; gap: 6px; padding: 2px 4px; border-radius: 6px; }
+.tl-item.on { background: var(--accent-soft); }
+.tl-dot { width: 18px; height: 18px; border-radius: 50%; display: grid; place-items: center; flex: none; background: var(--sunken); color: var(--ink-3); }
+.tl-dot.agent { background: var(--agent-soft); color: var(--agent); }
+.tl-main { flex: 1; min-width: 0; border: 0; background: transparent; text-align: left; display: grid; grid-template-columns: auto 1fr; column-gap: 6px; padding: 4px; font-size: 12.5px; }
+.tl-main .meta { grid-column: 1 / -1; color: var(--ink-3); font-size: 11px; }
+.new-map { display: grid; gap: 8px; padding: 6px; }
+
+.unseen-banner, .preview-banner {
+  display: flex; align-items: center; gap: 10px; padding: 7px 14px; font-size: 12.5px; flex: none; border-bottom: 1px solid var(--line);
+}
+.unseen-banner { background: var(--agent-soft); color: var(--ink); }
+.unseen-banner svg { color: var(--agent); }
+.unseen-banner .changes { color: var(--ink-2); font-family: var(--font-mono); font-size: 11.5px; min-width: 0; }
+.preview-banner { background: var(--warn-bg); color: var(--warn); }
+
+.canvas-body { flex: 1; display: flex; min-height: 0; position: relative; }
+.stage-canvas {
+  flex: 1; position: relative; overflow: hidden; cursor: grab; touch-action: none; user-select: none;
+  background-color: var(--cv-bg);
+  background-image: radial-gradient(var(--cv-dot) 1px, transparent 1px);
+  background-size: 18px 18px;
+}
+.stage-canvas:active { cursor: grabbing; }
+.stage-inner { position: absolute; left: 0; top: 0; transform-origin: 0 0; will-change: transform; }
+/* Only moves the app makes (fit, reveal) glide; wheel and drag follow the hand. */
+.stage-canvas.gliding .stage-inner { transition: transform .3s var(--ease); }
+.stage-inner svg { display: block; overflow: visible; }
+.stage-error { position: absolute; left: 16px; top: 16px; right: 16px; background: var(--del-bg); color: var(--del); border-radius: var(--r-2); padding: 10px 14px; font-size: 12px; }
+.stage-error pre { margin: 4px 0 0; white-space: pre-wrap; }
+.zoom-readout { position: absolute; left: 12px; bottom: 10px; font-size: 11px; color: var(--ink-4); font-variant-numeric: tabular-nums; pointer-events: none; }
+.stage-hint { position: absolute; left: 50%; transform: translateX(-50%); bottom: 10px; font-size: 11px; pointer-events: none; opacity: .8; }
+.empty-canvas .hero-mark { width: 48px; height: 48px; border-radius: 14px; display: grid; place-items: center; background: var(--accent-soft); color: var(--accent); }
+
+/* Parts of the drawing */
+.stage-inner [data-target] { cursor: pointer; }
+.stage-inner .cv-node, .stage-inner .cv-cluster, .stage-inner .cv-edge, .stage-inner .cv-label, .stage-inner .cv-msg, .stage-inner .cv-msg-text, .stage-inner .cv-actor, .stage-inner .cv-note {
+  transition: opacity .2s var(--ease);
+}
+.stage-inner .cv-node .label-container path:first-child { fill: var(--cv-keep-fill) !important; }
+.stage-inner .cv-node .label-container path:last-child { stroke: var(--cv-keep-line) !important; stroke-width: 1.2 !important; transition: stroke .2s, stroke-width .2s; }
+.stage-inner .cv-node .divider path { stroke: var(--cv-keep-line) !important; }
+.stage-inner .cv-node.cv-add .label-container path:first-child { fill: var(--cv-add-fill) !important; }
+.stage-inner .cv-node.cv-add .label-container path:last-child { stroke: var(--cv-add-line) !important; stroke-width: 1.6 !important; }
+.stage-inner .cv-node.cv-modify .label-container path:first-child { fill: var(--cv-modify-fill) !important; }
+.stage-inner .cv-node.cv-modify .label-container path:last-child { stroke: var(--cv-modify-line) !important; stroke-width: 1.6 !important; }
+.stage-inner .cv-node.cv-delete .label-container path:first-child { fill: var(--cv-delete-fill) !important; }
+.stage-inner .cv-node.cv-delete .label-container path:last-child { stroke: var(--cv-delete-line) !important; stroke-width: 1.6 !important; }
+.stage-inner .cv-node.cv-delete .nodeLabel { text-decoration: line-through; }
+.stage-inner .cv-node.cv-result .label-container path:first-child { fill: var(--cv-result-fill) !important; }
+.stage-inner .cv-node.cv-result .label-container path:last-child { stroke: var(--cv-result-line) !important; stroke-width: 1.6 !important; }
+.stage-inner .cv-node.cv-open .label-container path:last-child { stroke-dasharray: 6 4 !important; }
+.stage-inner .cv-node[data-group] .label-container path:first-child { fill: var(--cv-group-fill) !important; }
+.stage-inner .cv-node[data-group] .label-container path:last-child { stroke: var(--cv-group-line) !important; stroke-dasharray: 3 3 !important; }
+.stage-inner .cv-cluster rect { fill: var(--cv-group-fill) !important; stroke: var(--cv-group-line) !important; stroke-width: 1.2px; rx: 10px; ry: 10px; }
+/* Same weight Mermaid measured with, or the name gets clipped. */
+.stage-inner .cv-cluster .cluster-label, .stage-inner .cv-cluster .nodeLabel { color: var(--cv-group-ink) !important; fill: var(--cv-group-ink) !important; }
+.stage-inner .nodeLabel, .stage-inner .label { color: var(--ink); }
+.stage-inner .cv-node .annotation-group { color: var(--ink-3); opacity: .9; }
+
+.stage-inner .cv-edge { stroke: var(--cv-edge) !important; stroke-width: 1.3px; transition: stroke .2s, stroke-width .2s, opacity .2s; }
+.stage-inner .cv-edge-hit { stroke: transparent !important; stroke-width: 14px; fill: none !important; pointer-events: stroke; }
+.stage-inner .cv-label .labelBkg, .stage-inner .cv-label span { background: transparent !important; }
+.stage-inner .cv-label p { background: var(--cv-label-bg) !important; color: var(--ink-2) !important; border-radius: 3px; }
+.stage-inner .cv-label.cv-add p { color: var(--add) !important; }
+.stage-inner .cv-label.cv-delete p { color: var(--del) !important; text-decoration: line-through; }
+.stage-inner .cv-edge.cv-add { stroke: var(--cv-add-line) !important; }
+.stage-inner .cv-edge.cv-delete { stroke: var(--cv-delete-line) !important; stroke-dasharray: 5 4; }
+.stage-inner .cv-edge.cv-open { stroke-dasharray: 6 4; }
+
+/* Focus: the selection stands out; the rest steps back only a little (still easy to read), and the
+   lines it touches flow (dashes running from one end to the other, the way the relation reads). */
+.stage-inner .cv-node.cv-dim, .stage-inner .cv-actor.cv-dim, .stage-inner .cv-note.cv-dim { opacity: 0.55; }
+.stage-inner .cv-edge.cv-dim, .stage-inner .cv-msg.cv-dim { opacity: 0.33; }
+.stage-inner .cv-label.cv-dim, .stage-inner .cv-msg-text.cv-dim { opacity: 0.44; }
+.stage-inner .cv-cluster.cv-dim { opacity: 0.87; }
+.stage-inner .cv-node.cv-sel .label-container path:first-child { fill: color-mix(in srgb, var(--accent) 10%, var(--cv-keep-fill)) !important; }
+.stage-inner .cv-node.cv-sel .label-container path:last-child { stroke: var(--accent) !important; stroke-width: 3 !important; }
+.stage-inner .cv-node.cv-sel { filter: drop-shadow(0 0 0.5px var(--accent)) drop-shadow(0 6px 18px color-mix(in srgb, var(--accent) 38%, transparent)); }
+.stage-inner .cv-node.cv-in .label-container path:last-child { stroke: color-mix(in srgb, var(--accent) 70%, var(--cv-keep-line)) !important; stroke-width: 1.8 !important; }
+.stage-inner .cv-node.cv-rel .label-container path:last-child { stroke-width: 1.8 !important; }
+.stage-inner .cv-cluster.cv-sel rect { stroke: var(--accent) !important; stroke-width: 2.4px; fill: color-mix(in srgb, var(--accent) 7%, var(--cv-group-fill)) !important; }
+.stage-inner .cv-cluster.cv-sel .cluster-label, .stage-inner .cv-cluster.cv-sel .nodeLabel { color: var(--accent-ink) !important; fill: var(--accent-ink) !important; }
+.stage-inner .cv-cluster.cv-in rect { stroke: color-mix(in srgb, var(--accent) 55%, var(--cv-group-line)) !important; }
+.stage-inner .cv-label.cv-sel p { background: var(--accent) !important; color: #fff !important; }
+/* Mermaid writes each line's dash pattern into its style attribute and its width into an id rule, so these must win outright.
+   `--k` is the zoom: whatever the zoom, the lines are 1.6px on screen (design-map's width) and the dashes 6/4px. */
+.stage-inner .cv-edge.cv-sel, .stage-inner .cv-edge.cv-rel, .stage-inner .cv-msg.cv-sel, .stage-inner .cv-msg.cv-rel {
+  stroke: var(--accent) !important;
+  stroke-width: calc(1.6px / var(--k, 1)) !important;
+  stroke-dasharray: calc(6px / var(--k, 1)) calc(4px / var(--k, 1)) !important;
+  --flow: calc(-20px / var(--k, 1));
+  /* 12 steps per cycle: still reads as flowing, but repaints ~13 times a second instead of every frame. */
+  animation: cv-flow .9s steps(12) infinite;
+}
+.stage-inner .cv-edge.cv-sel { stroke-width: calc(2.2px / var(--k, 1)) !important; }
+@keyframes cv-flow { from { stroke-dashoffset: 0; } to { stroke-dashoffset: var(--flow, -20px); } }
+@media (prefers-reduced-motion: reduce) { .stage-inner .cv-edge.cv-sel, .stage-inner .cv-edge.cv-rel, .stage-inner .cv-msg.cv-sel, .stage-inner .cv-msg.cv-rel { animation: none; } }
+.stage-inner .cv-label.cv-rel p { color: var(--ink) !important; font-weight: 600; }
+
+/* Ghosts: what the compared revision had and this one lost. */
+.stage-inner .cv-ghost { opacity: 0.55; }
+.stage-inner .cv-node.cv-ghost .label-container path:first-child { fill: transparent !important; }
+.stage-inner .cv-node.cv-ghost .label-container path:last-child { stroke: var(--cv-delete-line) !important; stroke-dasharray: 4 4 !important; }
+.stage-inner .cv-node.cv-ghost .nodeLabel { text-decoration: line-through; color: var(--del) !important; }
+.stage-inner .cv-edge.cv-ghost { stroke: var(--cv-delete-line) !important; stroke-dasharray: 4 4; }
+.stage-inner .cv-label.cv-ghost p { color: var(--del) !important; text-decoration: line-through; }
+.stage-inner .cv-msg.cv-ghost { stroke: var(--cv-delete-line) !important; stroke-dasharray: 4 4; }
+
+/* Just changed by the agent */
+.stage-inner .cv-glow { animation: glow 1.6s var(--ease) 3; }
+.stage-inner .cv-glow-mod { animation: glow-mod 1.6s var(--ease) 3; }
+@keyframes glow { 50% { filter: drop-shadow(0 0 10px color-mix(in srgb, var(--add) 70%, transparent)); } }
+@keyframes glow-mod { 50% { filter: drop-shadow(0 0 10px color-mix(in srgb, var(--agent) 70%, transparent)); } }
+
+/* Sequence parts */
+.stage-inner .cv-msg { transition: stroke .2s, opacity .2s; }
+.stage-inner .cv-msg.cv-sel { stroke: var(--accent) !important; stroke-width: 2.4px !important; }
+.stage-inner .cv-msg-text.cv-sel { fill: var(--accent-ink) !important; font-weight: 700; }
+.stage-inner .cv-msg.cv-add { stroke: var(--cv-add-line) !important; }
+.stage-inner .cv-msg-text.cv-add { fill: var(--add) !important; }
+.stage-inner .cv-msg.cv-modify { stroke: var(--cv-modify-line) !important; }
+.stage-inner .cv-msg-text.cv-modify { fill: var(--mod) !important; }
+.stage-inner .cv-msg.cv-delete { stroke: var(--cv-delete-line) !important; stroke-dasharray: 4 3; }
+.stage-inner .cv-msg-text.cv-delete { fill: var(--del) !important; text-decoration: line-through; }
+.stage-inner .cv-actor.cv-sel rect { stroke: var(--accent) !important; stroke-width: 2.4px; }
+.stage-inner .cv-actor.cv-add rect { fill: var(--cv-add-fill) !important; stroke: var(--cv-add-line) !important; }
+.stage-inner .cv-actor.cv-modify rect { fill: var(--cv-modify-fill) !important; stroke: var(--cv-modify-line) !important; }
+.stage-inner .cv-actor.cv-delete rect { fill: var(--cv-delete-fill) !important; stroke: var(--cv-delete-line) !important; }
+/* While comparing, what is new or changed since the older revision keeps a steady ring. */
+.stage-inner .cv-node.cv-new .label-container path:last-child, .stage-inner .cv-actor.cv-new rect { stroke: var(--add) !important; stroke-width: 2.6 !important; }
+.stage-inner .cv-node.cv-changed .label-container path:last-child, .stage-inner .cv-actor.cv-changed rect { stroke: var(--agent) !important; stroke-width: 2.6 !important; }
+.stage-inner .cv-edge.cv-new, .stage-inner .cv-msg.cv-new { stroke: var(--add) !important; stroke-width: 2.4px; }
+.stage-inner .cv-edge.cv-changed, .stage-inner .cv-msg.cv-changed { stroke: var(--agent) !important; stroke-width: 2.4px; }
+.stage-inner .cv-label.cv-new p, .stage-inner .cv-msg-text.cv-new { color: var(--add) !important; fill: var(--add) !important; font-weight: 600; }
+.stage-inner .cv-label.cv-changed p, .stage-inner .cv-msg-text.cv-changed { color: var(--agent) !important; fill: var(--agent) !important; font-weight: 600; }
+
+.stage-inner .cv-badge circle { fill: var(--accent); stroke: var(--panel); stroke-width: 2; }
+.stage-inner .cv-badge text { fill: #fff; font-size: 10px; font-weight: 700; font-family: var(--font-ui); }
+/* Decision pins: tags, not counts, along a box's top edge from the left; accent while the decision is open, green once made.
+   Mermaid styles every rect under its own id, so the colors must win outright. */
+.stage-inner [data-pin] { cursor: pointer; }
+.stage-inner .cv-pin rect { stroke-width: 1.3 !important; transition: stroke-width .15s; }
+.stage-inner .cv-pin text { font-size: 11px; font-weight: 700; font-family: var(--font-mono); }
+.stage-inner .cv-pin.open rect { fill: var(--accent) !important; stroke: var(--panel) !important; }
+.stage-inner .cv-pin.open text { fill: #fff !important; }
+.stage-inner .cv-pin.made rect { fill: color-mix(in srgb, var(--add) 16%, var(--panel)) !important; stroke: var(--add) !important; }
+.stage-inner .cv-pin.made text { fill: var(--add) !important; }
+.stage-inner .cv-pin.more rect { fill: var(--panel) !important; stroke: var(--line-strong) !important; }
+.stage-inner .cv-pin.more text { fill: var(--ink-3) !important; }
+.stage-inner .cv-pin[data-pin]:hover rect { stroke-width: 2.4 !important; }
+
+/* Inspector */
+.inspector {
+  position: absolute; top: 12px; right: 12px; bottom: 12px; width: 340px; z-index: 4; background: var(--panel);
+  border: 1px solid var(--line); border-radius: 14px; box-shadow: var(--shadow-2);
+  overflow-y: auto; padding: 14px 16px 22px; display: flex; flex-direction: column; gap: 10px; animation: slide-in .18s var(--ease);
+}
+@keyframes slide-in { from { opacity: 0; transform: translateX(10px); } }
+.inspector.compact { bottom: auto; max-height: calc(100% - 24px); }
+.inspector.wide { width: 560px; max-width: calc(100% - 24px); }
+.insp-open { position: absolute; top: 12px; right: 12px; z-index: 4; box-shadow: var(--shadow-1); }
+.insp-head { display: flex; margin: -6px -6px -4px; }
+.insp-title { font-size: 16px; font-weight: 700; letter-spacing: -0.01em; line-height: 1.35; word-break: break-word; }
+.rel-title { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; font-size: 14px; }
+.rel-title .link-btn { font-size: 14px; font-weight: 700; color: var(--ink); }
+.insp-context { color: var(--ink-2); font-size: 12.5px; }
+.insp-note { background: var(--sunken); border-radius: var(--r-2); padding: 8px 10px; font-size: 12.5px; color: var(--ink-2); }
+.insp-section { display: grid; gap: 6px; padding-top: 10px; border-top: 1px solid var(--line); }
+.insp-section h4 { margin: 0; font-size: 13px; color: var(--ink); font-weight: 700; display: inline; }
+.insp-section summary { cursor: pointer; list-style: none; }
+.row.wrap { flex-wrap: wrap; gap: 6px; }
+.small { font-size: 11.5px; }
+.members { list-style: none; margin: 0; padding: 0; display: grid; gap: 2px; }
+.members li { display: flex; gap: 6px; align-items: baseline; font-size: 12px; }
+.members li .mark { width: 10px; color: var(--ink-4); font-family: var(--font-mono); }
+.members li.add .mark, .members li.add code { color: var(--add); }
+.members li.delete .mark, .members li.delete code { color: var(--del); text-decoration: line-through; }
+.members li.modify .mark, .members li.modify code { color: var(--mod); }
+.file-link, .rel-link, .thread-link { display: flex; align-items: center; gap: 6px; width: 100%; border: 0; background: transparent; padding: 5px 6px; border-radius: 6px; text-align: left; font-size: 12.5px; color: var(--ink); min-width: 0; }
+.file-link { font-family: var(--font-mono); font-size: 11.5px; color: var(--accent-ink); }
+.file-link:hover, .rel-link:hover, .thread-link:hover { background: var(--hover); }
+.rel-dir { font-family: var(--font-mono); color: var(--ink-3); width: 12px; }
+.chip.cv-chip-add { background: var(--add-bg); color: var(--add); }
+.chip.cv-chip-modify { background: color-mix(in srgb, var(--mod) 14%, transparent); color: var(--mod); }
+.chip.cv-chip-delete { background: var(--del-bg); color: var(--del); }
+.chip.cv-chip-result { background: var(--warn-bg); color: var(--warn); }
+.legend { display: flex; flex-wrap: wrap; gap: 10px; font-size: 11.5px; color: var(--ink-2); }
+.legend-item { display: inline-flex; align-items: center; gap: 5px; }
+.sw { width: 12px; height: 10px; border-radius: 3px; border: 1.5px solid; display: inline-block; }
+.cv-sw-add { background: var(--cv-add-fill); border-color: var(--cv-add-line); }
+.cv-sw-modify { background: var(--cv-modify-fill); border-color: var(--cv-modify-line); }
+.cv-sw-delete { background: var(--cv-delete-fill); border-color: var(--cv-delete-line); }
+.cv-sw-result { background: var(--cv-result-fill); border-color: var(--cv-result-line); }
+.cv-sw-keep { background: var(--cv-keep-fill); border-color: var(--cv-keep-line); }
+.cv-sw-open { background: transparent; border-style: dashed; border-color: var(--ink-3); }
+
+.cv-ask { display: grid; gap: 6px; }
+.cv-ask textarea { width: 100%; font-size: 13px; }
+.thread { border: 1px solid var(--line); border-radius: var(--r-2); padding: 8px; display: grid; gap: 8px; background: var(--panel-2); }
+.thread.resolved { opacity: .6; }
+.thread-item { display: flex; gap: 8px; font-size: 12.5px; }
+.thread-item .who { width: 20px; height: 20px; border-radius: 50%; display: grid; place-items: center; flex: none; background: var(--accent-soft); color: var(--accent-ink); }
+.thread-item.agent .who { background: var(--agent-soft); color: var(--agent); }
+.thread-item .meta { color: var(--ink-4); font-size: 10.5px; }
+.thread-actions { display: flex; gap: 4px; }
+
+.decision { border: 1px solid var(--line); border-radius: 12px; padding: 12px 12px 10px; display: grid; gap: 8px; background: var(--panel); }
+.decision.open { border-color: var(--accent-line); background: color-mix(in srgb, var(--accent-soft) 35%, var(--panel)); }
+.decision-top { display: flex; align-items: center; gap: 8px; }
+.decision-id { font-family: var(--font-mono); font-size: 11.5px; font-weight: 700; color: var(--accent-ink); background: var(--accent-soft); border-radius: 6px; padding: 1px 7px; }
+.decision-state { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; font-weight: 600; }
+.decision-state.done { color: var(--add); }
+.decision-state.todo { color: var(--accent-ink); }
+.decision-q { font-size: 14px; font-weight: 650; line-height: 1.5; color: var(--ink); word-break: keep-all; overflow-wrap: anywhere; }
+.decision-answer { border-radius: 9px; padding: 8px 10px; background: var(--add-bg); border: 1px solid color-mix(in srgb, var(--add) 30%, transparent); }
+.decision-why { font-size: 12.5px; line-height: 1.6; color: var(--ink-2); word-break: keep-all; overflow-wrap: anywhere; }
+.decision-why b, .option-rejected b { font-weight: 650; margin-right: 4px; }
+.decision .reopen { justify-self: start; font-size: 12px; color: var(--ink-3); }
+.options { display: grid; gap: 6px; }
+.option { display: block; width: 100%; text-align: left; border: 1px solid var(--line-strong); background: var(--panel); border-radius: 9px; padding: 8px 10px; transition: border-color .15s, box-shadow .15s; color: var(--ink); }
+.option.pickable { cursor: pointer; }
+.option.pickable:hover { border-color: var(--accent); }
+.option.picked { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+.option.lost { background: var(--panel-2); border-style: dashed; }
+.option-text { font-size: 13px; line-height: 1.55; word-break: keep-all; overflow-wrap: anywhere; }
+.opt-letter { display: inline-grid; place-items: center; min-width: 18px; height: 18px; padding: 0 4px; margin-right: 7px; border-radius: 5px; background: var(--sunken); color: var(--accent-ink); font-family: var(--font-mono); font-size: 11px; font-weight: 700; vertical-align: 1px; }
+.decision-answer .opt-letter { background: color-mix(in srgb, var(--add) 18%, transparent); color: var(--add); }
+.option-impact { margin-top: 5px; font-size: 12px; line-height: 1.6; color: var(--ink-2); word-break: keep-all; overflow-wrap: anywhere; }
+.option-rejected { margin-top: 6px; font-size: 12px; line-height: 1.55; color: var(--del); word-break: keep-all; overflow-wrap: anywhere; }
+.option-count { margin-top: 5px; font-size: 11px; padding: 0; }
+button.decision-id { border: 0; cursor: pointer; }
+button.decision-id:hover { background: var(--accent); color: #fff; }
+button.decision-id.done:hover { background: var(--add); }
+.decision-id.done { color: var(--add); background: var(--add-bg); }
+.delivery { margin-top: 2px; font-size: 11px; color: var(--ink-3); }
+
+/* A made decision is one line until opened */
+.made-list { gap: 2px; }
+.made { min-width: 0; }
+.made .delivery { padding: 0 8px 4px 34px; margin: 0; }
+.made.open { display: grid; gap: 6px; margin: 4px 0; }
+.made-row { display: flex; align-items: center; gap: 6px; width: 100%; min-width: 0; border: 0; background: transparent; padding: 5px 6px; border-radius: 6px; text-align: left; color: var(--ink); font-size: 12.5px; }
+.made-row:hover { background: var(--hover); }
+.made-row .made-check { color: var(--add); flex: none; }
+.made-row .opt-letter { margin-right: 0; flex: none; background: color-mix(in srgb, var(--add) 18%, transparent); color: var(--add); }
+.made-row .made-text { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.made-row .made-arrow { color: var(--ink-4); }
+.chip.dec-chip { cursor: pointer; }
+.chip.dec-chip.quiet { background: transparent; color: var(--ink-3); }
+.chip.dec-chip:hover { border-color: currentColor; }
+.decide-form { display: grid; gap: 6px; }
+
+.ask-open { justify-self: start; }
+.inspector .legend { padding-bottom: 2px; }
+
+.inline-edit { border: 0; background: transparent; padding: 2px 4px; margin: -2px -4px; border-radius: 6px; text-align: left; color: inherit; font: inherit; display: inline-flex; gap: 6px; align-items: baseline; max-width: 100%; word-break: break-word; }
+.inline-edit:hover { background: var(--hover); }
+.inline-edit .pen { color: var(--ink-4); opacity: 0; flex: none; }
+.inline-edit:hover .pen { opacity: 1; }
+.inline-edit.empty-val { color: var(--ink-3); font-size: 12.5px; }
+.inline-edit.insp-note-edit { font-size: 12.5px; color: var(--ink-2); }
+.inline-edit.mono, .inline-input.mono { font-family: var(--font-mono); font-size: 12px; }
+.inline-input { width: 100%; }
+.inline-input.insp-title { font-size: 16px; font-weight: 700; height: 34px; }
+.change-pick { display: flex; flex-wrap: wrap; gap: 4px; }
+.change-pick .chip { cursor: pointer; opacity: .55; border: 1px solid transparent; }
+.change-pick .chip:hover { opacity: .85; }
+.change-pick .chip.on { opacity: 1; border-color: currentColor; }
+.cv-chip-keep { background: var(--sunken); color: var(--ink-2); }
+.step-input { width: 64px; height: 26px; }
+.del-el { justify-self: start; }
+.inline-edit.insp-title { font-size: 16px; font-weight: 700; letter-spacing: -0.01em; }
+
+/* The old drawing, kept on top for a moment while a fold or unfold animates */
+.morph-overlay { position: absolute; left: 0; top: 0; z-index: 2; pointer-events: none; }
+details.insp-section > summary::before { content: '▸ '; color: var(--ink-3); }
+details.insp-section[open] > summary::before { content: '▾ '; }
+details.insp-section[open] > summary { margin-bottom: 4px; }
+
+/* "+2 ~1 −1" on a folded package: what changed inside it, by kind */
+.stage-inner .cv-inside rect { fill: var(--panel); stroke: var(--line-strong); stroke-width: 1; }
+.stage-inner .cv-inside text { font-size: 10.5px; font-weight: 700; font-family: var(--font-mono); fill: var(--ink-2); }
+.stage-inner .cv-inside .a { fill: var(--add); }
+.stage-inner .cv-inside .c { fill: var(--agent); }
+.stage-inner .cv-inside .r { fill: var(--del); }
+
+/* A chip in the bar gives way first; the buttons never wrap their words. */
+.canvas-bar button { white-space: nowrap; }
+.canvas-bar > .compare-chip { min-width: 0; white-space: nowrap; overflow: hidden; }
+
+/* Right-click menu and the ask card it opens */
+.ctx-menu { padding: 4px; }
+.ctx-menu .ctx-head { display: flex; align-items: baseline; gap: 6px; color: var(--ink-2); font-size: 12px; }
+.ctx-menu .ctx-head-sub { flex: none; font-weight: 400; color: var(--ink-3); font-size: 11px; }
+.ctx-menu .menu-item { font-size: 13px; min-height: 28px; }
+.ctx-menu .menu-item:focus-visible { outline: none; background: var(--hover); }
+.ctx-menu .menu-item:disabled { opacity: .45; cursor: default; background: transparent; }
+.ctx-menu .ctx-icon { display: inline-flex; color: var(--ink-3); flex: none; }
+.ctx-menu .ctx-sub { color: var(--ink-3); font-size: 11.5px; }
+.ctx-menu kbd { flex: none; }
+.ctx-ask { padding: 10px; display: flex; flex-direction: column; gap: 8px; }
+.ctx-ask-head { display: flex; align-items: center; gap: 6px; font-size: 12.5px; font-weight: 600; color: var(--ink-2); }
