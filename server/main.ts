@@ -563,8 +563,8 @@ route('POST', '/api/canvas/:name/threads/:tid', async ({ req, params }) => {
 
 // ------------------------------------------------------------------ terminals
 
-/** What the terminal mod relays: the canvas tools of Duet's own conversations, without making maps. */
-const TERMINAL_TOOLS = new Set<CanvasToolName>(['canvas_list', 'canvas_read', 'canvas_update', 'canvas_reply'])
+/** What the terminal mod relays: the canvas tools of Duet's own conversations. */
+const TERMINAL_TOOLS = new Set<CanvasToolName>(['canvas_list', 'canvas_read', 'canvas_create', 'canvas_update', 'canvas_reply'])
 
 route('GET', '/api/terminals', ({ url }) => terminals.list(knownWorkspace(url.searchParams.get('ws'))))
 route('POST', '/api/terminals', async ({ req }) => {

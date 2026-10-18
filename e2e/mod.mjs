@@ -4,13 +4,17 @@
 // terminal), shows the map in its status line, pins a map with /duet (status line, Duet's terminal list, the
 // model's choice of map, again after /compact, the canvas and card in the browser, the next session in the folder), takes a canvas
 // comment, a decision and a composer message sent to it from the browser, answers on their threads, and once it
-// stops, leaves the menu and a send fails out loud.
-//   DUET_PORT=7981 DUET_TOKEN=... DUET_HOME=<the server's DUET_HOME> DUET_WS=<workspace> DUET_NESTED=<worktree under it> node e2e/mod.mjs
-//   (two Haiku sessions; makes and removes maps named mod-e2e and mod-e2e-pin; every tool but the mod's is denied, so the trees stay as they are.
-//   The mod gets a DUET_HOME of its own, empty until the server's server.json is copied in. The pin lives in the mod's
-//   Claude Code store under the worktree's path; the run ends with /duet off, which removes it.)
+// stops, leaves the menu and a send fails out loud. Asked for a new map, it makes one with duet_map_create and is pinned
+// to it unless a pin is set; in a git repository no workspace holds, that map opens the repository as a workspace; in a
+// folder outside every git repository, it says a git repository is needed.
+//   DUET_PORT=7981 DUET_TOKEN=... DUET_HOME=<the server's DUET_HOME> DUET_WS=<workspace> DUET_NESTED=<worktree under it> [DUET_SCRATCH=<folder>] node e2e/mod.mjs
+//   (four Haiku sessions; makes and removes maps named mod-e2e*; every tool but the mod's is denied, so the trees stay as they are.
+//   The mod gets a DUET_HOME of its own, empty until the server's server.json is copied in. Pins live in the mod's
+//   Claude Code store under each folder's path; every session that pins ends with /duet off, which removes it.
+//   It leaves, under DUET_SCRATCH (else the temp folder), a fresh git repository, which stays in Duet's workspace list,
+//   and a folder outside git: both are named in the output.)
 import { execFileSync } from 'node:child_process'
-import { copyFileSync, existsSync, mkdtempSync, readdirSync, readFileSync } from 'node:fs'
+import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs'
 import { homedir, tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -44,7 +48,7 @@ const until = async (what, fn, ms = 60_000) => {
 }
 
 await call('POST', '/api/workspaces', { path: ws })
-for (const m of await call('GET', `/api/canvas?ws=${W}`)) if (m.name === name || m.name === pinName) await call('DELETE', `/api/canvas/${m.name}?ws=${W}`)
+for (const m of await call('GET', `/api/canvas?ws=${W}`)) if (m.name === name || m.name === pinName || m.name.startsWith('mod-e2e-new')) await call('DELETE', `/api/canvas/${m.name}?ws=${W}`)
 // The map to pin comes first, so mod-e2e is the newest and the one the status line shows before any pin.
 await call('POST', '/api/canvas', { ws, name: pinName, diagram: 'class', title: pinTitle })
 await call('POST', `/api/canvas/${pinName}/patch`, { ws, note: '고정 시험 지도', patch: { elements: [{ id: 'Worker', label: '핀 워커' }] } })
@@ -60,8 +64,8 @@ const modHome = mkdtempSync(join(tmpdir(), 'duet-mod-'))
 const env = { ...process.env, DUET_HOME: modHome, DUET_TOKEN: T }
 delete env.CLAUDE_CODE_PLUGIN_DIRS
 
-/** A Claude Code session in the worktree with the mod: streaming input, so the mod's own prompts and ours share it, as in a terminal. */
-function startSession() {
+/** A Claude Code session with the mod, in the worktree unless told: streaming input, so the mod's own prompts and ours share it, as in a terminal. */
+function startSession(cwd = nested) {
   const inbox = []
   let wake
   let closed = false
@@ -73,7 +77,7 @@ function startSession() {
   const q = query({
     prompt: input,
     options: {
-      cwd: nested,
+      cwd,
       model,
       settingSources: ['project', 'local'],
       plugins: [{ type: 'local', path: fileURLToPath(new URL('../mod', import.meta.url)) }],
@@ -81,13 +85,14 @@ function startSession() {
       canUseTool: async (tool, input) => (tool.startsWith('mcp__duet__duet_map_') ? { behavior: 'allow', updatedInput: input } : { behavior: 'deny', message: 'Only the Duet map tools are allowed in this test.' }),
     },
   })
-  const s = { id: '', results: [], tools: [], uses: [], statuses: [], compactions: 0 }
+  const s = { id: '', results: [], tools: [], uses: [], outs: new Map(), statuses: [], compactions: 0 }
   s.ended = (async () => {
     for await (const m of q) {
       if (m.type === 'system' && m.subtype === 'init') s.id = m.session_id
       if (m.type === 'system' && m.subtype === 'ui_status' && m.plugin === 'duet') s.statuses.push(m.text)
       if (m.type === 'system' && m.subtype === 'compact_boundary') s.compactions++
-      if (m.type === 'assistant') for (const c of m.message.content) if (c.type === 'tool_use') { s.tools.push(c.name); s.uses.push({ name: c.name, input: c.input }) }
+      if (m.type === 'assistant') for (const c of m.message.content) if (c.type === 'tool_use') { s.tools.push(c.name); s.uses.push({ id: c.id, name: c.name, input: c.input }) }
+      if (m.type === 'user' && Array.isArray(m.message?.content)) for (const c of m.message.content) if (c.type === 'tool_result') s.outs.set(c.tool_use_id, typeof c.content === 'string' ? c.content : (c.content ?? []).map(b => b.text ?? '').join(''))
       if (m.type === 'result') s.results.push(String(m.result ?? ''))
     }
   })()
@@ -104,7 +109,11 @@ function startSession() {
   }
   return s
 }
-const terminalOf = async id => (await call('GET', `/api/terminals?ws=${W}`)).find(t => t.id === id)
+const terminalOf = async (id, w = W) => (await call('GET', `/api/terminals?ws=${w}`)).find(t => t.id === id)
+/** What a session's calls of one tool since `from` brought back, in order. */
+const outputsOf = (s, tool, from = 0) => s.uses.slice(from).filter(u => u.name === tool).map(u => s.outs.get(u.id) ?? '')
+/** The names a session's model gave one tool since `from`. */
+const namesOf = (s, tool, from = 0) => s.uses.slice(from).filter(u => u.name === tool).map(u => u.input?.name)
 /** The reads this session's model made since `from`, by the map name it passed. */
 const readsSince = (s, from) => s.uses.slice(from).filter(u => u.name === 'mcp__duet__duet_map_read').map(u => u.input?.name)
 /** A session's transcript file, row by row, the hidden rows too (getSessionMessages leaves those out). */
@@ -306,11 +315,73 @@ const fresh = await s2.turn('Read this terminal\'s map and answer with only the 
 check('a new session in the folder starts pinned to the map', Boolean(s2Pinned) && (await terminalOf(s2.id))?.map === pinName, JSON.stringify(s2.statuses))
 check('its model reads the pinned map when asked for this terminal\'s map', readsSince(s2, u2).includes(pinName) && fresh.includes('핀 워커'), `${JSON.stringify(readsSince(s2, u2))} | ${fresh.slice(0, 80)}`)
 check('/duet off in the new session unpins it', (await s2.turn('/duet off')).includes(`지도 고정을 풀었어 (${pinName})`) && (await terminalOf(s2.id))?.map === undefined)
+
+// 10. Asked for a new map with no pin set, Haiku makes it and draws on it; the terminal is pinned to it. A second new map leaves the pin.
+const stamp = Date.now().toString(36)
+const made = `mod-e2e-new-${stamp}`, madeTitle = '모드 새 지도'
+const made2 = `mod-e2e-new2-${stamp}`, made2Title = '모드 둘째 지도'
+const s2id8 = s2.id.slice(0, 8)
+const c0 = s2.uses.length
+await s2.turn(`Create a new class map named "${made}", titled "${madeTitle}", with one box. Then reply with the one word: done.`)
+const createdAt = s2.uses.findIndex((u, i) => i >= c0 && u.name === 'mcp__duet__duet_map_create' && u.input?.name === made)
+const drawnAt = s2.uses.findIndex((u, i) => i > createdAt && u.name === 'mcp__duet__duet_map_update' && u.input?.name === made)
+check('asked for a new map, Haiku calls duet_map_create and then duet_map_update', createdAt >= 0 && drawnAt > createdAt, s2.uses.slice(c0).map(u => u.name).join(','))
+const madeMap = await call('GET', `/api/canvas/${made}?ws=${W}`).catch(() => undefined)
+const signedBy = `터미널 · ${folder} · ${s2id8} · `
+check('the map is in Duet, every rev the agent\'s and signed with the terminal, the first one too', madeMap?.history[0]?.by === 'agent' && madeMap.history[0].note === `${signedBy}새 지도` && madeMap.history.length > 1 && madeMap.history.every(r => r.by === 'agent' && r.note.startsWith(signedBy)) && madeMap.map.elements.length > 0, JSON.stringify(madeMap?.history.map(r => [r.by, r.note])))
+check('the create result carries the drawing guide and tells the model of the pin', (outputsOf(s2, 'mcp__duet__duet_map_create', c0)[0] ?? '').startsWith('Duet canvas:') && outputsOf(s2, 'mcp__duet__duet_map_create', c0)[0].includes(`[Duet] This terminal works from the Duet map "${made}"`), outputsOf(s2, 'mcp__duet__duet_map_create', c0)[0]?.slice(-200))
+await until('status shows the new pin', () => s2.statuses.at(-1)?.startsWith(`Duet · 📌 ${madeTitle} · rev `), 10_000)
+check('the terminal is pinned to the new map: the status line and Duet\'s list', s2.statuses.at(-1)?.startsWith(`Duet · 📌 ${madeTitle} · rev `) && (await terminalOf(s2.id))?.map === made, `${s2.statuses.at(-1)} | ${JSON.stringify(await terminalOf(s2.id))}`)
+const c1 = s2.uses.length
+await s2.turn(`Create another new class map named "${made2}", titled "${made2Title}", with one box. Then reply with the one word: done.`)
+await sleep(1500)
+const made2Map = await call('GET', `/api/canvas/${made2}?ws=${W}`).catch(() => undefined)
+check('with a pin set, a second new map leaves the pin', namesOf(s2, 'mcp__duet__duet_map_create', c1).includes(made2) && made2Map?.history[0]?.note === `${signedBy}새 지도` && (await terminalOf(s2.id))?.map === made && s2.statuses.at(-1)?.startsWith(`Duet · 📌 ${madeTitle} · rev `) && !outputsOf(s2, 'mcp__duet__duet_map_create', c1).some(o => o.includes('[Duet]')), `${s2.statuses.at(-1)} | ${JSON.stringify(await terminalOf(s2.id))}`)
+check('/duet off unpins the new map', (await s2.turn('/duet off')).includes(`지도 고정을 풀었어 (${made})`))
 await s2.close()
+
+// 11. In a git repository no workspace holds, the status says so, and a new map opens the repository as a Duet workspace.
+const scratch = process.env.DUET_SCRATCH ?? tmpdir()
+const freshRepo = join(scratch, `fresh-ws-${stamp}`)
+mkdirSync(freshRepo)
+const git = (...a) => execFileSync('git', ['-c', 'user.email=e2e@duet', '-c', 'user.name=e2e', ...a], { cwd: freshRepo, stdio: 'ignore' })
+git('init', '-q', '-b', 'main')
+writeFileSync(join(freshRepo, 'README.md'), '# fresh\n')
+git('add', '-A')
+git('commit', '-qm', 'first')
+const freshWs = realpathSync(freshRepo), FW = encodeURIComponent(freshWs)
+const freshMap = `mod-e2e-fresh-${stamp}`, freshTitle = '새 작업 공간 지도'
+const s3 = startSession(freshRepo)
+const s3Off = await until('no-workspace status', () => s3.statuses.includes('Duet 작업 공간 없음'), 60_000)
+check('in a repository no workspace holds, the status line reads Duet 작업 공간 없음', Boolean(s3Off) && !(await call('GET', '/api/workspaces')).some(w => w.path === freshWs), JSON.stringify(s3.statuses))
+await s3.turn(`Create a new class map named "${freshMap}", titled "${freshTitle}", with one box. Then reply with the one word: done.`)
+check('the new map opens the repository as a Duet workspace', (await call('GET', '/api/workspaces')).some(w => w.path === freshWs), freshWs)
+const freshCanvas = await call('GET', `/api/canvas/${freshMap}?ws=${FW}`).catch(() => undefined)
+check('the map is there, drawn by the terminal', s3.tools.includes('mcp__duet__duet_map_create') && freshCanvas?.map.elements.length > 0 && freshCanvas.history[0].note === `터미널 · ${freshRepo.split('/').pop()} · ${s3.id.slice(0, 8)} · 새 지도`, JSON.stringify(freshCanvas?.history.map(r => r.note)))
+await until('status shows the map', () => s3.statuses.at(-1)?.startsWith(`Duet · 📌 ${freshTitle} · rev `), 10_000)
+check('the status line shows the map, and the terminal is in the new workspace', s3.statuses.at(-1)?.startsWith(`Duet · 📌 ${freshTitle} · rev `) && (await terminalOf(s3.id, FW))?.map === freshMap, JSON.stringify(s3.statuses))
+check('/duet off unpins it', (await s3.turn('/duet off')).includes(`지도 고정을 풀었어 (${freshMap})`))
+await s3.close()
+await call('DELETE', `/api/canvas/${freshMap}?ws=${FW}`)
+
+// 12. In a folder outside every git repository, the tools point to duet_map_create, which says a git repository is needed.
+const loose = join(scratch, `no-git-${stamp}`)
+mkdirSync(loose)
+const looseWs = realpathSync(loose)
+const s4 = startSession(loose)
+await until('no-workspace status', () => s4.statuses.includes('Duet 작업 공간 없음'), 60_000)
+await s4.turn('Call the duet_map_list tool once, then tell me in one sentence what it said.')
+check('outside every workspace the other tools refuse, pointing to duet_map_create', outputsOf(s4, 'mcp__duet__duet_map_list').some(o => o.includes('duet_map_create')), outputsOf(s4, 'mcp__duet__duet_map_list')[0])
+await s4.turn(`Create a new class map named "mod-e2e-nogit-${stamp}", titled "깃 없는 지도", with one box. If it fails, reply with what the tool said.`)
+const nogit = outputsOf(s4, 'mcp__duet__duet_map_create')
+check('there duet_map_create says a git repository is needed, and opens nothing', nogit.length > 0 && nogit.every(o => o.includes('git repository') && o.includes(loose)) && !(await call('GET', '/api/workspaces')).some(w => w.path === looseWs) && s4.statuses.at(-1) === 'Duet 작업 공간 없음', nogit[0])
+await s4.close()
+console.log('left behind:', freshRepo, loose)
 
 check('nothing outside the map changed in the trees', gitStatus() === treeBefore)
 await call('DELETE', `/api/canvas/${name}?ws=${W}`)
 await call('DELETE', `/api/canvas/${pinName}?ws=${W}`)
+for (const m of [made, made2]) await call('DELETE', `/api/canvas/${m}?ws=${W}`).catch(() => undefined)
 // The send to the closed terminal is meant to fail; the browser logs its 410.
 const unexpected = errors.filter(e => !e.includes('status of 410'))
 if (unexpected.length) { failed++; console.log('page errors', unexpected) }

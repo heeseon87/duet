@@ -37,6 +37,43 @@ export const TOOLS: { relays: string; spec: ToolSpec }[] = [
     }
   },
   {
+    "relays": "canvas_create",
+    "spec": {
+      "name": "duet_map_create",
+      "description": "Create a new design map (empty). Then fill it with canvas_update. The result starts with how to draw and tag maps: read it, then fill the map with duet_map_update (canvas_update in Duet's messages). When this terminal has no pinned map, the new map becomes its map. From a folder outside every Duet workspace, it first opens the folder's git repository in Duet as a workspace. Duet's messages call this tool canvas_create (mcp__duet__canvas_create).",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "lowercase file name, e.g. thumbnail-worker"
+          },
+          "diagram": {
+            "type": "string",
+            "enum": [
+              "class",
+              "sequence"
+            ]
+          },
+          "title": {
+            "type": "string"
+          },
+          "context": {
+            "description": "one or two sentences: what this map is for",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "diagram",
+          "title"
+        ],
+        "additionalProperties": false
+      },
+      "isDeferred": false
+    }
+  },
+  {
     "relays": "canvas_update",
     "spec": {
       "name": "duet_map_update",

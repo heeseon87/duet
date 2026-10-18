@@ -98,6 +98,11 @@ export function argsOf(e: Record<string, unknown>): Record<string, unknown> {
 /** What the model reads when it cannot reach the maps. */
 export function unreachable(link: Link, cwd: string): string {
   return link.kind === 'no-workspace'
-    ? `This folder (${cwd}) is not in a workspace open in Duet. The person opens it (or the repo it belongs to) in Duet first.`
+    ? `This folder (${cwd}) is not in a workspace open in Duet. The person opens it (or the repo it belongs to) in Duet first, or duet_map_create starts one: it opens this folder's git repository in Duet and makes the map there.`
     : 'Duet is not running, so its maps cannot be read or changed. The person starts it with the `duet` command.'
+}
+
+/** What the model reads when duet_map_create cannot start a workspace here. */
+export function noRepo(cwd: string): string {
+  return `A Duet workspace is a git repository, and this folder (${cwd}) is not inside one. Make the map from a folder inside a git repository.`
 }

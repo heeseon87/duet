@@ -1,6 +1,6 @@
 import type { EngineInterface, HttpResponse, Register, Timer } from 'claude-code'
 
-import { argsOf, duetHomeOf, labelOf, linkOf, pinNote, runDuet, statusText, unreachable, unreachableForPerson } from './duet'
+import { argsOf, duetHomeOf, labelOf, linkOf, noRepo, pinNote, runDuet, statusText, unreachable, unreachableForPerson } from './duet'
 import type { Link, Maps, MapSummary } from './duet'
 import { TOOLS } from './tools'
 
@@ -126,6 +126,7 @@ async function connect($: EngineInterface): Promise<boolean> {
     const { holding } = JSON.parse(res.text) as { holding?: Outgoing }
     if (holding && st.held?.id !== holding.id) st.held = { id: holding.id, text: holding.text, isWorking: holding.state === 'working' }
     st.isRegistered = true
+    st.retryAt = 0
     return true
   } catch {
     st.server = undefined
@@ -187,9 +188,16 @@ async function letGo($: EngineInterface, id: string, answer: string | undefined,
 async function relay($: EngineInterface, tool: string, args: Record<string, unknown>): Promise<{ result: string } | { deny: string }> {
   const spec = TOOLS.find(t => `mcp__duet__${t.spec.name}` === tool)
   if (!spec) return { deny: `No Duet tool ${tool}.` }
+  const isCreate = spec.relays === 'canvas_create'
   // A tool call need not wait out a retry: Duet may have come back since.
   st.retryAt = 0
-  if (!(await connect($))) return { deny: unreachable(st.link, st.cwd) }
+  if (!(await connect($))) {
+    // Only a new map starts a workspace: this folder's repository opens in Duet as the workspace picker opens it.
+    if (!isCreate || st.link.kind !== 'no-workspace') return { deny: unreachable(st.link, st.cwd) }
+    const opened = await call($, 'POST', '/api/workspaces', { path: st.cwd })
+    if (!opened.ok) return { deny: opened.status === 400 ? noRepo(st.cwd) : `Duet answered ${opened.status}.` }
+    if (!(await connect($))) return { deny: unreachable(st.link, st.cwd) }
+  }
   let res = await call($, 'POST', `/api/terminals/${st.session}/tools/${spec.relays}`, args)
   if (res.status === 410 || res.status === 404) {
     st.isRegistered = false
@@ -198,11 +206,16 @@ async function relay($: EngineInterface, tool: string, args: Record<string, unkn
   }
   const out = JSON.parse(res.text) as { text?: string; isError?: boolean; error?: string }
   if (!res.ok || out.isError) return { deny: out.text ?? out.error ?? `Duet answered ${res.status}.` }
-  if (typeof args.name === 'string' && (spec.relays === 'canvas_read' || spec.relays === 'canvas_update')) {
-    st.touched = { name: args.name, at: Date.now() }
-    await refreshStatus($).catch(() => undefined)
-  }
-  return { result: out.text ?? '' }
+  const text = out.text ?? ''
+  const map = typeof args.name === 'string' ? args.name : undefined
+  if (map === undefined || !['canvas_read', 'canvas_create', 'canvas_update'].includes(spec.relays)) return { result: text }
+  st.touched = { name: map, at: Date.now() }
+  await refreshStatus($).catch(() => undefined)
+  if (!isCreate || st.pin !== undefined) return { result: text }
+  // A new map is pinned as `/duet <map>` pins one. The model hears of it in the result: a row appended now could land between the call and its result.
+  st.told = { session: st.session, pin: map }
+  await setPin($, map)
+  return { result: `${text}\n\n${pinNote(map, st.maps ?? [])}` }
 }
 
 export const register: Register = on => {

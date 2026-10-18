@@ -8,16 +8,22 @@ import { CANVAS_TOOLS, type CanvasToolName } from '../server/agent/canvasTools.t
 const RELAYS: [string, CanvasToolName][] = [
   ['duet_map_list', 'canvas_list'],
   ['duet_map_read', 'canvas_read'],
+  ['duet_map_create', 'canvas_create'],
   ['duet_map_update', 'canvas_update'],
   ['duet_map_reply', 'canvas_reply'],
 ]
 
+/** What a terminal's tool does beyond the canvas tool it relays to. */
+const ADDED: Partial<Record<CanvasToolName, string>> = {
+  canvas_read: ' The result starts with how to draw and tag maps: read it before you change one with duet_map_update (canvas_update in Duet\'s messages).',
+  canvas_create: ' The result starts with how to draw and tag maps: read it, then fill the map with duet_map_update (canvas_update in Duet\'s messages). When this terminal has no pinned map, the new map becomes its map. From a folder outside every Duet workspace, it first opens the folder\'s git repository in Duet as a workspace.',
+}
+
 export function modTools(): string {
   const tools = RELAYS.map(([name, relays]) => {
     const { $schema: _, ...inputSchema } = z.toJSONSchema(z.object(CANVAS_TOOLS[relays].shape)) as Record<string, unknown>
-    const guide = relays === 'canvas_read' ? ' The result starts with how to draw and tag maps: read it before you change one with duet_map_update (canvas_update in Duet\'s messages).' : ''
     // Duet's prompts name its own tools; the mod's tools are those, under another name.
-    const description = `${CANVAS_TOOLS[relays].description}${guide} Duet's messages call this tool ${relays} (mcp__duet__${relays}).`
+    const description = `${CANVAS_TOOLS[relays].description}${ADDED[relays] ?? ''} Duet's messages call this tool ${relays} (mcp__duet__${relays}).`
     // The small tools sit in every prompt so Duet's names always resolve; canvas_update's schema is most of the size, so it waits behind ToolSearch.
     return { relays, spec: { name, description, inputSchema, isDeferred: relays === 'canvas_update' } }
   })

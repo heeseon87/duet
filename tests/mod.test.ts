@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
-import { argsOf, duetHomeOf, labelOf, linkOf, matchMap, pinNote, runDuet, shownMap, statusText, unreachable, type MapSummary } from '../mod/hooks/duet.ts'
+import { argsOf, duetHomeOf, labelOf, linkOf, matchMap, noRepo, pinNote, runDuet, shownMap, statusText, unreachable, type MapSummary } from '../mod/hooks/duet.ts'
 import { modTools } from '../scripts/mod-tools.ts'
 
 const map = (over: Partial<MapSummary>): MapSummary => ({ name: 'm', title: '지도', revision: 1, updated: 0, decisions: 0, openDecisions: 0, openThreads: 0, ...over })
@@ -92,6 +92,13 @@ describe('the terminal mod', () => {
   it('says plainly why maps cannot be reached', () => {
     expect(unreachable({ kind: 'off' }, '/w')).toContain('`duet`')
     expect(unreachable({ kind: 'no-workspace' }, '/w/x')).toContain('/w/x')
+    expect(unreachable({ kind: 'no-workspace' }, '/w/x')).toContain('duet_map_create')
+    expect(unreachable({ kind: 'off' }, '/w')).not.toContain('duet_map_create')
+  })
+
+  it('says a new workspace needs a git repository', () => {
+    expect(noRepo('/tmp/notes')).toContain('/tmp/notes')
+    expect(noRepo('/tmp/notes')).toContain('git repository')
   })
 
   it('has the tools of Duet\'s own conversations, up to date', () => {

@@ -104,20 +104,22 @@ export type Caller = { terminal?: { id: string; label: string } }
 
 /** One canvas tool call on arguments its shape already checked; the text is what the agent reads. */
 export function runCanvasTool(store: CanvasStore, workspace: string, name: CanvasToolName, args: Record<string, unknown>, caller: Caller = {}): { text: string; isError?: boolean } {
+  // Duet's conversations carry the guide in the MCP server's instructions; a terminal reads it with the map it reads or makes.
+  const guide = caller.terminal ? [INSTRUCTIONS, ''] : []
+  const signed = (note: string) => (caller.terminal ? `터미널 · ${caller.terminal.label} · ${note}` : note)
   try {
     switch (name) {
       case 'canvas_list': {
         const maps = store.list(workspace)
-        if (!maps.length) return { text: caller.terminal ? 'No maps yet in this workspace. The person makes them in Duet.' : 'No maps yet. Create one with canvas_create.' }
+        if (!maps.length) return { text: caller.terminal ? 'No maps yet in this workspace. Create one with duet_map_create.' : 'No maps yet. Create one with canvas_create.' }
         return { text: maps.map(m => `- ${m.name} (${m.diagram}, rev ${m.revision}): ${m.title}; ${m.elements} elements, ${m.openDecisions} open decisions, ${m.openThreads} open comment threads`).join('\n') }
       }
       case 'canvas_read': {
         const map = String(args.name)
         const cur = store.get(workspace, map)
         const threads = store.threads(workspace, map).filter(t => t.state === 'open')
-        // Duet's conversations carry the guide in the MCP server's instructions; a terminal reads it with the map.
         const parts = [
-          ...(caller.terminal ? [INSTRUCTIONS, ''] : []),
+          ...guide,
           `rev ${cur.revision}`,
           '```json', JSON.stringify(cur.map, null, 1), '```',
           '```mermaid', toMermaid(cur.map).text, '```',
@@ -130,13 +132,12 @@ export function runCanvasTool(store: CanvasStore, workspace: string, name: Canva
       }
       case 'canvas_create': {
         const { name: map, diagram, title, context } = args as { name: string; diagram: 'class' | 'sequence'; title: string; context?: string }
-        const cur = store.create(workspace, map, diagram, title, context, 'agent')
-        return { text: `Created ${map} (rev ${cur.revision}). The person sees it on the Canvas tab.` }
+        const cur = store.create(workspace, map, diagram, title, context, 'agent', signed('새 지도'))
+        return { text: [...guide, `Created ${map} (rev ${cur.revision}). The person sees it on the Canvas tab.`].join('\n') }
       }
       case 'canvas_update': {
         const { name: map, note, baseRevision, ...rest } = args as { name: string; note: string; baseRevision?: number }
-        const signed = caller.terminal ? `터미널 · ${caller.terminal.label} · ${note}` : note
-        const res = store.update(workspace, map, rest as CanvasPatch, 'agent', signed, baseRevision)
+        const res = store.update(workspace, map, rest as CanvasPatch, 'agent', signed(note), baseRevision)
         if (!res.ok) return { isError: true, text: ['Nothing was written. Fix these and call again:', ...res.errors.map(e => `- ${e}`), ...res.notes.map(n => `note: ${n}`)].join('\n') }
         return { text: [`rev ${res.revision}`, ...res.changes.map(c => `  ${c}`), ...res.notes.map(n => `note: ${n}`)].join('\n') }
       }

@@ -73,11 +73,11 @@ export class CanvasStore {
     return { ...rev, map: normalizeDecisions(rev.map) }
   }
 
-  create(workspace: string, name: string, diagram: 'class' | 'sequence', title: string, context: string | undefined, by: 'agent' | 'person'): Current {
+  create(workspace: string, name: string, diagram: 'class' | 'sequence', title: string, context: string | undefined, by: 'agent' | 'person', note = '새 지도'): Current {
     if (this.exists(workspace, name)) throw new HttpError(409, `${name} 지도가 이미 있어`)
     const map = emptyMap(diagram, title)
     if (context) map.context = context
-    const cur = this.write(workspace, name, map, 1, by, '새 지도')
+    const cur = this.write(workspace, name, map, 1, by, note)
     this.onList(workspace)
     return cur
   }
