@@ -80,6 +80,9 @@ type View = { x: number; y: number; k: number }
 /** The camera on the map shown last: back from the review tab it is where it was; any other map opens fitted. */
 let lastView: { key: string; view: View } | undefined
 
+/** Low enough for the largest maps to fit whole; the wheel goes as far as a fit does. */
+const MIN_ZOOM = 0.05
+
 export const MermaidStage = forwardRef<StageHandle, Props & { viewKey: string }>(function MermaidStage(props, ref) {
   const { map, collapsed, ghostsFrom, glow, selected, threads, onSelect, onToggleGroup, onContext, viewKey } = props
   const inset = useRef(props.rightInset ?? 0)
@@ -128,7 +131,9 @@ export const MermaidStage = forwardRef<StageHandle, Props & { viewKey: string }>
     const box = { width: Math.max(320, full.width - inset.current), height: full.height }
     const w = svg.viewBox.baseVal.width || svg.getBoundingClientRect().width
     const h = svg.viewBox.baseVal.height || svg.getBoundingClientRect().height
-    let k = Math.min(1.25, Math.max(0.2, Math.min((box.width - 80) / w, (box.height - 80) / h)))
+    // Asked for (double-click, f, the button), the whole drawing fills the stage however small that makes it.
+    const margin = readable ? 80 : 48
+    let k = Math.min(1.25, Math.max(MIN_ZOOM, Math.min((box.width - margin) / w, (box.height - margin) / h)))
     // First look: legible text beats seeing everything; what runs over starts at the top left.
     if (readable) k = Math.max(k, 0.65)
     else glide()
@@ -143,7 +148,7 @@ export const MermaidStage = forwardRef<StageHandle, Props & { viewKey: string }>
     // Buttons and keys zoom around the center and glide; the wheel follows the cursor at once.
     if (cx === undefined) glide()
     setView(v => {
-      const k = Math.min(3, Math.max(0.15, v.k * f))
+      const k = Math.min(3, Math.max(MIN_ZOOM, v.k * f))
       const px = cx ?? box.width / 2, py = cy ?? box.height / 2
       return { k, x: px - ((px - v.x) * k) / v.k, y: py - ((py - v.y) * k) / v.k }
     })
