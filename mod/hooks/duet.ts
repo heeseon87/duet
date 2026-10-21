@@ -102,6 +102,9 @@ export function unreachable(link: Link, cwd: string): string {
     : 'Duet is not running, so its maps cannot be read or changed. The person starts it with the `duet` command.'
 }
 
+/** What the model reads when this terminal is not connected to Duet: on a tool call, and on `/duet off`. */
+export const notConnected = '[Duet] This terminal is not connected to Duet, so the duet_map_* tools refuse. The person connects it with /duet (or /duet <map> to pin one).'
+
 /** What the model reads when duet_map_create cannot start a workspace here. */
 export function noRepo(cwd: string): string {
   return `A Duet workspace is a git repository, and this folder (${cwd}) is not inside one. Make the map from a folder inside a git repository.`

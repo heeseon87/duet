@@ -1,6 +1,6 @@
 import type { EngineInterface, HttpResponse, Register, Timer } from 'claude-code'
 
-import { argsOf, duetHomeOf, labelOf, linkOf, noRepo, pinNote, runDuet, statusText, unreachable, unreachableForPerson } from './duet'
+import { argsOf, duetHomeOf, labelOf, linkOf, noRepo, notConnected, pinNote, runDuet, statusText, unreachable, unreachableForPerson } from './duet'
 import type { Link, Maps, MapSummary } from './duet'
 import { TOOLS } from './tools'
 
@@ -14,7 +14,8 @@ type Outgoing = { id: string; text: string; state: 'queued' | 'delivered' | 'wor
 /**
  * The module's state; a reload starts it over, and the server tells the new module what it holds.
  * `held` is the one message this terminal has from Duet: submitted, it runs once the session is idle.
- * `pin` is the map `/duet` pinned in this folder; `told` is the pin this session's model last heard of.
+ * `isOn`: the person connected this terminal with `/duet`; until then it neither polls nor shows a status line.
+ * `pin` is the map `/duet` pinned in this terminal; `told` is the pin this session's model last heard of.
  * `isCompacted`: the conversation was compacted since, and its summary may have dropped what the model was told.
  */
 const st = {
@@ -25,6 +26,8 @@ const st = {
   envToken: undefined as string | undefined,
   server: undefined as { base: string; token: string } | undefined,
   workspace: undefined as string | undefined,
+  isOn: false,
+  hasTools: false,
   isRegistered: false,
   link: { kind: 'off' } as Link,
   shown: '',
@@ -52,6 +55,8 @@ function call($: EngineInterface, method: string, path: string, payload?: unknow
 
 function show($: EngineInterface, link: Link) {
   st.link = link
+  // A poll still in flight when `/duet off` ran answers after it: the line stays cleared.
+  if (!st.isOn) return
   const text = statusText(link)
   if (text === st.shown) return
   st.shown = text
@@ -70,14 +75,12 @@ async function refreshStatus($: EngineInterface) {
   await tellPin($)
 }
 
-const pinKey = () => `pin:${st.cwd}`
 const terminalBody = () => ({ id: st.session, workspace: st.workspace, cwd: st.cwd, label: st.label, map: st.pin })
 
-/** Pins a map, or none: for this session, for the next one in this folder (the store), and in Duet's terminal list. */
+/** Pins a map, or none: for this terminal and in Duet's terminal list. A new session starts with none. */
 async function setPin($: EngineInterface, pin: string | undefined) {
   if (pin === st.pin) return
   st.pin = pin
-  await (pin === undefined ? $.store.delete(pinKey()) : $.store.set(pinKey(), pin)).catch(() => undefined)
   if (st.link.kind === 'on' && st.maps) show($, linkOf(st.maps, st.touched, st.pin))
   if (st.isRegistered) await call($, 'POST', '/api/terminals', terminalBody()).catch(() => undefined)
 }
@@ -136,9 +139,38 @@ async function connect($: EngineInterface): Promise<boolean> {
   }
 }
 
+/** `/duet` connects this terminal: the map tools appear, and the poll starts. */
+async function turnOn($: EngineInterface) {
+  if (st.isOn) return
+  st.isOn = true
+  st.retryAt = 0
+  if (!st.hasTools) {
+    for (const t of TOOLS) await $.tool.register(t.spec)
+    st.hasTools = true
+  }
+  st.timer?.cancel()
+  st.timer = $.clock.every(1_000, () => void pump($))
+}
+
+/** `/duet off` lets go: Duet forgets the terminal, the poll stops and the status line clears. The tools stay, and refuse. */
+async function turnOff($: EngineInterface) {
+  if (!st.isOn) return
+  st.isOn = false
+  st.timer?.cancel()
+  st.timer = undefined
+  if (st.isRegistered) await call($, 'DELETE', `/api/terminals/${st.session}`).catch(() => undefined)
+  st.isRegistered = false
+  st.server = undefined
+  st.workspace = undefined
+  st.maps = undefined
+  st.link = { kind: 'off' }
+  st.shown = ''
+  $.ui.status(undefined)
+}
+
 /** Long-polls the server: the poll is the heartbeat, the inbox and the wake-up when a map changes. */
 async function pump($: EngineInterface) {
-  if (st.isPolling || Date.now() < st.retryAt) return
+  if (!st.isOn || st.isPolling || Date.now() < st.retryAt) return
   st.isPolling = true
   try {
     if (!(await connect($))) return
@@ -147,6 +179,7 @@ async function pump($: EngineInterface) {
     if (res.status === 404) { st.isRegistered = false; return }
     if (!res.ok) throw new Error(`poll ${res.status}`)
     const poll = JSON.parse(res.text) as { message?: Outgoing; canvas?: true }
+    if (!st.isOn) return
     if (poll.message) take($, poll.message)
     if (poll.canvas) await refreshStatus($)
   } catch {
@@ -188,6 +221,7 @@ async function letGo($: EngineInterface, id: string, answer: string | undefined,
 async function relay($: EngineInterface, tool: string, args: Record<string, unknown>): Promise<{ result: string } | { deny: string }> {
   const spec = TOOLS.find(t => `mcp__duet__${t.spec.name}` === tool)
   if (!spec) return { deny: `No Duet tool ${tool}.` }
+  if (!st.isOn) return { deny: notConnected }
   const isCreate = spec.relays === 'canvas_create'
   // A tool call need not wait out a retry: Duet may have come back since.
   st.retryAt = 0
@@ -227,18 +261,24 @@ export const register: Register = on => {
     st.label = labelOf(e.cwd, st.session)
     st.duetHome = duetHomeOf(await $.env.get('DUET_HOME'), (await $.env.get('HOME')) ?? '')
     st.envToken = await $.env.get('DUET_TOKEN')
-    const saved = await $.store.get(`pin:${e.cwd}`).catch(() => undefined)
-    st.pin = typeof saved === 'string' && saved !== '' ? saved : undefined
-    for (const t of TOOLS) await $.tool.register(t.spec)
-    st.timer?.cancel()
-    st.timer = $.clock.every(1_000, () => void pump($))
-    await $.command.register({ name: 'duet', description: '이 터미널의 기준 지도를 고정해: /duet [지도 이름이나 제목 | off]', argumentHint: '[지도 | off]' }).catch(() => undefined)
+    // Nothing connects until the person runs /duet: no poll, no tools, no status line.
+    await $.command.register({ name: 'duet', description: 'Duet에 연결하고 기준 지도를 고정해: /duet [지도 이름이나 제목 | off(연결 끊기)]', argumentHint: '[지도 | off]' }).catch(() => undefined)
     return next(e)
   })
 
-  // `/duet` shows the pin and the maps, `/duet <map>` pins one, `/duet off` unpins; the model hears of a change with the answer.
+  // `/duet` connects and shows the pin and the maps, `/duet <map>` connects and pins one, `/duet off` unpins and disconnects;
+  // the model hears of a change with the answer.
   on('command.run', { command: 'duet' }, async ($, e) => {
-    st.retryAt = 0
+    if (e.args.trim() === 'off') {
+      const wasOn = st.isOn
+      const done = runDuet(e.args, st.pin, { kind: 'maps', maps: [] })
+      await setPin($, undefined)
+      await turnOff($)
+      if (!wasOn) return { text: done.text }
+      st.told = { session: st.session, pin: undefined }
+      return { text: `${done.text}\nDuet 연결을 끊었어`, context: [notConnected] }
+    }
+    await turnOn($)
     const isOn = await connect($)
     if (isOn) await refreshStatus($).catch(() => undefined)
     const source: Maps = isOn && st.maps ? { kind: 'maps', maps: st.maps } : { kind: 'unreachable', why: unreachableForPerson(st.link, st.cwd) }

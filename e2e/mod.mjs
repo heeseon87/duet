@@ -1,16 +1,18 @@
-// The terminal mod: a Claude Code session started through the Agent SDK with mod/ loaded says Duet is off while
-// it finds no server, and once the server shows up registers as a terminal of the workspace, reads and changes
+// The terminal mod: a Claude Code session started through the Agent SDK with mod/ loaded stays off Duet (no status
+// line, no terminal, no tools) until /duet; then it says Duet is off while it finds no server, and once the server
+// shows up registers as a terminal of the workspace, reads and changes
 // a map with its tools (revisions signed by the agent from that
 // terminal), shows the map in its status line, pins a map with /duet (status line, Duet's terminal list, the
-// model's choice of map, again after /compact, the canvas and card in the browser, the next session in the folder), takes a canvas
+// model's choice of map, again after /compact, the canvas and card in the browser; /duet off disconnects, and the next
+// session in the folder starts unpinned and off), takes a canvas
 // comment, a decision and a composer message sent to it from the browser, answers on their threads, and once it
 // stops, leaves the menu and a send fails out loud. Asked for a new map, it makes one with duet_map_create and is pinned
 // to it unless a pin is set; in a git repository no workspace holds, that map opens the repository as a workspace; in a
 // folder outside every git repository, it says a git repository is needed.
 //   DUET_PORT=7981 DUET_TOKEN=... DUET_HOME=<the server's DUET_HOME> DUET_WS=<workspace> DUET_NESTED=<worktree under it> [DUET_SCRATCH=<folder>] node e2e/mod.mjs
 //   (four Haiku sessions; makes and removes maps named mod-e2e*; every tool but the mod's is denied, so the trees stay as they are.
-//   The mod gets a DUET_HOME of its own, empty until the server's server.json is copied in. Pins live in the mod's
-//   Claude Code store under each folder's path; every session that pins ends with /duet off, which removes it.
+//   The mod gets a DUET_HOME of its own, empty until the server's server.json is copied in. Pins live only in the
+//   session that set them.
 //   It leaves, under DUET_SCRATCH (else the temp folder), a fresh git repository, which stays in Duet's workspace list,
 //   and a folder outside git: both are named in the output.)
 import { execFileSync } from 'node:child_process'
@@ -129,10 +131,14 @@ const { results, tools, statuses, turn } = s1
 let session = ''
 const transcriptHas = async part => (await getSessionMessages(session, { dir: nested })).some(m => m.type === 'user' && JSON.stringify(m.message?.content ?? '').includes(part))
 
-// 1. No server yet: the status and the tools say Duet is off. Once it shows up, the mod registers by itself.
-// A pin an earlier run left in this folder goes first: /duet off needs no server.
+// 0. A new session stays off Duet until /duet: no status line, no terminal, no map tools.
 const reset = await turn('/duet off')
-check('/duet off answers while Duet is off', reset.includes('고정된 지도 없음') || reset.includes('지도 고정을 풀었어'), reset)
+check('/duet off before /duet just says nothing is pinned', reset.includes('고정된 지도 없음'), reset)
+check('before /duet there is no status line and no map tool', !statuses.length && !tools.some(t => t.startsWith('mcp__duet__')), JSON.stringify(statuses))
+
+// 1. /duet with no server yet: the status and the tools say Duet is off. Once it shows up, the mod registers by itself.
+const offReply = await turn('/duet')
+check('/duet says Duet is off when there is no server', offReply.includes('Duet이 꺼져 있어'), offReply)
 const off = await turn('Call the duet_map_list tool once, then tell me in one sentence what it said.')
 check('without a server the status line reads Duet 꺼짐', statuses[0] === 'Duet 꺼짐', JSON.stringify(statuses))
 check('a tool says plainly that Duet is not running', tools.includes('mcp__duet__duet_map_list') && /not running|duet/i.test(off), off.slice(0, 120))
@@ -269,11 +275,14 @@ const stored = (await call('POST', '/api/review/comments/get', { ws, source })).
 check('review comments go to the terminal and stay marked as sent there', sentReview.terminalId === session && stored?.state === 'sent' && stored.sentTo?.terminal === session && await transcriptHas('REVIEW 확인'), JSON.stringify(stored?.sentTo))
 await call('POST', '/api/review/comments/put', { ws, source, comments: kept })
 
-// 7b. /duet off unpins; pinned again, the pin outlives the session for the next one in this folder.
+// 7b. /duet off unpins and disconnects: the status line clears and Duet's list drops the terminal. /duet <map> connects again.
 const off2 = await turn('/duet off')
-await until('status drops the pin', () => statuses.at(-1) && !statuses.at(-1).includes('📌'), 10_000)
-check('/duet off unpins: the reply, the status line and Duet\'s list', off2.includes(`지도 고정을 풀었어 (${name})`) && !statuses.at(-1).includes('📌') && (await terminalOf(session))?.map === undefined, `${off2} | ${statuses.at(-1)}`)
-check('pinned again for the next session', (await turn(`/duet ${pinName}`)).includes(`기준 지도: ${pinTitle} (${pinName})`))
+await until('status line cleared', () => statuses.at(-1) == null, 10_000)
+check('/duet off unpins and disconnects: the reply, the status line and Duet\'s list', off2.includes(`지도 고정을 풀었어 (${name})`) && off2.includes('Duet 연결을 끊었어') && statuses.at(-1) == null && !(await terminalOf(session)), `${off2} | ${statuses.at(-1)}`)
+const u4 = s1.uses.length
+await turn('Call the duet_map_list tool once, then tell me in one sentence what it said.')
+check('disconnected, the map tools refuse and point to /duet', outputsOf(s1, 'mcp__duet__duet_map_list', u4).some(o => o.includes('/duet')), outputsOf(s1, 'mcp__duet__duet_map_list', u4)[0])
+check('/duet <map> connects and pins again', (await turn(`/duet ${pinName}`)).includes(`기준 지도: ${pinTitle} (${pinName})`) && (await terminalOf(session))?.map === pinName)
 
 // 7c. After /compact, whose summary is told to drop the note, the model hears of the pin again before its next answer.
 // A turn first: commands typed since the last answer reach the model with the next prompt, past a compaction.
@@ -307,14 +316,19 @@ const after = (await call('GET', `/api/canvas/${name}/threads?ws=${W}`)).threads
 check('a send to the closed terminal fails with a toast, and nothing is kept', Boolean(failToast) && after.items.length === answered.items.length && Boolean(await page.$('.ctx-ask textarea')), failToast)
 await shot('gone')
 
-// 9. A new session in the same folder starts pinned: its status line, Duet's list, and its model, told without a turn.
+// 9. A new session in the same folder starts off and unpinned, though the last one ended pinned; /duet <map> pins it.
 const s2 = startSession()
+await s2.turn('Reply with the single word: ok')
+await sleep(3000)
+check('a new session in the folder starts off: no status line, not in Duet\'s list', !s2.statuses.length && !(await terminalOf(s2.id)), JSON.stringify(s2.statuses))
+await s2.turn(`/duet ${pinName}`)
 const s2Pinned = await until('new session shows the pin', () => s2.statuses.some(s => s.startsWith(`Duet · 📌 ${pinTitle} · rev `)), 60_000)
 const u2 = s2.uses.length
 const fresh = await s2.turn('Read this terminal\'s map and answer with only the label of the box whose id is Worker.')
-check('a new session in the folder starts pinned to the map', Boolean(s2Pinned) && (await terminalOf(s2.id))?.map === pinName, JSON.stringify(s2.statuses))
+check('/duet <map> in the new session pins it', Boolean(s2Pinned) && (await terminalOf(s2.id))?.map === pinName, JSON.stringify(s2.statuses))
 check('its model reads the pinned map when asked for this terminal\'s map', readsSince(s2, u2).includes(pinName) && fresh.includes('핀 워커'), `${JSON.stringify(readsSince(s2, u2))} | ${fresh.slice(0, 80)}`)
-check('/duet off in the new session unpins it', (await s2.turn('/duet off')).includes(`지도 고정을 풀었어 (${pinName})`) && (await terminalOf(s2.id))?.map === undefined)
+check('/duet off in the new session unpins it', (await s2.turn('/duet off')).includes(`지도 고정을 풀었어 (${pinName})`) && !(await terminalOf(s2.id)))
+check('/duet connects it again, unpinned', (await s2.turn('/duet')).includes('고정된 지도 없음') && (await terminalOf(s2.id))?.map === undefined)
 
 // 10. Asked for a new map with no pin set, Haiku makes it and draws on it; the terminal is pinned to it. A second new map leaves the pin.
 const stamp = Date.now().toString(36)
@@ -352,6 +366,7 @@ git('commit', '-qm', 'first')
 const freshWs = realpathSync(freshRepo), FW = encodeURIComponent(freshWs)
 const freshMap = `mod-e2e-fresh-${stamp}`, freshTitle = '새 작업 공간 지도'
 const s3 = startSession(freshRepo)
+await s3.turn('/duet')
 const s3Off = await until('no-workspace status', () => s3.statuses.includes('Duet 작업 공간 없음'), 60_000)
 check('in a repository no workspace holds, the status line reads Duet 작업 공간 없음', Boolean(s3Off) && !(await call('GET', '/api/workspaces')).some(w => w.path === freshWs), JSON.stringify(s3.statuses))
 await s3.turn(`Create a new class map named "${freshMap}", titled "${freshTitle}", with one box. Then reply with the one word: done.`)
@@ -369,6 +384,7 @@ const loose = join(scratch, `no-git-${stamp}`)
 mkdirSync(loose)
 const looseWs = realpathSync(loose)
 const s4 = startSession(loose)
+await s4.turn('/duet')
 await until('no-workspace status', () => s4.statuses.includes('Duet 작업 공간 없음'), 60_000)
 await s4.turn('Call the duet_map_list tool once, then tell me in one sentence what it said.')
 check('outside every workspace the other tools refuse, pointing to duet_map_create', outputsOf(s4, 'mcp__duet__duet_map_list').some(o => o.includes('duet_map_create')), outputsOf(s4, 'mcp__duet__duet_map_list')[0])
