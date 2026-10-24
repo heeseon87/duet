@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useImperativeHandle, useLayoutEffect, useRef, useState, forwardRef } from 'react'
-import { ChevronsDownUp, ChevronsUpDown, ZoomIn } from 'lucide-react'
+import { ChevronsDownUp, ChevronsUpDown } from 'lucide-react'
 import { relationKey, shapedBy, toMermaid, type CanvasMap, type MapDiff } from '../../../shared/canvas.ts'
 import type { CodeMark } from '../../../shared/mapFiles.ts'
 import type { CanvasThread } from '../../../shared/protocol.ts'
@@ -85,10 +85,10 @@ type View = { x: number; y: number; k: number }
 let lastView: { key: string; view: View } | undefined
 
 /**
- * The part under the pointer and where its buttons go, in stage pixels. They stand only on the camera, map and
- * folds they were placed on: a pan, zoom, fold or redraw puts them away until the pointer moves again.
+ * The package under the pointer and where its fold button goes, in stage pixels. It stands only on the camera, map
+ * and folds it was placed on: a pan, zoom, fold or redraw puts it away until the pointer moves again.
  */
-type Hover = { target: string; line: boolean; left?: number; right?: number; top: number; view: View; map: CanvasMap; collapsed: Set<string> }
+type Hover = { target: string; left?: number; right?: number; top: number; view: View; map: CanvasMap; collapsed: Set<string> }
 
 /** Low enough for the largest maps to fit whole; the wheel goes as far as a fit does. */
 const MIN_ZOOM = 0.05
@@ -369,35 +369,46 @@ export const MermaidStage = forwardRef<StageHandle, Props & { viewKey: string }>
   const hovered = hover && hover.view === view && hover.map === map && hover.collapsed === collapsed && !gliding ? hover : undefined
   const unhover = () => { clearTimeout(hoverTimer.current); setHover(undefined) }
   /**
-   * A part's buttons. A box's stand beside its top right corner, clear of its pins and badges and of the lines that
-   * come in from above (beside the left corner when the right is out of room, inside the corner when both are); a line's wait beside the pointer.
+   * Where a package's fold button goes: beside its top right corner, clear of its pins and badges and of the lines that
+   * come in from above (beside the left corner when the right is out of room, inside the corner when both are).
    */
-  const placeHover = (part: Element, target: string, x: number, y: number): Hover | undefined => {
+  const placeHover = (part: Element, target: string): Hover | undefined => {
     // Mid-glide or mid-fold the parts are on their way: they would be measured where they pass, not where they land.
     const stage = outer.current
     if (!stage || stage.classList.contains('gliding') || stage.querySelector('.morph-overlay')) return undefined
     const host = stage.getBoundingClientRect()
     const at = { target, view: viewRef.current, map: mapRef.current, collapsed: collapsedRef.current }
-    if (part.matches(LINES)) return { ...at, line: true, left: x - host.left + 12, top: Math.max(4, y - host.top - 40) }
     const r = part.getBoundingClientRect()
     const top = Math.max(4, r.top - host.top)
-    if (host.right - inset.current - r.right > 72) return { ...at, line: false, left: r.right - host.left + 4, top }
-    if (r.left - host.left > 72) return { ...at, line: false, right: host.right - r.left + 4, top }
-    return { ...at, line: false, right: Math.max(inset.current + 4, host.right - r.right + 4), top: top + 4 }
+    if (host.right - inset.current - r.right > 44) return { ...at, left: r.right - host.left + 4, top }
+    if (r.left - host.left > 44) return { ...at, right: host.right - r.left + 4, top }
+    return { ...at, right: Math.max(inset.current + 4, host.right - r.right + 4), top: top + 4 }
   }
-  /** Hovering a part brings its buttons a moment later; leaving it takes them away a moment later, so the pointer can reach them. */
+  /**
+   * Being anywhere in a package (its frame, a box or a line inside it, its folded box) brings its fold button a moment
+   * later, the innermost package's when they nest; leaving takes the button away a moment later, so the pointer can reach it.
+   */
   const sense = (e: React.PointerEvent) => {
     if (e.pointerType === 'touch') return
     clearTimeout(hoverTimer.current)
-    const at = e.target as Element
-    if (at.closest('.stage-hover')) return
-    const part = at.closest('[data-target]')
-    const target = part?.getAttribute('data-target')
+    if ((e.target as Element).closest('.stage-hover')) return
+    const pkg = packageAt(e.clientX, e.clientY)
+    const target = pkg?.getAttribute('data-group')
     if (target && target === hovered?.target) return
-    const { clientX, clientY } = e
-    hoverTimer.current = setTimeout(() => setHover(part && target ? placeHover(part, target, clientX, clientY) : undefined), part ? 150 : 250)
+    hoverTimer.current = setTimeout(() => setHover(pkg && target ? placeHover(pkg, target) : undefined), pkg ? 38 : 250)
   }
   const foldable = (id: string) => map.diagram === 'class' && map.elements.find(e => e.id === id)?.kind === 'group' && map.elements.some(e => e.parent === id)
+  /** The smallest foldable package drawn around this screen point. */
+  const packageAt = (x: number, y: number): Element | undefined => {
+    let best: Element | undefined, area = Infinity
+    for (const g of inner.current?.querySelectorAll(':scope > svg [data-group]') ?? []) {
+      const r = g.getBoundingClientRect()
+      if (x < r.left || x > r.right || y < r.top || y > r.bottom || r.width * r.height >= area || !foldable(g.getAttribute('data-group')!)) continue
+      best = g
+      area = r.width * r.height
+    }
+    return best
+  }
 
   const onPointerMove = (e: React.PointerEvent) => {
     const d = drag.current
@@ -448,14 +459,11 @@ export const MermaidStage = forwardRef<StageHandle, Props & { viewKey: string }>
       <div className="stage-inner" ref={inner} style={{ transform: `translate(${view.x}px, ${view.y}px) scale(${view.k})` }} />
       {hovered && (
         // Its own clicks: not a drag, a pick or a double-click of the stage underneath.
-        <div key={hovered.target} className="stage-hover fade-in" style={{ left: hovered.left, right: hovered.right, top: hovered.top }}
+        <div key={hovered.target} className="stage-hover" style={{ left: hovered.left, right: hovered.right, top: hovered.top }}
           onPointerDown={e => e.stopPropagation()} onPointerUp={e => e.stopPropagation()} onDoubleClick={e => e.stopPropagation()}>
-          <button className="iconbtn" title={hovered.line ? 'Zoom to this' : 'Zoom to this (double-click)'} onClick={() => { unhover(); frameNow(partIds(map, hovered.target)) }}><ZoomIn size={14} /></button>
-          {foldable(hovered.target) && (
-            <button className="iconbtn" title={collapsed.has(hovered.target) ? 'Expand' : 'Collapse'} onClick={() => { unhover(); onToggleGroup(hovered.target) }}>
-              {collapsed.has(hovered.target) ? <ChevronsUpDown size={14} /> : <ChevronsDownUp size={14} />}
-            </button>
-          )}
+          <button className="iconbtn" title={collapsed.has(hovered.target) ? 'Expand' : 'Collapse'} onClick={() => { unhover(); onToggleGroup(hovered.target) }}>
+            {collapsed.has(hovered.target) ? <ChevronsUpDown size={14} /> : <ChevronsDownUp size={14} />}
+          </button>
         </div>
       )}
       {error && <div className="stage-error"><b>그리기 실패</b><pre>{error}</pre></div>}

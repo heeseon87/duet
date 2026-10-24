@@ -75,8 +75,8 @@
 .stage-error pre { margin: 4px 0 0; white-space: pre-wrap; }
 .zoom-readout { position: absolute; left: 12px; bottom: 10px; font-size: 11px; color: var(--ink-4); font-variant-numeric: tabular-nums; pointer-events: none; }
 .stage-hint { position: absolute; left: 50%; transform: translateX(-50%); bottom: 10px; font-size: 11px; pointer-events: none; opacity: .8; }
-/* A hovered part's own buttons: screen-sized at any zoom. */
-.stage-hover { position: absolute; z-index: 3; display: flex; gap: 2px; padding: 2px; background: var(--panel); border: 1px solid var(--line-strong); border-radius: 8px; box-shadow: var(--shadow-2); cursor: default; }
+/* A hovered package's fold button: screen-sized at any zoom. */
+.stage-hover { position: absolute; z-index: 3; display: flex; padding: 2px; background: var(--panel); border: 1px solid var(--line-strong); border-radius: 8px; box-shadow: var(--shadow-2); cursor: default; animation: fade .05s var(--ease); }
 .empty-canvas .hero-mark { width: 48px; height: 48px; border-radius: 14px; display: grid; place-items: center; background: var(--accent-soft); color: var(--accent); }
 
 /* Parts of the drawing */
