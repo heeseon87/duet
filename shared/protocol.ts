@@ -245,6 +245,22 @@ export type GitInfo = {
 
 export type { CanvasMap, CanvasElement, CanvasRelation, CanvasDecision, CanvasMessage, CanvasFragment } from './canvas.ts'
 
+/**
+ * The code a map is about, kept beside the map rather than in its revisions: the tree it is reviewed in and what to
+ * compare there. A map drawn before the code is bound to its tree from the commit it was made at (`base...WORKTREE`),
+ * so what is built from it shows up; a map made to review code is bound to that PR, branch or commits.
+ */
+export type MapCode = { root: string; source: DiffSource; set: number }
+
+/** A source in words, for the agent: what a map's review shows. */
+export function describeSource(s: DiffSource): string {
+  if (s.kind === 'working') return 'what is not committed'
+  if (s.kind === 'branch') return `${s.compare === 'WORKTREE' ? 'the working tree' : s.compare} since ${/^[0-9a-f]{40}$/.test(s.base) ? s.base.slice(0, 7) : s.base}`
+  if (s.kind === 'commits') return s.from ? `commits ${s.from}..${s.to}` : `commit ${s.to}`
+  if (s.kind === 'pr') return s.number ? `PR #${s.number}` : 'the PR of the checked-out branch'
+  return 'one turn'
+}
+
 export type CanvasSummary = {
   name: string
   title: string
@@ -255,6 +271,7 @@ export type CanvasSummary = {
   decisions: number
   openDecisions: number
   openThreads: number
+  code?: MapCode
 }
 
 /** A conversation pinned to a spot on the canvas. */

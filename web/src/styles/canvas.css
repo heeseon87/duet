@@ -52,6 +52,9 @@
   display: flex; align-items: center; gap: 10px; padding: 7px 14px; font-size: 12.5px; flex: none; border-bottom: 1px solid var(--line);
 }
 .unseen-banner { background: var(--agent-soft); color: var(--ink); }
+.code-prompt { background: var(--accent-soft); }
+.code-prompt svg { color: var(--accent-ink); }
+.code-chip { white-space: nowrap; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .unseen-banner svg { color: var(--agent); }
 .unseen-banner .changes { color: var(--ink-2); font-family: var(--font-mono); font-size: 11.5px; min-width: 0; }
 .preview-banner { background: var(--warn-bg); color: var(--warn); }
@@ -326,6 +329,15 @@ details.insp-section[open] > summary { margin-bottom: 4px; }
 .stage-inner .cv-inside .a { fill: var(--add); }
 .stage-inner .cv-inside .c { fill: var(--agent); }
 .stage-inner .cv-inside .r { fill: var(--del); }
+/* Where a box stands against the map's code: built, changed though nothing was planned, or not built yet. */
+.stage-inner .cv-code rect { fill: var(--panel); stroke: var(--line-strong); stroke-width: 1; }
+.stage-inner .cv-code text { font-size: 10.5px; font-weight: 700; font-family: var(--font-ui); fill: var(--ink-2); }
+.stage-inner .cv-code.built rect { stroke: var(--add); }
+.stage-inner .cv-code.built text { fill: var(--add); }
+.stage-inner .cv-code.unplanned rect { stroke: var(--agent); }
+.stage-inner .cv-code.unplanned text { fill: var(--agent); }
+.stage-inner .cv-code.pending rect { stroke-dasharray: 3 2; }
+.stage-inner .cv-code.pending text { fill: var(--ink-3); font-weight: 600; }
 
 /* A chip in the bar gives way first; the buttons never wrap their words. */
 .canvas-bar button { white-space: nowrap; }

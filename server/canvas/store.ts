@@ -5,12 +5,12 @@ import {
   type CanvasMap, type CanvasPatch, type CanvasRevision,
   normalizeDecisions,
 } from '../../shared/canvas.ts'
-import type { CanvasSummary, CanvasThread } from '../../shared/protocol.ts'
+import type { CanvasSummary, CanvasThread, MapCode } from '../../shared/protocol.ts'
 import { appendJsonl, DUET_HOME, ensureDir, HttpError, newId, readJson, readJsonl, slugOf, writeJson } from '../util.ts'
 
 const NAME = /^[a-z0-9][a-z0-9_-]{0,63}$/
 
-type Current = { revision: number; map: CanvasMap; updated: number }
+type Current = { revision: number; map: CanvasMap; updated: number; code?: MapCode }
 
 export type ChangeListener = (workspace: string, name: string, revision: number, by: 'agent' | 'person') => void
 export type ListListener = (workspace: string) => void
@@ -48,6 +48,7 @@ export class CanvasStore {
         decisions: decisions.length,
         openDecisions: decisions.filter(d => !d.chosen).length,
         openThreads: threads.filter(t => t.state === 'open').length,
+        ...(cur.code ? { code: cur.code } : {}),
       })
     }
     return out.sort((a, b) => b.updated - a.updated)
@@ -73,17 +74,31 @@ export class CanvasStore {
     return { ...rev, map: normalizeDecisions(rev.map) }
   }
 
-  create(workspace: string, name: string, diagram: 'class' | 'sequence', title: string, context: string | undefined, by: 'agent' | 'person', note = '새 지도'): Current {
+  create(workspace: string, name: string, diagram: 'class' | 'sequence', title: string, context: string | undefined, by: 'agent' | 'person', note = '새 지도', code?: MapCode): Current {
     if (this.exists(workspace, name)) throw new HttpError(409, `${name} 지도가 이미 있어`)
     const map = emptyMap(diagram, title)
     if (context) map.context = context
-    const cur = this.write(workspace, name, map, 1, by, note)
+    const cur = this.write(workspace, name, map, 1, by, note, code)
     this.onList(workspace)
     return cur
   }
 
-  private write(workspace: string, name: string, map: CanvasMap, revision: number, by: 'agent' | 'person', note?: string): Current {
-    const cur: Current = { revision, map, updated: Date.now() }
+  /** Binds the map to other code (or to none); the map and its revisions stay as they are. */
+  setCode(workspace: string, name: string, code: MapCode | undefined): Current {
+    const cur = this.get(workspace, name)
+    const raw = readJson<Current>(this.file(workspace, name, 'map.json'), cur)
+    const { code: _old, ...rest } = raw
+    const next: Current = { ...rest, updated: Date.now(), ...(code ? { code } : {}) }
+    writeJson(this.file(workspace, name, 'map.json'), next)
+    this.onChange(workspace, name, cur.revision, 'person')
+    this.onList(workspace)
+    return { ...next, map: cur.map }
+  }
+
+  /** A new revision keeps the code the map is bound to. */
+  private write(workspace: string, name: string, map: CanvasMap, revision: number, by: 'agent' | 'person', note?: string,
+    code = readJson<Current | null>(this.file(workspace, name, 'map.json'), null)?.code): Current {
+    const cur: Current = { revision, map, updated: Date.now(), ...(code ? { code } : {}) }
     appendJsonl(this.file(workspace, name, 'history.jsonl'), { revision, map, by, note, ts: cur.updated } satisfies CanvasRevision)
     writeJson(this.file(workspace, name, 'map.json'), cur)
     this.onChange(workspace, name, revision, by)

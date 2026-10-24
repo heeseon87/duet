@@ -151,7 +151,7 @@ export class Session {
           // Tests run without the person's own CLAUDE.md and hooks (DUET_SETTING_SOURCES=project,local).
           settingSources: (process.env.DUET_SETTING_SOURCES?.split(',') as ('user' | 'project' | 'local')[] | undefined) ?? ['user', 'project', 'local'],
           systemPrompt: { type: 'preset', preset: 'claude_code', append: DUET_APPEND },
-          mcpServers: { duet: canvasServer(this.hooks.canvas, this.info.workspace) },
+          mcpServers: { duet: canvasServer(this.hooks.canvas, this.info.workspace, () => this.info.workTree ?? this.info.workspace) },
           canUseTool: this.canUseTool,
           hooks: { PreToolUse: [{ hooks: [this.beforeTool] }] },
           resume: this.info.claudeId,

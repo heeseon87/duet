@@ -1,10 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   ChevronDown, ChevronUp, ChevronsDownUp, ChevronsLeft, ChevronsRight, ChevronsUpDown, Clock3, Compass, Copy, Eye, ListCollapse, ZoomIn, GitCompareArrows, Maximize2, MessageSquare, Minus, Plus, Shapes, Sparkles, Undo2, Workflow,
-  Check, CircleDot, FileCode2, FileDiff, ArrowLeft, ArrowRight, ArrowUp, ArrowDown, X, Bot, User, Trash2, Send, Pencil, Share, ImageDown,
+  Check, CircleDot, FileCode2, FileDiff, ArrowLeft, ArrowRight, ArrowUp, ArrowDown, X, Bot, User, Trash2, Send, Pencil, Share, ImageDown, FolderGit2,
 } from 'lucide-react'
 import { deliveryLabel, describeDiff, diffMaps, exportMermaid, filesUnder, labelOf, relationKey, shapedBy, stepMark, type CanvasDecision, type CanvasElement, type CanvasMap, type CanvasRelation } from '../../../shared/canvas.ts'
+import { codeMarks } from '../../../shared/mapFiles.ts'
 import type { CanvasThread } from '../../../shared/protocol.ts'
+import { api } from '../api.ts'
 import { local, useApp } from '../state.ts'
 import { Popover, relTime } from '../lib/ui.tsx'
 import { Markdown } from '../lib/Markdown.tsx'
@@ -568,6 +570,12 @@ export function CanvasView() {
   useEffect(() => { if (workspace) void s.loadList() }, [workspace?.path]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const shownMap = s.preview?.map ?? s.map
+  // The same files the review lists, matched to the parts the same way: what is built, what is not yet.
+  const bound = useReview(r => r.bound), editing = useReview(r => r.editing), diff = useReview(r => r.diff), root = useReview(r => r.root), home = useReview(r => r.home)
+  const code = useMemo(
+    () => (shownMap?.diagram === 'class' && bound && bound.map === s.mapName && !editing && diff && root && home ? codeMarks(shownMap, diff.files, root, home) : undefined),
+    [shownMap, bound, s.mapName, editing, diff, root, home],
+  )
   const foldable = useMemo(() => {
     const parents = new Set((shownMap?.elements ?? []).map(e => e.parent).filter(Boolean))
     return (shownMap?.elements ?? []).filter(e => e.kind === 'group' && parents.has(e.id)).map(e => e.id)
@@ -730,6 +738,7 @@ export function CanvasView() {
             결정 {made}/{decisions.length}
           </button>
         )}
+        <CodeChip marks={code} />
         <span className="grow" />
         {s.compareFrom && !s.preview && (
           <span className="compare-chip">
@@ -775,6 +784,7 @@ export function CanvasView() {
           <button className="iconbtn" onClick={() => useCanvas.setState({ elsewhere: undefined })}><X size={13} /></button>
         </div>
       )}
+      <CodePrompt />
       {s.preview && (
         <div className="preview-banner">
           <Clock3 size={14} /> rev {s.preview.revision} · 읽기 전용
@@ -794,6 +804,7 @@ export function CanvasView() {
           glow={s.glow}
           selected={s.selected}
           threads={s.threads}
+          code={code?.marks}
           onSelect={t => { s.select(t); if (!useCanvas.getState().explore) setInspector(Boolean(t)) }}
           onToggleGroup={s.toggleCollapse}
           onContext={(t, at) => {
@@ -867,3 +878,63 @@ function NewMapInline() {
   )
 }
 
+
+/** What the map's code holds against the map, one click from the review that lists it. */
+function CodeChip({ marks }: { marks?: ReturnType<typeof codeMarks> }) {
+  const bound = useReview(r => r.bound), diff = useReview(r => r.diff), loading = useReview(r => r.loading)
+  const mapName = useCanvas(c => c.mapName), hasCode = useCanvas(c => Boolean(c.code)), preview = useCanvas(c => Boolean(c.preview))
+  if (mapName && !hasCode && !preview) {
+    return <button className="chip code-chip" title="리뷰가 이 지도의 코드를 보여 주게 연결해" onClick={() => void bindMapCode(false)}><FolderGit2 size={13} /> 코드 연결</button>
+  }
+  if (!bound || bound.map !== mapName) return null
+  const all = [...(marks?.marks.values() ?? [])]
+  const pending = all.filter(m => m.state === 'pending').length
+  const unplanned = all.filter(m => m.state === 'unplanned').length
+  const parts = !diff ? [loading ? '불러오는 중' : '코드 없음'] : [
+    `바뀐 파일 ${diff.files.length}`,
+    pending ? `구현 전 ${pending}` : '',
+    unplanned ? `계획 밖 ${unplanned}` : '',
+    marks?.outside ? `지도 밖 ${marks.outside}` : '',
+  ].filter(Boolean)
+  return (
+    <button className="chip code-chip" title={`${bound.code.root}\n이 지도의 코드: 리뷰에서 같은 파일을 볼 수 있어`} onClick={() => useApp.getState().setTab('review')}>
+      <FolderGit2 size={13} /> {parts.join(' · ')}
+    </button>
+  )
+}
+
+/** Binds the open map to the code it points at (the repo holding most of its files, from when it was made); `pick` then lets the person choose other code in the review. */
+async function bindMapCode(pick: boolean) {
+  const workspace = useApp.getState().workspace?.path
+  const { mapName, map } = useCanvas.getState()
+  if (!workspace || !mapName || !map) return
+  try {
+    await api.post(`/api/canvas/${mapName}/code`, { ws: workspace, guess: true })
+    await useCanvas.getState().reload()
+    const c = useCanvas.getState()
+    if (c.code) await useReview.getState().bind({ map: mapName, title: map.title, code: c.code })
+    if (pick) { useApp.getState().setTab('review'); useReview.getState().editCode() }
+  } catch (e) { useApp.getState().toast((e as Error).message, 'error') }
+}
+
+/** A map from before maps knew their code: asked once which code it is about. */
+function CodePrompt() {
+  const workspace = useApp(a => a.workspace?.path)
+  const { mapName, code, map, preview } = useCanvas()
+  const key = workspace && mapName ? `canvas.codeAsked:${workspace}:${mapName}` : undefined
+  const [asked, setAsked] = useState<string | null>(null)
+  useEffect(() => { setAsked(key ? local.get(key) : null) }, [key])
+  if (!workspace || !mapName || !map || code || preview || asked) return null
+  const later = () => { if (key) { local.set(key, '1'); setAsked('1') } }
+  const bind = (pick: boolean) => void bindMapCode(pick)
+  return (
+    <div className="unseen-banner code-prompt fade-in">
+      <FolderGit2 size={14} />
+      <span>이 지도는 아직 코드와 연결돼 있지 않아. 연결하면 리뷰가 이 지도의 코드를 보여 주고, 상자마다 구현됐는지 보여.</span>
+      <span className="grow" />
+      <button className="btn sm primary" title="지도의 파일이 가장 많은 저장소를, 지도를 만든 때의 커밋부터 지금까지" onClick={() => bind(false)}>지도가 가리키는 코드에 연결</button>
+      <button className="btn sm" onClick={() => bind(true)}>PR·브랜치·커밋 고르기</button>
+      <button className="btn sm ghost" onClick={later}>나중에</button>
+    </div>
+  )
+}

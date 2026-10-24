@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   ChevronDown, ChevronRight, Columns2, FolderGit2, Package, Box, Shapes, GitBranch, GitCommitHorizontal, GitPullRequest, Bot, Check, Loader2, MessageSquare, RefreshCw,
-  Rows3, Search, Settings2, X, FilePen, Folder, ArrowLeft, Copy,
+  Rows3, Search, Settings2, X, FilePen, Folder, ArrowLeft, Copy, Map as MapIcon,
 } from 'lucide-react'
 import type { DiffFile, DiffSource, GitInfo, TurnRef } from '../../../shared/protocol.ts'
 import { api, q } from '../api.ts'
@@ -272,8 +272,30 @@ function ViewMenu() {
   )
 }
 
+/** A bound map holds the review on its code: what it shows, and the way to change it (on the map, not here). */
+function BoundBar() {
+  const { bound, root, source, diff, loading, refresh, editCode } = useReview()
+  if (!bound) return null
+  const adds = diff?.files.reduce((n, f) => n + f.additions, 0) ?? 0
+  const dels = diff?.files.reduce((n, f) => n + f.deletions, 0) ?? 0
+  return (
+    <div className="source-bar bound">
+      <span className="bound-chip" title="캔버스에 연 지도가 이 코드를 가리켜. 지도와 리뷰는 같은 코드를 보여 줘">
+        <MapIcon size={13} /><span className="ellipsis">지도 <b>{bound.title}</b>의 코드</span>
+      </span>
+      <span className="ref-pick static" title={root}><FolderGit2 size={13} /><b className="ellipsis">{root?.split('/').pop()}</b></span>
+      <span className="bound-source">{source.kind === 'branch' && source.compare === 'WORKTREE' ? `${sourceLabel(source).split(' ← ')[1]} 이후 지금까지(커밋 안 한 것 포함)` : sourceLabel(source)}</span>
+      <button className="btn sm" onClick={editCode}>코드 기준 바꾸기</button>
+      <span className="grow" />
+      {diff && <span className="summary">파일 <b>{diff.files.length}</b>개 <b className="add">+{adds}</b> <b className="del">−{dels}</b></span>}
+      <ViewMenu />
+      <button className="iconbtn" title="Refresh (r)" onClick={() => void refresh()}><RefreshCw size={14} className={loading ? 'spin' : ''} /></button>
+    </div>
+  )
+}
+
 function SourceBar() {
-  const { source, setSource, info, root, diff, loading, refresh, showLastTurn } = useReview()
+  const { source, setSource, info, root, diff, loading, refresh, showLastTurn, bound, editing, saveCode, cancelCode } = useReview()
   const currentSession = useApp(s => s.currentSession)
   const turns = useTurns(currentSession, root, source.kind === 'branch')
   const pick = (kind: DiffSource['kind']) => {
@@ -287,10 +309,12 @@ function SourceBar() {
   }
   const adds = diff?.files.reduce((n, f) => n + f.additions, 0) ?? 0
   const dels = diff?.files.reduce((n, f) => n + f.deletions, 0) ?? 0
+  if (bound && !editing) return <BoundBar />
   return (
-    <div className="source-bar">
+    <div className={`source-bar ${editing ? 'editing' : ''}`}>
+      {editing && <span className="bound-chip"><MapIcon size={13} /><span className="ellipsis">지도 <b>{bound?.title}</b>의 기준 바꾸는 중</span></span>}
       <div className="seg kinds">
-        {KINDS.map(k => (
+        {KINDS.filter(k => !editing || k.kind !== 'turn').map(k => (
           <button key={k.kind} aria-pressed={source.kind === k.kind} onClick={() => pick(k.kind)} title={k.label}>{k.icon}<span className="kind-label">{k.label}</span></button>
         ))}
       </div>
@@ -306,6 +330,12 @@ function SourceBar() {
       {source.kind === 'turn' && <TurnPicker source={source} onPick={setSource} />}
       {source.kind === 'pr' && root && <PrPicker root={root} source={source} onPick={setSource} />}
       <span className="grow" />
+      {editing && (
+        <>
+          <button className="btn sm primary" onClick={() => void saveCode()}>이 기준으로 저장</button>
+          <button className="btn sm" onClick={() => void cancelCode()}>취소</button>
+        </>
+      )}
       {diff && <span className="summary">파일 <b>{diff.files.length}</b>개 <b className="add">+{adds}</b> <b className="del">−{dels}</b></span>}
       <ViewMenu />
       <button className="iconbtn" title="Refresh (r)" onClick={() => void refresh()}><RefreshCw size={14} className={loading ? 'spin' : ''} /></button>

@@ -1,9 +1,10 @@
 import { create } from 'zustand'
-import type { DiffFile, DiffResult, DiffSource, GitInfo, ReviewComment, ReviewRepo, SessionInfo, TurnRef } from '../../../shared/protocol.ts'
+import type { DiffFile, DiffResult, DiffSource, GitInfo, MapCode, ReviewComment, ReviewRepo, SessionInfo, TurnRef } from '../../../shared/protocol.ts'
 import { api, q, subscribe } from '../api.ts'
 import { local, useApp } from '../state.ts'
 import { reanchor } from './anchor.ts'
 import { filesUnder, labelOf, type CanvasMap } from '../../../shared/canvas.ts'
+import { useCanvas } from '../canvas/store.ts'
 
 export type ViewMode = 'unified' | 'split'
 export type Draft = { path: string; side: 'old' | 'new'; start: number; end: number; excerpt: string; editing?: string }
@@ -41,6 +42,16 @@ type ReviewState = {
   focusLine?: { path: string; line: number; nonce: number }
   /** What to show once the tree being opened is there. */
   pending?: DiffSource
+  /** The open map's code: while it is bound the review shows that code and nothing else, so map and review agree. */
+  bound?: { map: string; title: string; code: MapCode }
+  /** The person is changing the map's code: the pickers work until it is saved or cancelled. */
+  editing: boolean
+  /** Follows the map on the canvas (none: the review is free again). */
+  bind: (b: ReviewState['bound']) => Promise<void>
+  editCode: () => void
+  /** Saves what the review shows now as the map's code. */
+  saveCode: () => Promise<void>
+  cancelCode: () => Promise<void>
   /** Paths written on disk in the last few seconds (the agent at work). */
   recent: Record<string, number>
   /** Opens the review of a workspace, on the tree the current conversation calls for. */
@@ -76,12 +87,22 @@ type ReviewState = {
   send: (ids: string[], extra?: string, newSession?: boolean) => Promise<void>
 }
 
+/** While a map's code is bound, a pick elsewhere is refused: the person changes the map's code instead. */
+function held(): boolean {
+  const { bound, editing } = useReview.getState()
+  if (!bound || editing) return false
+  useApp.getState().toast(`지도 «${bound.title}»의 코드를 보는 중이야. 다른 걸 보려면 '코드 기준 바꾸기'로 지도의 기준을 바꿔 줘`)
+  return true
+}
+
+const sameCode = (a: { root?: string; source: DiffSource }, b: MapCode) => a.root === b.root && keyOf(a.source) === keyOf(b.source)
+
 const sig = (f: DiffFile) => `${f.additions}:${f.deletions}:${f.hunks.map(h => h.lines.length).join(',')}`
 const keyOf = (s: DiffSource) => JSON.stringify(s)
 
 function sourceLabel(s: DiffSource): string {
   if (s.kind === 'working') return 'Changes'
-  if (s.kind === 'branch') return `${s.compare === 'WORKTREE' ? 'Working tree' : s.compare} ← ${s.base}`
+  if (s.kind === 'branch') return `${s.compare === 'WORKTREE' ? 'Working tree' : s.compare} ← ${/^[0-9a-f]{40}$/.test(s.base) ? s.base.slice(0, 7) : s.base}`
   if (s.kind === 'commits') return s.from ? `${s.from.slice(0, 7)}..${s.to.slice(0, 7)}` : `커밋 ${s.to.slice(0, 7)}`
   if (s.kind === 'pr') return s.number ? `PR #${s.number}` : '이 브랜치의 PR'
   return 'Turns'
@@ -122,8 +143,8 @@ let ready: string | undefined
 
 /** Moves the review where the rule says; this is not the person's pick. */
 async function follow() {
-  const { home, repos, loadRepos } = useReview.getState()
-  if (!home) return
+  const { home, repos, loadRepos, bound } = useReview.getState()
+  if (!home || bound) return
   const session = conversation(home)
   if (session?.workTree && session.workTree !== home && !repos.some(r => r.path === session.workTree)) await loadRepos()
   const tree = treeFor(home, useReview.getState().repos, session)
@@ -143,6 +164,34 @@ export const useReview = create<ReviewState>((set, get) => ({
   repos: [],
   group: local.get('review.group') === 'map' ? 'map' : 'folders',
   filter: '',
+  editing: false,
+
+  bind: async b => {
+    const was = get().bound
+    set({ bound: b, editing: false })
+    if (!b) { if (was) await follow(); return }
+    if (sameCode(get(), b.code)) return
+    const { home, repos } = get()
+    if (home && b.code.root !== home && !repos.some(r => r.path === b.code.root)) await get().loadRepos()
+    set({ pending: b.code.source })
+    await get().open(b.code.root)
+  },
+
+  editCode: () => { if (get().bound) set({ editing: true }) },
+
+  saveCode: async () => {
+    const { bound, root, source, home } = get()
+    if (!bound || !root || !home) return
+    if (source.kind === 'turn') { useApp.getState().toast('한 턴은 지도의 기준으로 저장할 수 없어. 다른 비교를 골라 줘', 'error'); return }
+    await api.post(`/api/canvas/${bound.map}/code`, { ws: home, root, source })
+    set({ editing: false })
+  },
+
+  cancelCode: async () => {
+    const b = get().bound
+    set({ editing: false })
+    if (b && !sameCode(get(), b.code)) { set({ pending: b.code.source }); await get().open(b.code.root) }
+  },
 
   init: async home => {
     set({ home, repos: [], homeInfo: undefined })
@@ -176,7 +225,10 @@ export const useReview = create<ReviewState>((set, get) => ({
     const best = [...tally].sort((a, b) => b[1] - a[1])[0]?.[0] ?? root
     local.set('review.group', 'map')
     set({ scope: { target, label: labelOf(map, target), paths }, group: 'map' })
-    if (best && best !== root) await get().setRoot(best)
+    // A bound map's code stays the tree under review.
+    const b = get().bound
+    if (best && best !== root && b && !get().editing) useApp.getState().toast(`이 부분의 코드는 다른 저장소(${best.split('/').pop()})에 있어. 지도 «${b.title}»의 코드에는 없어`)
+    else if (best && best !== root) await get().setRoot(best)
   },
 
   open: async root => {
@@ -190,6 +242,7 @@ export const useReview = create<ReviewState>((set, get) => ({
   },
 
   setRoot: async root => {
+    if (held()) return
     const home = get().home
     const known = () => root === home || get().repos.some(r => r.path === root)
     if (!known()) await get().loadRepos()
@@ -200,13 +253,15 @@ export const useReview = create<ReviewState>((set, get) => ({
   },
 
   setSource: source => {
+    if (held()) return
     const root = get().root
-    if (root && source.kind !== 'turn') local.set(`review.source:${root}`, JSON.stringify(source))
+    if (root && source.kind !== 'turn' && !get().bound) local.set(`review.source:${root}`, JSON.stringify(source))
     set({ source, diff: undefined, selected: undefined, draft: undefined, fileView: undefined })
     void get().refresh()
   },
 
   setTurnSource: (sessionId, turnId, root) => {
+    if (held()) return
     const source: DiffSource = { kind: 'turn', sessionId, turnId }
     if (!get().root || (root && root !== get().root)) {
       set({ pending: source })
@@ -217,6 +272,7 @@ export const useReview = create<ReviewState>((set, get) => ({
   },
 
   showLastTurn: async (sessionId, move) => {
+    if (held()) return
     const { sessions, toast } = useApp.getState()
     const root = (move && sessions.find(s => s.id === sessionId)?.workTree) || get().root
     if (!root) return
@@ -231,6 +287,7 @@ export const useReview = create<ReviewState>((set, get) => ({
   },
 
   sinceTurn: turn => {
+    if (held()) return
     const source = since(turn)
     if (source) get().setSource(source)
     tellSince(turn)
@@ -396,3 +453,13 @@ useApp.subscribe(app => {
   seen = now
   if (switched || !(now.id && local.get(pickKey(home, now.id)))) void follow()
 })
+
+/** The review follows the map on the canvas: a map bound to code holds the review on that code. */
+function followMap() {
+  const { mapName, map, code } = useCanvas.getState()
+  const b = mapName && map && code ? { map: mapName, title: map.title, code } : undefined
+  const cur = useReview.getState().bound
+  if (cur?.map === b?.map && cur?.title === b?.title && cur?.code === b?.code) return
+  void useReview.getState().bind(b)
+}
+useCanvas.subscribe((s, p) => { if (s.mapName !== p.mapName || s.code !== p.code || s.map?.title !== p.map?.title) followMap() })

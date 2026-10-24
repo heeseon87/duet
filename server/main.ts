@@ -9,7 +9,7 @@ import { z } from 'zod'
 import type { CanvasThread, ContextItem, DiffSource, PermissionDecision, PermissionMode, ReviewComment, ReviewRepo, ServerEvent, SessionEvent, TerminalInfo, Workspace } from '../shared/protocol.ts'
 import { deliveryOf, fileOfRef, type CanvasPatch, type CanvasRevision, type Delivery } from '../shared/canvas.ts'
 import { DUET_HOME, HttpError, readJson, writeJson, ensureDir, newId } from './util.ts'
-import { gitInfo, grep, listFiles, log as gitLog, readAt, toplevel, workspaceName, currentBranch, mainRoot } from './git/repo.ts'
+import { codeHere, gitInfo, grep, headAt, listFiles, log as gitLog, readAt, toplevel, workspaceName, currentBranch, mainRoot } from './git/repo.ts'
 import { computeDiff } from './git/diff.ts'
 import { findRepos } from './fs/repos.ts'
 import { prList, prView } from './git/pr.ts'
@@ -131,10 +131,14 @@ async function openWorkspace(path: string): Promise<Workspace> {
 function reviewRoot(path: string | null): { root: string; home: string } {
   if (!path) throw new HttpError(400, 'workspace is required')
   if (workspaces().some(w => w.path === path)) return { root: path, home: path }
-  const home = sessions.ownerOf(path) ?? mapRepos.get(path)
+  const home = sessions.ownerOf(path) ?? mapRepos.get(path) ?? codeOwner(path)
   if (!home) throw new HttpError(403, '열린 적 없는 작업 공간이야. 먼저 열어 줘.')
   watchRepo(path)
   return { root: path, home }
+}
+/** The workspace whose map is bound to code in this tree. */
+function codeOwner(path: string): string | undefined {
+  return workspaces().find(w => canvas.list(w.path).some(m => m.code?.root === path))?.path
 }
 function knownWorkspace(path: string | null): string {
   if (!path) throw new HttpError(400, 'workspace is required')
@@ -385,6 +389,7 @@ route('GET', '/api/review/repos', async ({ url }) => {
   for (const m of canvas.list(ws)) {
     const map = canvas.get(ws, m.name).map
     const roots = new Set<string>()
+    if (m.code && m.code.root !== ws) roots.add(m.code.root)
     for (const ref of new Set(map.elements.flatMap(e => (e.files ?? []).map(fileOfRef)))) {
       const top = await repoOf(resolve(ws, ref))
       if (top && top !== ws) roots.add(top)
@@ -494,8 +499,42 @@ route('GET', '/api/canvas/:name/threads', ({ url, params }) => {
 })
 route('GET', '/api/canvas/:name/rev/:rev', ({ url, params }) => canvas.revision(knownWorkspace(url.searchParams.get('ws')), params.name, Number(params.rev)))
 route('POST', '/api/canvas', async ({ req }) => {
-  const b = await body<{ ws: string; name: string; diagram: 'class' | 'sequence'; title: string; context?: string }>(req)
-  return canvas.create(knownWorkspace(b.ws), b.name, b.diagram, b.title, b.context, 'person')
+  const b = await body<{ ws: string; name: string; diagram: 'class' | 'sequence'; title: string; context?: string; source?: DiffSource }>(req)
+  const ws = knownWorkspace(b.ws)
+  // Made in the browser: bound to the workspace from its current commit, or to the code the person picked to review.
+  const here = codeHere(ws, ws)
+  return canvas.create(ws, b.name, b.diagram, b.title, b.context, 'person', '새 지도', here && b.source ? { ...here, source: b.source } : here)
+})
+/**
+ * Binds a map to code: `here` takes the tree from its current commit; `guess` (a map from before maps knew their code)
+ * takes the repo holding most of its files, from the commit it stood on when the map was made; `source: null` unbinds it.
+ */
+route('POST', '/api/canvas/:name/code', async ({ req, params }) => {
+  const b = await body<{ ws: string; root?: string; source?: DiffSource | null; here?: boolean; guess?: boolean }>(req)
+  const ws = knownWorkspace(b.ws)
+  if (b.source === null) return canvas.setCode(ws, params.name, undefined)
+  if (b.guess) {
+    const { map } = canvas.get(ws, params.name)
+    const tally = new Map<string, number>()
+    for (const ref of new Set(map.elements.flatMap(e => (e.files ?? []).map(fileOfRef)))) {
+      const top = await repoOf(resolve(ws, ref))
+      if (top) tally.set(top, (tally.get(top) ?? 0) + 1)
+    }
+    const root = [...tally].sort((x, y) => y[1] - x[1])[0]?.[0] ?? ws
+    // A worktree since removed: the workspace stands in.
+    const here = codeHere(root, root) ?? codeHere(ws, ws)
+    if (!here) throw new HttpError(400, `${ws}는 git 저장소가 아니야`)
+    const made = canvas.history(ws, params.name)[0]?.ts
+    const then = made ? await headAt(here.root, made) : undefined
+    return canvas.setCode(ws, params.name, then ? { ...here, source: { kind: 'branch', base: then.sha, compare: 'WORKTREE' } } : here)
+  }
+  const root = b.root ?? ws
+  // Any tree Duet already reviews for this person: the workspace, a repo of it, or a worktree opened beside it.
+  if (root !== ws) reviewRoot(root)
+  const here = codeHere(root, root)
+  if (!here) throw new HttpError(400, `${root}는 git 저장소가 아니야`)
+  if (b.here || !b.source) return canvas.setCode(ws, params.name, here)
+  return canvas.setCode(ws, params.name, { ...here, source: b.source })
 })
 route('POST', '/api/canvas/:name/patch', async ({ req, params }) => {
   const b = await body<{ ws: string; patch: CanvasPatch; note?: string; baseRevision?: number }>(req)

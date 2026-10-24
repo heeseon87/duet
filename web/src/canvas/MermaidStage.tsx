@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useImperativeHandle, useLayoutEffect, useRef, useState, forwardRef } from 'react'
 import { relationKey, shapedBy, toMermaid, type CanvasMap, type MapDiff } from '../../../shared/canvas.ts'
+import type { CodeMark } from '../../../shared/mapFiles.ts'
 import type { CanvasThread } from '../../../shared/protocol.ts'
 import { measure, morph, reducedMotion, type Morph } from './morph.ts'
 
@@ -67,6 +68,8 @@ type Props = {
   glow?: MapDiff
   selected?: string
   threads: CanvasThread[]
+  /** How each part stands against the map's code (the review shows the same files). */
+  code?: Map<string, CodeMark>
   onSelect: (target: string | undefined) => void
   onToggleGroup: (id: string) => void
   /** Right click on a part (or on empty canvas: undefined), at this screen point. */
@@ -84,7 +87,7 @@ let lastView: { key: string; view: View } | undefined
 const MIN_ZOOM = 0.05
 
 export const MermaidStage = forwardRef<StageHandle, Props & { viewKey: string }>(function MermaidStage(props, ref) {
-  const { map, collapsed, ghostsFrom, glow, selected, threads, onSelect, onToggleGroup, onContext, viewKey } = props
+  const { map, collapsed, ghostsFrom, glow, selected, threads, code, onSelect, onToggleGroup, onContext, viewKey } = props
   const inset = useRef(props.rightInset ?? 0)
   inset.current = props.rightInset ?? 0
   const outer = useRef<HTMLDivElement>(null)
@@ -313,9 +316,9 @@ export const MermaidStage = forwardRef<StageHandle, Props & { viewKey: string }>
   useLayoutEffect(() => {
     const svg = inner.current?.querySelector('svg')
     if (!svg) return
-    decorate(svg, map, { selected, glow, threads, compare: ghostsFrom })
+    decorate(svg, map, { selected, glow, threads, compare: ghostsFrom, code })
     flowZoom(svg, kStep)
-  }, [map, selected, glow, threads, ghostsFrom, kStep])
+  }, [map, selected, glow, threads, ghostsFrom, code, kStep])
 
   // Wheel: zoom at the cursor. Shift + wheel, or a sideways swipe, pans; dragging pans too.
   useEffect(() => {
@@ -529,6 +532,31 @@ function insideBadge(node: SVGGraphicsElement, s: Inside | undefined, b: DOMRect
   g.setAttribute('transform', `translate(${b.x + b.width - w / 2 - 6}, ${b.y + b.height})`)
 }
 
+const CODE_TEXT: Record<CodeMark['state'], (n: number) => string> = {
+  built: n => `코드 ${n}`,
+  unplanned: n => `계획 밖 ${n}`,
+  pending: () => '구현 전',
+}
+
+/** Where a box stands against the map's code, along its bottom edge from the left (the folded-package count is on the right). */
+function codeBadge(node: SVGGraphicsElement, mark: CodeMark | undefined, b: DOMRect) {
+  const text = mark ? CODE_TEXT[mark.state](mark.files) : ''
+  const old = node.querySelector<SVGGElement>(':scope > .cv-code')
+  if (!text) { old?.remove(); return }
+  if (old?.getAttribute('data-text') === text) return
+  old?.remove()
+  const g = document.createElementNS('http://www.w3.org/2000/svg', 'g')
+  g.setAttribute('class', `cv-code ${mark!.state}`)
+  g.setAttribute('data-text', text)
+  g.innerHTML = `<rect rx="7" ry="7"></rect><text dy="3.6" text-anchor="middle">${text}</text>`
+  node.appendChild(g)
+  const t = g.querySelector('text')!
+  const w = t.getComputedTextLength() + 12
+  const r = g.querySelector('rect')!
+  r.setAttribute('width', String(w)); r.setAttribute('height', '15'); r.setAttribute('x', String(-w / 2)); r.setAttribute('y', '-7.5')
+  g.setAttribute('transform', `translate(${b.x + w / 2 + 6}, ${b.y + b.height})`)
+}
+
 /**
  * Around the picked parts (a part, or everything a selected decision shaped): what they hold (a
  * package: everything inside, nested packages too), what those touch through a line (the lines and
@@ -637,7 +665,7 @@ function plainBox(node: SVGGraphicsElement): DOMRect | undefined {
   return b
 }
 
-function decorate(svg: SVGSVGElement, map: CanvasMap, o: { selected?: string; glow?: MapDiff; compare?: MapDiff; threads: CanvasThread[] }) {
+function decorate(svg: SVGSVGElement, map: CanvasMap, o: { selected?: string; glow?: MapDiff; compare?: MapDiff; threads: CanvasThread[]; code?: Map<string, CodeMark> }) {
   const comparedInside = insideChanges(map, o.compare)
   const glowInside = insideChanges(map, o.glow)
   const byId = new Map(map.elements.map(e => [e.id, e]))
@@ -692,6 +720,7 @@ function decorate(svg: SVGSVGElement, map: CanvasMap, o: { selected?: string; gl
       if (g && !want.has('cv-glow')) add(g.added ? 'cv-glow' : 'cv-glow-mod')
       if (box) insideBadge(node as SVGGraphicsElement, s, box)
     }
+    if (box && node.classList.contains('cv-node')) codeBadge(node as SVGGraphicsElement, o.code?.get(target), box)
     if (box) {
       const ids = new Set([...(pins.own.get(target) ?? []), ...(folded ? pins.inside.get(target) ?? [] : [])])
       drawPins(node as SVGGraphicsElement, [...ids].sort(decisionOrder), openDecisions, box)

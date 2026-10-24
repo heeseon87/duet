@@ -61,6 +61,10 @@ export const TOOLS: { relays: string; spec: ToolSpec }[] = [
           "context": {
             "description": "one or two sentences: what this map is for",
             "type": "string"
+          },
+          "code": {
+            "description": "only for a map made to review code that exists: what it reviews, \"pr\" (the PR of the checked-out branch), \"pr:123\", \"branch:main...feature\" or \"commits:abc..def\". Leave it out for a design map: it is bound to this tree from its current commit, so the code built from it shows in the review",
+            "type": "string"
           }
         },
         "required": [

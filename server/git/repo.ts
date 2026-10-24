@@ -1,6 +1,7 @@
-import { existsSync, statSync } from 'node:fs'
+import { execFileSync } from 'node:child_process'
+import { existsSync, realpathSync, statSync } from 'node:fs'
 import { basename, resolve } from 'node:path'
-import type { GitInfo } from '../../shared/protocol.ts'
+import type { DiffSource, GitInfo, MapCode } from '../../shared/protocol.ts'
 import { git, HttpError, run } from '../util.ts'
 
 /** The working tree root that contains `path`, or an error if it is not in a git repo. */
@@ -138,4 +139,42 @@ export async function grep(root: string, query: string, limit = 400): Promise<Gr
     if (hits.length >= limit) break
   }
   return hits
+}
+
+/**
+ * The code a map made in `cwd` is about: its tree from the current commit on, the working tree included, so what is
+ * built from the map shows up (no commit yet: what is not committed). `home` names the tree when it is the same folder.
+ * Undefined outside a git repository. Synchronous: two quick local reads, while the map is made.
+ */
+export function codeHere(cwd: string, home?: string): MapCode | undefined {
+  if (!existsSync(cwd)) return undefined
+  const at = (args: string[]) => {
+    try { return execFileSync('git', args, { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'], env: { ...process.env, GIT_OPTIONAL_LOCKS: '0' } }).trim() } catch { return '' }
+  }
+  const top = at(['rev-parse', '--show-toplevel'])
+  if (!top) return undefined
+  const same = (a: string, b: string) => { try { return realpathSync(a) === realpathSync(b) } catch { return false } }
+  const root = home && same(home, top) ? home : top
+  const head = at(['rev-parse', '--verify', '-q', 'HEAD'])
+  return { root, source: head ? { kind: 'branch', base: head, compare: 'WORKTREE' } : { kind: 'working' }, set: Date.now() }
+}
+
+/** What a map made to review code is bound to, as the tool takes it: `pr`, `pr:123`, `branch:main...feat`, `commits:a..b`. */
+export function codeSourceOf(text: string): DiffSource | undefined {
+  const [kind, rest = ''] = text.trim().split(/:(.*)/s)
+  const refs = (...r: string[]) => r.every(isSafeRef)
+  if (kind === 'pr') {
+    if (rest === '') return { kind: 'pr' }
+    return /^\d+$/.test(rest) ? { kind: 'pr', number: Number(rest) } : undefined
+  }
+  if (kind === 'branch') {
+    const [base, compare = 'WORKTREE'] = rest.split('...')
+    return base && (compare === 'WORKTREE' || refs(compare)) && refs(base) ? { kind: 'branch', base, compare } : undefined
+  }
+  if (kind === 'commits') {
+    const [a, b] = rest.split('..')
+    if (b === undefined) return a && refs(a) ? { kind: 'commits', to: a } : undefined
+    return a && b && refs(a, b) ? { kind: 'commits', from: a, to: b } : undefined
+  }
+  return undefined
 }

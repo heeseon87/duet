@@ -1,5 +1,5 @@
 import type { CanvasElement, CanvasMap } from '../../../shared/canvas.ts'
-import { fileOfRef } from '../../../shared/canvas.ts'
+import { ownFiles } from '../../../shared/mapFiles.ts'
 import type { DiffFile } from '../../../shared/protocol.ts'
 
 /** A package or a box of the map, with the changed files it points at. */
@@ -19,20 +19,17 @@ export function listedFiles(files: DiffFile[], root: string | undefined, scope: 
   return filter ? scoped.filter(f => f.path.toLowerCase().includes(filter.toLowerCase())) : scoped
 }
 
-/** Map file references are relative to the workspace (`home`); diff paths are relative to the tree under review (`root`). */
-const absolute = (home: string, ref: string) => (ref.startsWith('/') ? ref : `${home}/${fileOfRef(ref).replace(/^\.\//, '')}`)
-
 /**
  * The changed files laid out the way the map is: packages, the boxes in them, the files each box
  * points at. A file a box shares with another shows under both. Files no box points at are `outside`;
  * `order` is the order on screen (each file once), for moving through them.
  */
 export function mapGroups(map: CanvasMap, files: DiffFile[], root: string, home: string): { nodes: MapNode[]; outside: DiffFile[]; order: DiffFile[] } {
-  const byAbs = new Map(files.map(f => [`${root}/${f.path}`, f]))
+  const byElement = ownFiles(map, files, root, home)
   const used = new Set<string>()
   const ids = new Set(map.elements.map(e => e.id))
   const build = (el: CanvasElement): MapNode | undefined => {
-    const own = [...new Set((el.files ?? []).map(r => absolute(home, r)))].map(a => byAbs.get(a)).filter((f): f is DiffFile => !!f)
+    const own = byElement.get(el.id) ?? []
     const children = map.elements.filter(c => c.parent === el.id).map(build).filter((n): n is MapNode => !!n)
     if (!own.length && !children.length) return undefined
     for (const f of own) used.add(f.path)

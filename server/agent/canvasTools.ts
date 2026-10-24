@@ -1,7 +1,9 @@
 import { createSdkMcpServer, tool } from '@anthropic-ai/claude-agent-sdk'
 import { z } from 'zod'
 import { toMermaid, type CanvasPatch } from '../../shared/canvas.ts'
+import { describeSource } from '../../shared/protocol.ts'
 import type { CanvasStore } from '../canvas/store.ts'
+import { codeHere, codeSourceOf } from '../git/repo.ts'
 
 const change = z.enum(['keep', 'result', 'modify', 'delete', 'add'])
 const member = z.object({ text: z.string(), change: z.enum(['add', 'modify', 'delete']).optional() })
@@ -55,6 +57,7 @@ export const INSTRUCTIONS = `Duet canvas: design maps the person reviews with yo
 - When asked to tag existing decisions, read the map, find the parts each decision shaped, and add decision (and, for a made decision, its chosen option) to them.
 - The person's canvas comments arrive as prompts that name the map and the target. Answer in chat, and update the map so the drawing matches what you said.
 - Keep the map and the code in step: when you change the code's structure, update the map in the same turn.
+- Each map is bound to the code it is about, and the person reviews that code beside it. When you build or change the code of a part, set the part's files (repo-relative paths) in the same turn: the review lists each changed file under the part that names it, and the map marks which parts are built.
 - The person can also edit the map directly (labels, status, notes, removals). Read the map before you change it, and keep their edits.`
 
 /** The canvas tools, written once: Duet's conversations get them over MCP, the terminal mod relays its calls to the server. */
@@ -68,6 +71,7 @@ export const CANVAS_TOOLS = {
       diagram: z.enum(['class', 'sequence']),
       title: z.string(),
       context: z.string().optional().describe('one or two sentences: what this map is for'),
+      code: z.string().optional().describe('only for a map made to review code that exists: what it reviews, "pr" (the PR of the checked-out branch), "pr:123", "branch:main...feature" or "commits:abc..def". Leave it out for a design map: it is bound to this tree from its current commit, so the code built from it shows in the review'),
     },
   },
   canvas_update: {
@@ -99,8 +103,8 @@ export const CANVAS_TOOLS = {
 
 export type CanvasToolName = keyof typeof CANVAS_TOOLS
 
-/** A terminal signs its revisions and replies; a Duet conversation is the session itself. */
-export type Caller = { terminal?: { id: string; label: string } }
+/** A terminal signs its revisions and replies; a Duet conversation is the session itself. `cwd`: where a new map's code is. */
+export type Caller = { terminal?: { id: string; label: string; cwd?: string }; cwd?: string }
 
 /** One canvas tool call on arguments its shape already checked; the text is what the agent reads. */
 export function runCanvasTool(store: CanvasStore, workspace: string, name: CanvasToolName, args: Record<string, unknown>, caller: Caller = {}): { text: string; isError?: boolean } {
@@ -112,7 +116,7 @@ export function runCanvasTool(store: CanvasStore, workspace: string, name: Canva
       case 'canvas_list': {
         const maps = store.list(workspace)
         if (!maps.length) return { text: caller.terminal ? 'No maps yet in this workspace. Create one with duet_map_create.' : 'No maps yet. Create one with canvas_create.' }
-        return { text: maps.map(m => `- ${m.name} (${m.diagram}, rev ${m.revision}): ${m.title}; ${m.elements} elements, ${m.openDecisions} open decisions, ${m.openThreads} open comment threads`).join('\n') }
+        return { text: maps.map(m => `- ${m.name} (${m.diagram}, rev ${m.revision}): ${m.title}; ${m.elements} elements, ${m.openDecisions} open decisions, ${m.openThreads} open comment threads${m.code ? `; its code: ${describeSource(m.code.source)} in ${m.code.root}` : ''}`).join('\n') }
       }
       case 'canvas_read': {
         const map = String(args.name)
@@ -121,6 +125,7 @@ export function runCanvasTool(store: CanvasStore, workspace: string, name: Canva
         const parts = [
           ...guide,
           `rev ${cur.revision}`,
+          ...(cur.code ? [`Its code (what the person reviews beside it): ${describeSource(cur.code.source)} in ${cur.code.root}.`] : []),
           '```json', JSON.stringify(cur.map, null, 1), '```',
           '```mermaid', toMermaid(cur.map).text, '```',
         ]
@@ -131,9 +136,15 @@ export function runCanvasTool(store: CanvasStore, workspace: string, name: Canva
         return { text: parts.join('\n') }
       }
       case 'canvas_create': {
-        const { name: map, diagram, title, context } = args as { name: string; diagram: 'class' | 'sequence'; title: string; context?: string }
-        const cur = store.create(workspace, map, diagram, title, context, 'agent', signed('새 지도'))
-        return { text: [...guide, `Created ${map} (rev ${cur.revision}). The person sees it on the Canvas tab.`].join('\n') }
+        const { name: map, diagram, title, context, code: asked } = args as { name: string; diagram: 'class' | 'sequence'; title: string; context?: string; code?: string }
+        const here = codeHere(caller.terminal?.cwd || caller.cwd || workspace, workspace)
+        const source = asked ? codeSourceOf(asked) : undefined
+        if (asked && !source) return { isError: true, text: `Nothing was made: code "${asked}" is not one of pr, pr:<number>, branch:<base>...<compare>, commits:<from>..<to>.` }
+        if (asked && !here) return { isError: true, text: 'Nothing was made: a map that reviews code needs a folder inside a git repository.' }
+        const code = here && source ? { ...here, source } : here
+        const cur = store.create(workspace, map, diagram, title, context, 'agent', signed('새 지도'), code)
+        const bound = code ? ` Its review shows ${describeSource(code.source)} in ${code.root}.` : ''
+        return { text: [...guide, `Created ${map} (rev ${cur.revision}). The person sees it on the Canvas tab.${bound}`].join('\n') }
       }
       case 'canvas_update': {
         const { name: map, note, baseRevision, ...rest } = args as { name: string; note: string; baseRevision?: number }
@@ -154,8 +165,9 @@ export function runCanvasTool(store: CanvasStore, workspace: string, name: Canva
 
 const result = (r: { text: string; isError?: boolean }) => ({ content: [{ type: 'text' as const, text: r.text }], ...(r.isError ? { isError: true } : {}) })
 
-export function canvasServer(store: CanvasStore, workspace: string) {
-  const run = (name: CanvasToolName) => async (args: Record<string, unknown>) => result(runCanvasTool(store, workspace, name, args))
+/** `cwd`: the tree the conversation works in now (a map it makes is about that code). */
+export function canvasServer(store: CanvasStore, workspace: string, cwd: () => string = () => workspace) {
+  const run = (name: CanvasToolName) => async (args: Record<string, unknown>) => result(runCanvasTool(store, workspace, name, args, { cwd: cwd() }))
   const { canvas_list: list, canvas_read: read, canvas_create: create, canvas_update: update, canvas_reply: reply } = CANVAS_TOOLS
   return createSdkMcpServer({
     name: 'duet',

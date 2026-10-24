@@ -1,6 +1,6 @@
 import { create } from 'zustand'
 import { diffMaps, type CanvasMap, type Delivery, type MapDiff } from '../../../shared/canvas.ts'
-import type { CanvasSummary, CanvasThread, SessionInfo } from '../../../shared/protocol.ts'
+import type { CanvasSummary, CanvasThread, MapCode, SessionInfo } from '../../../shared/protocol.ts'
 import { api, q, subscribe } from '../api.ts'
 import { local, useApp } from '../state.ts'
 
@@ -12,6 +12,8 @@ type CanvasState = {
   map?: CanvasMap
   /** Which map `map` is: `name` runs ahead of it while the next map loads. */
   mapName?: string
+  /** The code the map is about; the review shows it while the map is open. */
+  code?: MapCode
   revision: number
   history: HistoryItem[]
   threads: CanvasThread[]
@@ -106,7 +108,7 @@ export const useCanvas = create<CanvasState>((set, get) => ({
       const remembered = local.get(`canvas.current:${w}`)
       const pick = list.find(m => m.name === remembered) ?? list[0]
       if (pick) await get().open(pick.name)
-      else set({ name: undefined, map: undefined })
+      else set({ name: undefined, map: undefined, mapName: undefined, code: undefined })
     }
   },
 
@@ -129,9 +131,10 @@ export const useCanvas = create<CanvasState>((set, get) => ({
   reload: async () => {
     const w = ws(), name = get().name
     if (!w || !name) return
-    const data = await api.get<{ revision: number; map: CanvasMap; history: HistoryItem[]; threads: CanvasThread[]; deliveries: Record<string, Delivery> }>(`/api/canvas/${name}${q({ ws: w })}`)
+    const data = await api.get<{ revision: number; map: CanvasMap; code?: MapCode; history: HistoryItem[]; threads: CanvasThread[]; deliveries: Record<string, Delivery> }>(`/api/canvas/${name}${q({ ws: w })}`)
     const before = get().map
-    set({ map: data.map, mapName: name, revision: data.revision, history: data.history, threads: data.threads, deliveries: data.deliveries, loading: false })
+    const code = data.code && get().code && JSON.stringify(data.code) === JSON.stringify(get().code) ? get().code : data.code
+    set({ map: data.map, mapName: name, code, revision: data.revision, history: data.history, threads: data.threads, deliveries: data.deliveries, loading: false })
     if (before && get().name === name && before !== data.map) {
       const d = diffMaps(before, data.map)
       set({ glow: d })
