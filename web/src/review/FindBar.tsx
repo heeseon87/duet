@@ -54,7 +54,8 @@ export function FindBar({ scope, onClose }: { scope: () => HTMLElement | null; o
   const [index, setIndex] = useState(0)
   const ranges = useRef<Range[]>([])
   const input = useRef<HTMLInputElement>(null)
-  const reg = registry()
+  // Held, not called per render: the clean-up below is keyed on it and would wipe the marks on every render.
+  const [reg] = useState(registry)
 
   const paint = useCallback((i: number) => {
     if (!reg) return
