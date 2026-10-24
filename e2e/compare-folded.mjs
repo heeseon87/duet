@@ -21,8 +21,7 @@ if (shots) {
   await page.screenshot({ path: `${shots}/compare-folded.png`, clip: b })
 }
 // Unfolded, the changed box inside carries the mark itself; the badge goes with the folded box.
-const box = await page.$eval(`.stage-inner > svg .cv-node[data-target="${group}"]`, n => { const r = n.getBoundingClientRect(); return { x: r.left + r.width / 2, y: r.top + 10 } })
-await toggleFold(page, box.x, box.y); await sleep(1500)
+await toggleFold(page, group); await sleep(1500)
 const open_ = await page.evaluate(() => ({ marked: document.querySelectorAll('.stage-inner > svg .cv-node.cv-changed, .stage-inner > svg .cv-node.cv-new').length, badges: document.querySelectorAll('.stage-inner > svg .cv-inside').length }))
 check('unfolded: the box inside is marked, no badge left', open_.marked > 0 && open_.badges === 0, JSON.stringify(open_))
 await page.click('.unseen-banner button').catch(() => {})

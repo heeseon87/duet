@@ -3,7 +3,7 @@ import { ChevronsDownUp, ChevronsUpDown } from 'lucide-react'
 import { relationKey, shapedBy, toMermaid, type CanvasMap, type MapDiff } from '../../../shared/canvas.ts'
 import type { CodeMark } from '../../../shared/mapFiles.ts'
 import type { CanvasThread } from '../../../shared/protocol.ts'
-import { measure, morph, reducedMotion, type Morph } from './morph.ts'
+import { DURATION, measure, morph, reducedMotion, type Morph } from './morph.ts'
 
 type Mermaid = typeof import('mermaid').default
 let mermaidP: Promise<Mermaid> | undefined
@@ -84,11 +84,10 @@ type View = { x: number; y: number; k: number }
 /** The camera on the map shown last: back from the review tab it is where it was; any other map opens fitted. */
 let lastView: { key: string; view: View } | undefined
 
-/**
- * The package under the pointer and where its fold button goes, in stage pixels. It stands only on the camera, map
- * and folds it was placed on: a pan, zoom, fold or redraw puts it away until the pointer moves again.
- */
-type Hover = { target: string; left?: number; right?: number; top: number; view: View; map: CanvasMap; collapsed: Set<string> }
+/** A foldable package's frame in drawing units, measured with the drawing it belongs to, and whether that drawing shows it folded. */
+type Fold = { target: string; x: number; y: number; w: number; h: number; folded: boolean }
+/** A fold button's side, in screen pixels. */
+const FOLD_BTN = 22
 
 /** Low enough for the largest maps to fit whole; the wheel goes as far as a fit does. */
 const MIN_ZOOM = 0.05
@@ -126,11 +125,12 @@ export const MermaidStage = forwardRef<StageHandle, Props & { viewKey: string }>
   mapRef.current = map
   /** Parts to frame once the drawing that is on its way has settled. */
   const pendingFrame = useRef<string[] | undefined>(undefined)
-  const collapsedRef = useRef(collapsed)
-  collapsedRef.current = collapsed
-  const [hover, setHover] = useState<Hover>()
-  const hoverTimer = useRef<ReturnType<typeof setTimeout>>(undefined)
-  useEffect(() => () => clearTimeout(hoverTimer.current), [])
+  const [folds, setFolds] = useState<Fold[]>([])
+  /** A fold is sliding into place: the buttons wait for the frames to land. */
+  const [settling, setSettling] = useState(false)
+  const settleTimer = useRef<ReturnType<typeof setTimeout>>(undefined)
+  useEffect(() => () => clearTimeout(settleTimer.current), [])
+  const foldable = (id: string) => map.diagram === 'class' && map.elements.find(e => e.id === id)?.kind === 'group' && map.elements.some(e => e.parent === id)
 
   useEffect(() => { lastView = { key: viewKey, view } }, [view, viewKey])
   const viewRef = useRef(view)
@@ -267,6 +267,14 @@ export const MermaidStage = forwardRef<StageHandle, Props & { viewKey: string }>
         el.setAttribute('height', String(vb.height))
         el.style.maxWidth = 'none'
         annotate(el, id, map, p)
+        // Before pins and badges join the frames (they would grow them), and before a fold animates them.
+        const s = el.getBoundingClientRect(), ke = s.width / (vb.width || s.width)
+        setFolds([...el.querySelectorAll('[data-group]')].flatMap(g => {
+          const target = g.getAttribute('data-group')!
+          if (!foldable(target)) return []
+          const r = g.getBoundingClientRect()
+          return [{ target, x: (r.left - s.left) / ke, y: (r.top - s.top) / ke, w: r.width / ke, h: r.height / ke, folded: g.classList.contains('cv-node') }]
+        }))
         decorate(el, map, latest.current)
         flowZoom(el, Math.round(viewRef.current.k * 20) / 20)
         setError(null)
@@ -299,6 +307,9 @@ export const MermaidStage = forwardRef<StageHandle, Props & { viewKey: string }>
             running.current = undefined
           }
         }
+        clearTimeout(settleTimer.current)
+        setSettling(Boolean(running.current))
+        if (running.current) settleTimer.current = setTimeout(() => setSettling(false), DURATION + 60)
         const want = pendingFrame.current
         if (want) {
           pendingFrame.current = undefined
@@ -366,53 +377,21 @@ export const MermaidStage = forwardRef<StageHandle, Props & { viewKey: string }>
     if (e.button !== 0 || e.ctrlKey) return
     drag.current = { x: e.clientX, y: e.clientY, vx: view.x, vy: view.y, moved: false }
   }
-  const hovered = hover && hover.view === view && hover.map === map && hover.collapsed === collapsed && !gliding ? hover : undefined
-  const unhover = () => { clearTimeout(hoverTimer.current); setHover(undefined) }
   /**
-   * Where a package's fold button goes: beside its top right corner, clear of its pins and badges and of the lines that
-   * come in from above (beside the left corner when the right is out of room, inside the corner when both are).
+   * Where each package's fold button stands, in stage pixels: on its frame's top edge at the right corner, across from
+   * the decision pins at the left, so it stays inside its parent and off its neighbors. Off screen ones stay too (the
+   * stage clips them, the card covers them), so a glide that brings a corner in carries its button along. A package too
+   * small to hold one has none.
    */
-  const placeHover = (part: Element, target: string): Hover | undefined => {
-    // Mid-glide or mid-fold the parts are on their way: they would be measured where they pass, not where they land.
-    const stage = outer.current
-    if (!stage || stage.classList.contains('gliding') || stage.querySelector('.morph-overlay')) return undefined
-    const host = stage.getBoundingClientRect()
-    const at = { target, view: viewRef.current, map: mapRef.current, collapsed: collapsedRef.current }
-    const r = part.getBoundingClientRect()
-    const top = Math.max(4, r.top - host.top)
-    if (host.right - inset.current - r.right > 44) return { ...at, left: r.right - host.left + 4, top }
-    if (r.left - host.left > 44) return { ...at, right: host.right - r.left + 4, top }
-    return { ...at, right: Math.max(inset.current + 4, host.right - r.right + 4), top: top + 4 }
-  }
-  /**
-   * Being anywhere in a package (its frame, a box or a line inside it, its folded box) brings its fold button a moment
-   * later, the innermost package's when they nest; leaving takes the button away a moment later, so the pointer can reach it.
-   */
-  const sense = (e: React.PointerEvent) => {
-    if (e.pointerType === 'touch') return
-    clearTimeout(hoverTimer.current)
-    if ((e.target as Element).closest('.stage-hover')) return
-    const pkg = packageAt(e.clientX, e.clientY)
-    const target = pkg?.getAttribute('data-group')
-    if (target && target === hovered?.target) return
-    hoverTimer.current = setTimeout(() => setHover(pkg && target ? placeHover(pkg, target) : undefined), pkg ? 38 : 250)
-  }
-  const foldable = (id: string) => map.diagram === 'class' && map.elements.find(e => e.id === id)?.kind === 'group' && map.elements.some(e => e.parent === id)
-  /** The smallest foldable package drawn around this screen point. */
-  const packageAt = (x: number, y: number): Element | undefined => {
-    let best: Element | undefined, area = Infinity
-    for (const g of inner.current?.querySelectorAll(':scope > svg [data-group]') ?? []) {
-      const r = g.getBoundingClientRect()
-      if (x < r.left || x > r.right || y < r.top || y > r.bottom || r.width * r.height >= area || !foldable(g.getAttribute('data-group')!)) continue
-      best = g
-      area = r.width * r.height
-    }
-    return best
-  }
+  const foldButtons = settling ? [] : folds.flatMap(f => {
+    const l = view.x + f.x * view.k, t = view.y + f.y * view.k, r = l + f.w * view.k
+    const left = r - 8 - FOLD_BTN
+    return left < l + 4 || f.h * view.k < FOLD_BTN ? [] : [{ ...f, left, top: t - FOLD_BTN / 2 }]
+  })
 
   const onPointerMove = (e: React.PointerEvent) => {
     const d = drag.current
-    if (!d) { sense(e); return }
+    if (!d) return
     const dx = e.clientX - d.x, dy = e.clientY - d.y
     if (!d.moved && Math.hypot(dx, dy) < 4) return
     if (!d.moved) { d.moved = true; outer.current?.setPointerCapture(e.pointerId) }
@@ -431,7 +410,6 @@ export const MermaidStage = forwardRef<StageHandle, Props & { viewKey: string }>
   const onContextMenu = (e: React.MouseEvent) => {
     if (!onContext) return
     e.preventDefault()
-    unhover()
     const hit = (document.elementFromPoint(e.clientX, e.clientY) as Element | null)?.closest('[data-target]')
     onContext(hit?.getAttribute('data-target') ?? undefined, { x: e.clientX, y: e.clientY })
   }
@@ -454,18 +432,15 @@ export const MermaidStage = forwardRef<StageHandle, Props & { viewKey: string }>
       onPointerUp={onPointerUp}
       onDoubleClick={onDoubleClick}
       onContextMenu={onContextMenu}
-      onPointerLeave={unhover}
     >
       <div className="stage-inner" ref={inner} style={{ transform: `translate(${view.x}px, ${view.y}px) scale(${view.k})` }} />
-      {hovered && (
+      {foldButtons.map(f => (
         // Its own clicks: not a drag, a pick or a double-click of the stage underneath.
-        <div key={hovered.target} className="stage-hover" style={{ left: hovered.left, right: hovered.right, top: hovered.top }}
-          onPointerDown={e => e.stopPropagation()} onPointerUp={e => e.stopPropagation()} onDoubleClick={e => e.stopPropagation()}>
-          <button className="iconbtn" title={collapsed.has(hovered.target) ? 'Expand' : 'Collapse'} onClick={() => { unhover(); onToggleGroup(hovered.target) }}>
-            {collapsed.has(hovered.target) ? <ChevronsUpDown size={14} /> : <ChevronsDownUp size={14} />}
-          </button>
-        </div>
-      )}
+        <button key={f.target} className="stage-fold" data-group={f.target} title={f.folded ? 'Expand' : 'Collapse'} style={{ left: f.left, top: f.top }}
+          onPointerDown={e => e.stopPropagation()} onPointerUp={e => e.stopPropagation()} onDoubleClick={e => e.stopPropagation()} onClick={() => onToggleGroup(f.target)}>
+          {f.folded ? <ChevronsUpDown size={14} /> : <ChevronsDownUp size={14} />}
+        </button>
+      ))}
       {error && <div className="stage-error"><b>그리기 실패</b><pre>{error}</pre></div>}
       <div className="zoom-readout">{Math.round(view.k * 100)}%</div>
     </div>

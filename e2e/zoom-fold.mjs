@@ -1,8 +1,8 @@
 // Zooming to a part and folding a package without the menu: double-clicking a box or a package frames it (a package no
-// longer folds that way; a line or the empty canvas still fits the map), and hovering a package or a box or line inside
-// it brings that package's fold button (the innermost package's), which the pointer can reach; a pan or zoom puts it
-// away, and outside every package nothing does. With explore off, the info card a click opens narrows the stage, and
-// framing centers in what is left.
+// longer folds that way; a line or the empty canvas still fits the map), and every package that can fold shows its fold
+// button on its frame's top edge at the right corner, with no pointer near it; the buttons wait while a fold slides and
+// go with their corners through a wheel, a drag and a glide. With explore off, the info card a click opens narrows the
+// stage, framing centers in what is left, and the card covers the buttons under it.
 //   DUET_PORT=7981 DUET_TOKEN=... DUET_WS=<workspace> DUET_SHOTS=/dir node e2e/zoom-fold.mjs   (makes and removes a map named zoom-fold)
 import { open, sleep } from './browser.mjs'
 const port = Number(process.env.DUET_PORT ?? 7979)
@@ -45,8 +45,18 @@ const rect = sel => page.$eval(sel, e => { const r = e.getBoundingClientRect(); 
 const node = id => `.stage-inner > svg .cv-node[data-target="${id}"]`
 const cluster = id => `.stage-inner > svg .cv-cluster[data-target="${id}"]`
 const stage = () => rect('.stage-canvas')
-const toolbar = () => page.$('.stage-hover')
-const buttons = () => page.$$eval('.stage-hover button', bs => bs.map(b => b.title))
+const groups = () => page.$$eval('.stage-fold', bs => bs.map(b => b.dataset.group).sort())
+/** For each fold button, whether it stands on its package's top edge at the right corner (measured at one instant). */
+const corners = (tol = 2) => page.evaluate(tol => {
+  const out = {}
+  for (const b of document.querySelectorAll('.stage-fold')) {
+    const f = document.querySelector(`.stage-inner > svg [data-group="${CSS.escape(b.dataset.group)}"]`)?.getBoundingClientRect()
+    const r = b.getBoundingClientRect()
+    out[b.dataset.group] = Boolean(f) && Math.abs(r.top + r.height / 2 - f.top) < tol && Math.abs(r.right - (f.right - 8)) < tol
+  }
+  return out
+}, tol)
+const allOn = o => Object.keys(o).length > 0 && Object.values(o).every(Boolean)
 const zoom = () => page.$eval('.zoom-readout', e => e.textContent)
 /** The part's middle lies in the stage's middle. */
 const centered = async sel => { const s = await stage(), r = await rect(sel); return { ok: Math.abs(r.x - s.x) < 10 && Math.abs(r.y - s.y) < 10, dx: Math.round(r.x - s.x), dy: Math.round(r.y - s.y) } }
@@ -66,86 +76,54 @@ const pointOn = (k, inside = [], outside = []) => page.evaluate(([k, inside, out
 }, [k, inside, outside])
 const line = 'api2->store1:association'
 
-// 1. A package: its fold button, beside its top right corner, reachable; it folds and unfolds.
+// 1. Every package that can fold shows its button on its frame's top right corner, with the pointer nowhere near.
+await page.mouse.move(1, 1)
 await page.keyboard.press('f'); await sleep(600)
-let c = await rect(`${cluster('store')} rect`)
-await page.mouse.move(c.left + 12, c.top + 8); await sleep(150)
-check('hovering a package shows only its fold button', JSON.stringify(await buttons()) === '["Collapse"]', JSON.stringify(await buttons()))
-const pkg = await rect(cluster('store'))
-const bar = await rect('.stage-hover')
-check('beside the package, at its top right corner', bar.left >= pkg.right && bar.left - pkg.right < 10 && Math.abs(bar.top - pkg.top) < 2, JSON.stringify({ bar, pkg }))
+check('every foldable package has a button, unhovered', JSON.stringify(await groups()) === '["api","auth","store"]', JSON.stringify(await groups()))
+check('each on its frame\'s top edge at the right corner', allOn(await corners()), JSON.stringify(await corners()))
+const inner = await rect('.stage-fold[data-group="auth"]'), outer_ = await rect(cluster('api'))
+check('a nested package\'s button stays inside its parent', inner.left > outer_.left && inner.right < outer_.right && inner.top > outer_.top, JSON.stringify({ inner, outer_ }))
 await shot('package')
-// Over empty canvas first, as a hand travelling to the button would go.
-await page.mouse.move(bar.left - 2, bar.y); await sleep(100)
-await page.mouse.move(bar.x, bar.y); await sleep(400)
-check('the pointer can reach the button', Boolean(await toolbar()))
-await page.mouse.click(bar.x, bar.y); await sleep(1200)
+
+// 2. A click folds and unfolds; the buttons wait while the fold slides, then stand on the new frames.
+await page.click('.stage-fold[data-group="store"]')
+const waited = await page.waitForFunction(() => document.querySelector('.morph-overlay') && !document.querySelector('.stage-fold'), undefined, { timeout: 3000 }).then(() => true, () => false)
+check('while the fold slides, the buttons wait', waited)
+await sleep(1000)
 check('Collapse folds the package', Boolean(await page.$(node('store'))) && !(await page.$(cluster('store'))))
 check('clicking the button did not pick anything under it', !(await page.$('.stage-inner > svg .cv-sel')))
-const folded = await rect(node('store'))
-await page.mouse.move(folded.x, folded.y); await sleep(250)
-check('the folded package offers Expand', JSON.stringify(await buttons()) === '["Expand"]', JSON.stringify(await buttons()))
-await page.click('.stage-hover button[title="Expand"]'); await sleep(1200)
-check('Expand unfolds it', Boolean(await page.$(cluster('store'))))
+const title = id => page.$eval(`.stage-fold[data-group="${id}"]`, b => b.title).catch(() => null)
+check('the folded package offers Expand', await title('store') === 'Expand', String(await title('store')))
+check('after the fold, every button is on its new corner', allOn(await corners()), JSON.stringify(await corners()))
+await page.click('.stage-fold[data-group="store"]'); await sleep(1200)
+check('Expand unfolds it', Boolean(await page.$(cluster('store'))) && await title('store') === 'Collapse')
 
-// 2. A pan or a zoom puts it away.
-c = await rect(`${cluster('store')} rect`)
-await page.mouse.move(c.left + 12, c.top + 8); await sleep(250)
-check('back over the package, the button is back', Boolean(await toolbar()))
-await page.mouse.wheel(0, 120); await sleep(300)
-check('the wheel puts it away', !(await toolbar()))
-
-// 3. Inside a package, a box or a line brings that package's button (the innermost one's); outside every package, nothing.
-await page.keyboard.press('f'); await sleep(600)
-/** The button stands beside this package's top right corner. */
-const beside = async id => {
-  const p = await rect(cluster(id)), t = (await toolbar()) && await rect('.stage-hover')
-  return { ok: Boolean(t && t.left >= p.right && t.left - p.right < 10 && Math.abs(t.top - p.top) < 2), buttons: await buttons() }
-}
-let b = await rect(node('api1'))
-await page.mouse.move(b.x, b.y); await sleep(250)
-check('a box in a package brings the package\'s button', (await beside('api')).ok, JSON.stringify(await beside('api')))
-b = await rect(node('auth1'))
-await page.mouse.move(b.x, b.y); await sleep(250)
-check('a box in a nested package brings the inner package\'s button', (await beside('auth')).ok, JSON.stringify(await beside('auth')))
-const inApi = await pointOn('api1->api2:association', ['api'], ['auth'])
-await page.mouse.move(inApi.x, inApi.y); await sleep(250)
-check('a line inside a package brings the package\'s button', (await beside('api')).ok, JSON.stringify({ inApi, ...(await beside('api')) }))
-b = await rect(node('solo'))
-await page.mouse.move(b.x, b.y); await sleep(400)
-check('a box outside every package brings no button', !(await toolbar()))
-const between = await pointOn(line, [], ['api', 'store'])
-await page.mouse.move(between.x, between.y); await sleep(400)
-check('a line outside every package brings no button', !(await toolbar()), JSON.stringify(between))
-b = await rect(node('store1'))
-await page.mouse.move(b.x, b.y); await sleep(250)
-await page.click('.stage-hover button'); await sleep(1200)
-check('the button a box brings folds its package', Boolean(await page.$(node('store'))) && !(await page.$(cluster('store'))))
-const shut = await rect(node('store'))
-await page.mouse.move(shut.x, shut.y); await sleep(250)
-await page.click('.stage-hover button[title="Expand"]'); await sleep(1200)
+// 3. The buttons go with their corners: a wheel, a drag, and a glide all the way through.
+const s0 = await stage()
+await page.mouse.move(s0.left + 40, s0.bottom - 60)
+await page.mouse.wheel(0, -240); await sleep(300)
+check('after a wheel zoom, still on their corners', allOn(await corners()), JSON.stringify(await corners()))
+await page.mouse.down(); await page.mouse.move(s0.left + 160, s0.bottom - 120, { steps: 6 }); await page.mouse.up(); await sleep(200)
+check('after a drag, still on their corners', allOn(await corners()), JSON.stringify(await corners()))
+await page.keyboard.press('f'); await sleep(140)
+check('mid-glide, they move with the drawing', allOn(await corners(3)), JSON.stringify(await corners(3)))
+await sleep(600)
 
 // 4. Double-click: a box or a package frames it; the package stays open; a line or the empty canvas fits the map.
 await page.keyboard.press('f'); await sleep(600)
-b = await rect(node('auth2'))
+let b = await rect(node('auth2'))
 await page.mouse.dblclick(b.x, b.y); await sleep(700)
 check('double-clicking a box frames it', (await centered(node('auth2'))).ok, JSON.stringify(await centered(node('auth2'))))
 await page.keyboard.press('f'); await sleep(600)
-c = await rect(`${cluster('auth')} rect`)
+let c = await rect(`${cluster('auth')} rect`)
 await page.mouse.dblclick(c.left + 12, c.top + 8); await sleep(700)
 check('double-clicking a package frames it', (await centered(`${cluster('auth')} rect`)).ok, JSON.stringify(await centered(`${cluster('auth')} rect`)))
 check('and leaves it unfolded', Boolean(await page.$(cluster('auth'))) && !(await page.$(node('auth'))))
-// The pointer arrived and double-clicked at once: the button's moment came mid-glide, and it is not placed where the package passed.
-check('a double-click on arrival leaves no stray button', !(await toolbar()))
 await shot('package-framed')
 const zoomed = await zoom()
 const now = await pointOn(line)
 await page.mouse.dblclick(now.x, now.y); await sleep(700)
 check('double-clicking a line fits the whole map', await zoom() !== zoomed, `${zoomed} → ${await zoom()}`)
-
-await page.mouse.move(c.left + 12, c.top + 8); await sleep(250)
-await page.mouse.move(5, 5); await sleep(400)
-check('leaving the stage puts the button away', !(await toolbar()))
 
 // 5. Explore off, as by default: a click opens the info card, and framing centers in what the card leaves of the stage.
 await page.evaluate(() => localStorage.setItem('duet.canvas.explore', '0'))
@@ -164,6 +142,19 @@ await page.keyboard.press('f'); await sleep(600)
 c = await rect(`${cluster('store')} rect`)
 await page.mouse.dblclick(c.left + 12, c.top + 8); await sleep(800)
 check('explore off: double-clicking a package centers it beside the info card', (await leftOf(`${cluster('store')} rect`)).ok, JSON.stringify(await leftOf(`${cluster('store')} rect`)))
+// Slide the map sideways until the api package's top right corner lies under the card: the card covers its button.
+await page.keyboard.press('f'); await sleep(600)
+const card = await rect('.inspector'), s1 = await stage()
+await page.mouse.move(s1.left + 30, s1.y)
+for (let i = 0; i < 30 && (await rect(cluster('api'))).right < card.left + 60; i++) { await page.mouse.wheel(-40, 0); await sleep(30) }
+await sleep(200)
+const underCard = await page.evaluate(() => {
+  const r = document.querySelector('.stage-fold[data-group="api"]')?.getBoundingClientRect()
+  const c = document.querySelector('.inspector')?.getBoundingClientRect()
+  return r && c && { under: r.left > c.left && r.top > c.top, covered: Boolean(document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2)?.closest('.inspector')) }
+})
+await shot('card')
+check('a button under the info card is covered by it', underCard?.under && underCard.covered, JSON.stringify(underCard))
 
 await call('DELETE', `/api/canvas/${NAME}?ws=${W}`)
 if (errors.length) { failed++; console.log('page errors', errors.slice(0, 3)) }

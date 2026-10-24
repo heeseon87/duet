@@ -5,7 +5,7 @@
 
 import type { CanvasMap } from '../../../shared/canvas.ts'
 
-const DURATION = 420
+export const DURATION = 420
 const EASE = 'cubic-bezier(.2, .75, .2, 1)'
 const BOXES = '.cv-node[data-target], .cv-cluster[data-target], .cv-actor[data-target]'
 // Lines fade as whole layers (a few groups), not one animation per line.

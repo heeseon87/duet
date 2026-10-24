@@ -38,13 +38,7 @@ export async function open({ port = 7981, token, ws, width = 1480, height = 920,
 
 export const sleep = ms => new Promise(r => setTimeout(r, ms))
 
-/**
- * Folds or unfolds the package at this point with the button that hovering it brings up. The pointer leaves the stage
- * first: a button an outer package already shows would otherwise be clicked before the inner one's takes its place.
- */
-export async function toggleFold(page, x, y) {
-  await page.mouse.move(1, 1)
-  await page.mouse.move(x, y)
-  const button = await page.waitForSelector('.stage-hover button[title="Collapse"], .stage-hover button[title="Expand"]', { timeout: 3000 })
-  await button.click()
+/** Folds or unfolds this package with the button on its frame's top right corner. */
+export async function toggleFold(page, id) {
+  await page.click(`.stage-fold[data-group="${id}"]`, { timeout: 3000 })
 }

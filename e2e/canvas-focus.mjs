@@ -79,9 +79,8 @@ await shot('class-selected')
 await page.keyboard.press('Escape'); await sleep(300)
 
 // 3. Folding animates, keeps the package in place, and cleans up after itself.
-c = await clusterCenter(nested)
 const wasBox = await page.$eval(`.stage-inner > svg .cv-cluster[data-target="${nested}"] rect`, r => { const b = r.getBoundingClientRect(); return { x: b.left, y: b.top } })
-await toggleFold(page, c.x, c.y)
+await toggleFold(page, nested)
 await page.waitForSelector('.morph-overlay', { timeout: 3000 }).catch(() => {})
 const during = await page.evaluate(() => ({ anims: document.getAnimations().filter(a => a instanceof CSSTransition === false).length, overlays: document.querySelectorAll('.morph-overlay').length }))
 check('folding animates', during.anims > 0 && during.overlays === 1, JSON.stringify(during))
@@ -102,8 +101,7 @@ check('after folding: no animation, overlay or inline style left', done.anims ==
 check('the folded package stayed in place', Math.abs(done.x - wasBox.x) < 6 && Math.abs(done.y - wasBox.y) < 6, JSON.stringify({ was: wasBox, now: { x: done.x, y: done.y } }))
 await shot('folded')
 // Quick double toggles must not leave two drawings behind.
-const nb = await page.$eval(`.stage-inner > svg .cv-node[data-target="${nested}"]`, n => { const b = n.getBoundingClientRect(); return { x: b.left + b.width / 2, y: b.top + 10 } })
-await toggleFold(page, nb.x, nb.y); await sleep(90)
+await toggleFold(page, nested); await sleep(90)
 await page.click('button:has-text("Collapse all")'); await sleep(60)
 await page.click('button:has-text("Expand all")'); await sleep(900)
 const calm = await page.evaluate(() => ({ svgs: document.querySelectorAll('.stage-inner > svg').length, overlays: document.querySelectorAll('.morph-overlay').length, clusters: document.querySelectorAll('.stage-inner > svg .cv-cluster').length }))
