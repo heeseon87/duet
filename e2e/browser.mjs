@@ -37,3 +37,10 @@ export async function open({ port = 7981, token, ws, width = 1480, height = 920,
 }
 
 export const sleep = ms => new Promise(r => setTimeout(r, ms))
+
+/** Folds or unfolds the package at this point with the button that hovering it brings up. */
+export async function toggleFold(page, x, y) {
+  await page.mouse.move(x, y)
+  const button = await page.waitForSelector('.stage-hover button[title="Collapse"], .stage-hover button[title="Expand"]', { timeout: 3000 })
+  await button.click()
+}

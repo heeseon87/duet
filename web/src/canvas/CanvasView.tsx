@@ -10,7 +10,7 @@ import { api } from '../api.ts'
 import { local, useApp } from '../state.ts'
 import { Popover, relTime } from '../lib/ui.tsx'
 import { Markdown } from '../lib/Markdown.tsx'
-import { MermaidStage, type StageHandle } from './MermaidStage.tsx'
+import { MermaidStage, partIds, type StageHandle } from './MermaidStage.tsx'
 import { ContextMenu, FloatAt, type MenuEntry, type Point } from './ContextMenu.tsx'
 import { confirmDialog } from '../lib/confirm.tsx'
 import { download, standaloneSvg } from './exportSvg.ts'
@@ -696,8 +696,7 @@ export function CanvasView() {
         out.push({ kind: 'item', key: 'fold', icon: folded ? <ChevronsUpDown size={14} /> : <ChevronsDownUp size={14} />, label: folded ? 'Expand' : 'Collapse', run: () => s.toggleCollapse(el.id) })
         out.push({ kind: 'item', key: 'solo', icon: <ListCollapse size={14} />, label: '이것만 펼치기', run: () => { const changed = s.soloExpand(el.id); stage.current?.frame([el.id], changed) } })
       }
-      // A message alone: its ends are whole lifelines.
-      out.push(zoomTo(rel ? [rel.from, rel.to, t] : [t]))
+      out.push(zoomTo(partIds(map, t)))
       // Only top-level packages: the layout keeps their order; a box tied by lines (or a package
       // inside another) goes where the lines put it, whatever the order says.
       if (el?.kind === 'group' && !el.parent && map.diagram === 'class' && !readOnly) {

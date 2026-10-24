@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useImperativeHandle, useLayoutEffect, useRef, useState, forwardRef } from 'react'
+import { ChevronsDownUp, ChevronsUpDown, ZoomIn } from 'lucide-react'
 import { relationKey, shapedBy, toMermaid, type CanvasMap, type MapDiff } from '../../../shared/canvas.ts'
 import type { CodeMark } from '../../../shared/mapFiles.ts'
 import type { CanvasThread } from '../../../shared/protocol.ts'
@@ -83,8 +84,22 @@ type View = { x: number; y: number; k: number }
 /** The camera on the map shown last: back from the review tab it is where it was; any other map opens fitted. */
 let lastView: { key: string; view: View } | undefined
 
+/**
+ * The part under the pointer and where its buttons go, in stage pixels. They stand only on the camera, map and
+ * folds they were placed on: a pan, zoom, fold or redraw puts them away until the pointer moves again.
+ */
+type Hover = { target: string; line: boolean; left?: number; right?: number; top: number; view: View; map: CanvasMap; collapsed: Set<string> }
+
 /** Low enough for the largest maps to fit whole; the wheel goes as far as a fit does. */
 const MIN_ZOOM = 0.05
+/** Drawn lines and messages, and their labels: everything with a target that is not a box. */
+const LINES = '.cv-edge, .cv-edge-hit, .cv-label, .cv-msg, .cv-msg-text'
+
+/** What zooming to a part brings on screen: a line comes with the boxes at its ends; a message alone (its ends are whole lifelines). */
+export function partIds(map: CanvasMap, target: string): string[] {
+  const rel = map.relations.find(r => relationKey(r) === target)
+  return rel ? [rel.from, rel.to, target] : [target]
+}
 
 export const MermaidStage = forwardRef<StageHandle, Props & { viewKey: string }>(function MermaidStage(props, ref) {
   const { map, collapsed, ghostsFrom, glow, selected, threads, code, onSelect, onToggleGroup, onContext, viewKey } = props
@@ -111,6 +126,11 @@ export const MermaidStage = forwardRef<StageHandle, Props & { viewKey: string }>
   mapRef.current = map
   /** Parts to frame once the drawing that is on its way has settled. */
   const pendingFrame = useRef<string[] | undefined>(undefined)
+  const collapsedRef = useRef(collapsed)
+  collapsedRef.current = collapsed
+  const [hover, setHover] = useState<Hover>()
+  const hoverTimer = useRef<ReturnType<typeof setTimeout>>(undefined)
+  useEffect(() => () => clearTimeout(hoverTimer.current), [])
 
   useEffect(() => { lastView = { key: viewKey, view } }, [view, viewKey])
   const viewRef = useRef(view)
@@ -346,9 +366,42 @@ export const MermaidStage = forwardRef<StageHandle, Props & { viewKey: string }>
     if (e.button !== 0 || e.ctrlKey) return
     drag.current = { x: e.clientX, y: e.clientY, vx: view.x, vy: view.y, moved: false }
   }
+  const hovered = hover && hover.view === view && hover.map === map && hover.collapsed === collapsed && !gliding ? hover : undefined
+  const unhover = () => { clearTimeout(hoverTimer.current); setHover(undefined) }
+  /**
+   * A part's buttons. A box's stand beside its top right corner, clear of its pins and badges and of the lines that
+   * come in from above (beside the left corner when the right is out of room, inside the corner when both are); a line's wait beside the pointer.
+   */
+  const placeHover = (part: Element, target: string, x: number, y: number): Hover | undefined => {
+    // Mid-glide or mid-fold the parts are on their way: they would be measured where they pass, not where they land.
+    const stage = outer.current
+    if (!stage || stage.classList.contains('gliding') || stage.querySelector('.morph-overlay')) return undefined
+    const host = stage.getBoundingClientRect()
+    const at = { target, view: viewRef.current, map: mapRef.current, collapsed: collapsedRef.current }
+    if (part.matches(LINES)) return { ...at, line: true, left: x - host.left + 12, top: Math.max(4, y - host.top - 40) }
+    const r = part.getBoundingClientRect()
+    const top = Math.max(4, r.top - host.top)
+    if (host.right - inset.current - r.right > 72) return { ...at, line: false, left: r.right - host.left + 4, top }
+    if (r.left - host.left > 72) return { ...at, line: false, right: host.right - r.left + 4, top }
+    return { ...at, line: false, right: Math.max(inset.current + 4, host.right - r.right + 4), top: top + 4 }
+  }
+  /** Hovering a part brings its buttons a moment later; leaving it takes them away a moment later, so the pointer can reach them. */
+  const sense = (e: React.PointerEvent) => {
+    if (e.pointerType === 'touch') return
+    clearTimeout(hoverTimer.current)
+    const at = e.target as Element
+    if (at.closest('.stage-hover')) return
+    const part = at.closest('[data-target]')
+    const target = part?.getAttribute('data-target')
+    if (target && target === hovered?.target) return
+    const { clientX, clientY } = e
+    hoverTimer.current = setTimeout(() => setHover(part && target ? placeHover(part, target, clientX, clientY) : undefined), part ? 150 : 250)
+  }
+  const foldable = (id: string) => map.diagram === 'class' && map.elements.find(e => e.id === id)?.kind === 'group' && map.elements.some(e => e.parent === id)
+
   const onPointerMove = (e: React.PointerEvent) => {
     const d = drag.current
-    if (!d) return
+    if (!d) { sense(e); return }
     const dx = e.clientX - d.x, dy = e.clientY - d.y
     if (!d.moved && Math.hypot(dx, dy) < 4) return
     if (!d.moved) { d.moved = true; outer.current?.setPointerCapture(e.pointerId) }
@@ -367,14 +420,18 @@ export const MermaidStage = forwardRef<StageHandle, Props & { viewKey: string }>
   const onContextMenu = (e: React.MouseEvent) => {
     if (!onContext) return
     e.preventDefault()
+    unhover()
     const hit = (document.elementFromPoint(e.clientX, e.clientY) as Element | null)?.closest('[data-target]')
     onContext(hit?.getAttribute('data-target') ?? undefined, { x: e.clientX, y: e.clientY })
   }
+  // A box or a package comes to the middle of the screen (after the click's own pick has settled); a line or the empty canvas fits the whole drawing.
   const onDoubleClick = (e: React.MouseEvent) => {
     if ((e.target as Element).closest('[data-pin]')) return
-    const hit = (e.target as Element).closest('[data-group]')
-    if (hit) onToggleGroup(hit.getAttribute('data-group')!)
-    else fit()
+    const box = (e.target as Element).closest('[data-target]')
+    if (box && !box.matches(LINES)) {
+      const ids = partIds(map, box.getAttribute('data-target')!)
+      requestAnimationFrame(() => frameNow(ids))
+    } else fit()
   }
 
   return (
@@ -386,8 +443,21 @@ export const MermaidStage = forwardRef<StageHandle, Props & { viewKey: string }>
       onPointerUp={onPointerUp}
       onDoubleClick={onDoubleClick}
       onContextMenu={onContextMenu}
+      onPointerLeave={unhover}
     >
       <div className="stage-inner" ref={inner} style={{ transform: `translate(${view.x}px, ${view.y}px) scale(${view.k})` }} />
+      {hovered && (
+        // Its own clicks: not a drag, a pick or a double-click of the stage underneath.
+        <div key={hovered.target} className="stage-hover fade-in" style={{ left: hovered.left, right: hovered.right, top: hovered.top }}
+          onPointerDown={e => e.stopPropagation()} onPointerUp={e => e.stopPropagation()} onDoubleClick={e => e.stopPropagation()}>
+          <button className="iconbtn" title={hovered.line ? 'Zoom to this' : 'Zoom to this (double-click)'} onClick={() => { unhover(); frameNow(partIds(map, hovered.target)) }}><ZoomIn size={14} /></button>
+          {foldable(hovered.target) && (
+            <button className="iconbtn" title={collapsed.has(hovered.target) ? 'Expand' : 'Collapse'} onClick={() => { unhover(); onToggleGroup(hovered.target) }}>
+              {collapsed.has(hovered.target) ? <ChevronsUpDown size={14} /> : <ChevronsDownUp size={14} />}
+            </button>
+          )}
+        </div>
+      )}
       {error && <div className="stage-error"><b>그리기 실패</b><pre>{error}</pre></div>}
       <div className="zoom-readout">{Math.round(view.k * 100)}%</div>
     </div>

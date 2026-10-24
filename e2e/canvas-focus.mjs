@@ -1,6 +1,6 @@
 // Canvas: nested packages select and fold, selection dims lightly, folding animates and cleans up.
 //   DUET_PORT=7981 DUET_TOKEN=... DUET_WS=... DUET_MAP=<map with nested packages> DUET_NESTED=<nested package id> DUET_SHOTS=/dir node e2e/canvas-focus.mjs
-import { open, sleep } from './browser.mjs'
+import { open, sleep, toggleFold } from './browser.mjs'
 const port = Number(process.env.DUET_PORT ?? 7979)
 const { DUET_TOKEN: T, DUET_WS: ws, DUET_MAP: mapName, DUET_NESTED: nested, DUET_SHOTS: shots } = process.env
 const theme = process.env.DUET_THEME ?? 'light'
@@ -81,7 +81,7 @@ await page.keyboard.press('Escape'); await sleep(300)
 // 3. Folding animates, keeps the package in place, and cleans up after itself.
 c = await clusterCenter(nested)
 const wasBox = await page.$eval(`.stage-inner > svg .cv-cluster[data-target="${nested}"] rect`, r => { const b = r.getBoundingClientRect(); return { x: b.left, y: b.top } })
-await page.mouse.dblclick(c.x, c.y)
+await toggleFold(page, c.x, c.y)
 await page.waitForSelector('.morph-overlay', { timeout: 3000 }).catch(() => {})
 const during = await page.evaluate(() => ({ anims: document.getAnimations().filter(a => a instanceof CSSTransition === false).length, overlays: document.querySelectorAll('.morph-overlay').length }))
 check('folding animates', during.anims > 0 && during.overlays === 1, JSON.stringify(during))
@@ -103,7 +103,7 @@ check('the folded package stayed in place', Math.abs(done.x - wasBox.x) < 6 && M
 await shot('folded')
 // Quick double toggles must not leave two drawings behind.
 const nb = await page.$eval(`.stage-inner > svg .cv-node[data-target="${nested}"]`, n => { const b = n.getBoundingClientRect(); return { x: b.left + b.width / 2, y: b.top + 10 } })
-await page.mouse.dblclick(nb.x, nb.y); await sleep(90)
+await toggleFold(page, nb.x, nb.y); await sleep(90)
 await page.click('button:has-text("Collapse all")'); await sleep(60)
 await page.click('button:has-text("Expand all")'); await sleep(900)
 const calm = await page.evaluate(() => ({ svgs: document.querySelectorAll('.stage-inner > svg').length, overlays: document.querySelectorAll('.morph-overlay').length, clusters: document.querySelectorAll('.stage-inner > svg .cv-cluster').length }))

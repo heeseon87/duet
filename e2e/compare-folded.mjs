@@ -1,6 +1,6 @@
 // Comparing with the previous revision marks a folded package that hides a change, and its badge says what changed.
 //   DUET_PORT=7981 DUET_TOKEN=... DUET_WS=... DUET_MAP=<map whose last revision changed something inside DUET_GROUP> DUET_GROUP=<package> DUET_SHOTS=/dir node e2e/compare-folded.mjs
-import { open, sleep } from './browser.mjs'
+import { open, sleep, toggleFold } from './browser.mjs'
 const port = Number(process.env.DUET_PORT ?? 7979)
 const { DUET_TOKEN: T, DUET_WS: ws, DUET_MAP: mapName, DUET_GROUP: group, DUET_SHOTS: shots } = process.env
 const { browser, page, errors } = await open({ port, token: T, ws, width: 1500, height: 1000 })
@@ -22,7 +22,7 @@ if (shots) {
 }
 // Unfolded, the changed box inside carries the mark itself; the badge goes with the folded box.
 const box = await page.$eval(`.stage-inner > svg .cv-node[data-target="${group}"]`, n => { const r = n.getBoundingClientRect(); return { x: r.left + r.width / 2, y: r.top + 10 } })
-await page.mouse.dblclick(box.x, box.y); await sleep(1500)
+await toggleFold(page, box.x, box.y); await sleep(1500)
 const open_ = await page.evaluate(() => ({ marked: document.querySelectorAll('.stage-inner > svg .cv-node.cv-changed, .stage-inner > svg .cv-node.cv-new').length, badges: document.querySelectorAll('.stage-inner > svg .cv-inside').length }))
 check('unfolded: the box inside is marked, no badge left', open_.marked > 0 && open_.badges === 0, JSON.stringify(open_))
 await page.click('.unseen-banner button').catch(() => {})
