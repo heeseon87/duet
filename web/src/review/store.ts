@@ -49,6 +49,8 @@ type ReviewState = {
   /** Follows the map on the canvas (none: the review is free again). */
   bind: (b: ReviewState['bound']) => Promise<void>
   editCode: () => void
+  /** Back from one turn to the whole of the map's code. */
+  showMapCode: () => void
   /** Saves what the review shows now as the map's code. */
   saveCode: () => Promise<void>
   cancelCode: () => Promise<void>
@@ -87,10 +89,13 @@ type ReviewState = {
   send: (ids: string[], extra?: string, newSession?: boolean) => Promise<void>
 }
 
-/** While a map's code is bound, a pick elsewhere is refused: the person changes the map's code instead. */
-function held(): boolean {
+/**
+ * While a map's code is bound, a pick elsewhere is refused: the person changes the map's code instead. A turn is not
+ * elsewhere: it narrows the review to what that turn changed in the map's tree, as a part of the map narrows it.
+ */
+function held(source?: DiffSource): boolean {
   const { bound, editing } = useReview.getState()
-  if (!bound || editing) return false
+  if (!bound || editing || source?.kind === 'turn') return false
   useApp.getState().toast(`지도 «${bound.title}»의 코드를 보는 중이야. 다른 걸 보려면 '코드 기준 바꾸기'로 지도의 기준을 바꿔 줘`)
   return true
 }
@@ -177,7 +182,20 @@ export const useReview = create<ReviewState>((set, get) => ({
     await get().open(b.code.root)
   },
 
-  editCode: () => { if (get().bound) set({ editing: true }) },
+  editCode: () => {
+    const b = get().bound
+    if (!b) return
+    // Changing the map's code starts from the map's code, not from one turn of it.
+    if (get().source.kind === 'turn') get().showMapCode()
+    set({ editing: true })
+  },
+
+  showMapCode: () => {
+    const b = get().bound
+    if (!b) return
+    set({ source: b.code.source, diff: undefined, selected: undefined, draft: undefined, fileView: undefined })
+    void get().refresh()
+  },
 
   saveCode: async () => {
     const { bound, root, source, home } = get()
@@ -253,7 +271,7 @@ export const useReview = create<ReviewState>((set, get) => ({
   },
 
   setSource: source => {
-    if (held()) return
+    if (held(source)) return
     const root = get().root
     if (root && source.kind !== 'turn' && !get().bound) local.set(`review.source:${root}`, JSON.stringify(source))
     set({ source, diff: undefined, selected: undefined, draft: undefined, fileView: undefined })
@@ -261,7 +279,8 @@ export const useReview = create<ReviewState>((set, get) => ({
   },
 
   setTurnSource: (sessionId, turnId, root) => {
-    if (held()) return
+    // A bound map: that turn within the map's code, in its tree.
+    if (get().bound && !get().editing) { get().setSource({ kind: 'turn', sessionId, turnId }); return }
     const source: DiffSource = { kind: 'turn', sessionId, turnId }
     if (!get().root || (root && root !== get().root)) {
       set({ pending: source })
@@ -272,13 +291,16 @@ export const useReview = create<ReviewState>((set, get) => ({
   },
 
   showLastTurn: async (sessionId, move) => {
-    if (held()) return
     const { sessions, toast } = useApp.getState()
-    const root = (move && sessions.find(s => s.id === sessionId)?.workTree) || get().root
+    // A bound map: the last turn that changed files in the map's tree, whichever tree the conversation works in.
+    const within = Boolean(get().bound && !get().editing)
+    const root = (!within && move && sessions.find(s => s.id === sessionId)?.workTree) || get().root
     if (!root) return
     const turns = await turnRefs(sessionId, root).catch((e: Error) => { toast(e.message, 'error'); return undefined })
     if (!turns) return
     const last = turns.filter(changedFiles).pop()
+    if (within && !last) { toast('이 대화에는 지도의 코드에서 파일을 바꾼 턴이 없어'); return }
+    if (within && last && last.files === undefined) { toast(`턴 ${last.n}은 기록이 없는 옛 턴이라 지도의 코드 안에서 좁혀 볼 수 없어`); return }
     const source = last && (last.files === undefined ? since(last) : { kind: 'turn', sessionId, turnId: last.turnId } as DiffSource)
     if (root !== get().root) { set({ pending: source }); await get().setRoot(root) }
     else if (source) get().setSource(source)

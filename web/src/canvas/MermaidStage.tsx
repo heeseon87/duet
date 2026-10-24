@@ -105,8 +105,8 @@ export const MermaidStage = forwardRef<StageHandle, Props & { viewKey: string }>
   const fitted = useRef(lastView?.key === viewKey)
   const plan = useRef<ReturnType<typeof toMermaid> | null>(null)
   /** The latest selection/glow/threads, for decorating a drawing that finishes rendering later. */
-  const latest = useRef({ selected, glow, threads, compare: ghostsFrom })
-  latest.current = { selected, glow, threads, compare: ghostsFrom }
+  const latest = useRef({ selected, glow, threads, compare: ghostsFrom, code })
+  latest.current = { selected, glow, threads, compare: ghostsFrom, code }
   const mapRef = useRef(map)
   mapRef.current = map
   /** Parts to frame once the drawing that is on its way has settled. */

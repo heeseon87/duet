@@ -572,9 +572,10 @@ export function CanvasView() {
   const shownMap = s.preview?.map ?? s.map
   // The same files the review lists, matched to the parts the same way: what is built, what is not yet.
   const bound = useReview(r => r.bound), editing = useReview(r => r.editing), diff = useReview(r => r.diff), root = useReview(r => r.root), home = useReview(r => r.home)
+  const oneTurn = useReview(r => r.source.kind === 'turn')
   const code = useMemo(
-    () => (shownMap?.diagram === 'class' && bound && bound.map === s.mapName && !editing && diff && root && home ? codeMarks(shownMap, diff.files, root, home) : undefined),
-    [shownMap, bound, s.mapName, editing, diff, root, home],
+    () => (shownMap?.diagram === 'class' && bound && bound.map === s.mapName && !editing && diff && root && home ? codeMarks(shownMap, diff.files, root, home, { pending: !oneTurn }) : undefined),
+    [shownMap, bound, s.mapName, editing, diff, root, home, oneTurn],
   )
   const foldable = useMemo(() => {
     const parents = new Set((shownMap?.elements ?? []).map(e => e.parent).filter(Boolean))
@@ -881,7 +882,7 @@ function NewMapInline() {
 
 /** What the map's code holds against the map, one click from the review that lists it. */
 function CodeChip({ marks }: { marks?: ReturnType<typeof codeMarks> }) {
-  const bound = useReview(r => r.bound), diff = useReview(r => r.diff), loading = useReview(r => r.loading)
+  const bound = useReview(r => r.bound), diff = useReview(r => r.diff), loading = useReview(r => r.loading), oneTurn = useReview(r => r.source.kind === 'turn')
   const mapName = useCanvas(c => c.mapName), hasCode = useCanvas(c => Boolean(c.code)), preview = useCanvas(c => Boolean(c.preview))
   if (mapName && !hasCode && !preview) {
     return <button className="chip code-chip" title="리뷰가 이 지도의 코드를 보여 주게 연결해" onClick={() => void bindMapCode(false)}><FolderGit2 size={13} /> 코드 연결</button>
@@ -891,6 +892,7 @@ function CodeChip({ marks }: { marks?: ReturnType<typeof codeMarks> }) {
   const pending = all.filter(m => m.state === 'pending').length
   const unplanned = all.filter(m => m.state === 'unplanned').length
   const parts = !diff ? [loading ? '불러오는 중' : '코드 없음'] : [
+    ...(oneTurn ? ['한 턴만'] : []),
     `바뀐 파일 ${diff.files.length}`,
     pending ? `구현 전 ${pending}` : '',
     unplanned ? `계획 밖 ${unplanned}` : '',

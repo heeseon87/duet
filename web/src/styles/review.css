@@ -8,6 +8,7 @@
 .bound-chip svg { flex: none; }
 .bound-source { font-size: 12px; color: var(--ink-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
 .ref-pick.static { cursor: default; }
+.narrow-turn { display: inline-flex; align-items: center; gap: 6px; min-width: 0; font-size: 12px; }
 .ref-pick.static:hover { background: var(--panel); }
 .source-bar.editing { box-shadow: inset 0 -2px 0 var(--accent); }
 .source-bar .kinds button { font-size: 12px; }

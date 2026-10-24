@@ -114,6 +114,11 @@ describe('the parts a map\'s code changed', async () => {
     expect(outside).toBe(1)
   })
 
+  it('leaves out "not built yet" for one turn of the map\'s code', () => {
+    const { marks } = codeMarks(map, [file('src/Built.kt')], '/r', '/r', { pending: false })
+    expect(Object.fromEntries(marks)).toEqual({ pkg: { state: 'built', files: 1 }, Built: { state: 'built', files: 1 }, Kept: { state: 'unplanned', files: 1 } })
+  })
+
   it('agrees with the review\'s map layout on every file, the workspace being another folder than the tree', () => {
     const { marks, outside } = codeMarks(map, files, '/ws/wt', '/ws/wt')
     const groups = mapGroups(map, files, '/ws/wt', '/ws/wt')

@@ -2,8 +2,9 @@
 // turns "코드 1" as soon as its file is written (no reload), and the review lists the file. The map's code can be
 // changed from the review and saved (another kind of comparison, a worktree beside the workspace), and a map from
 // before maps knew their code is asked once and bound to the repo its files are in, from the commit it was made on.
+// One turn of a conversation narrows the review within the map's code, and the canvas marks what that turn touched.
 //   DUET_PORT=7981 DUET_TOKEN=... DUET_SCRATCH=<folder> node e2e/map-code.mjs
-//   (makes a repo and a worktree beside it under DUET_SCRATCH, and leaves them there.)
+//   (makes a repo and a worktree beside it under DUET_SCRATCH, and leaves them there; one Haiku conversation.)
 import { execFileSync } from 'node:child_process'
 import { mkdirSync, mkdtempSync, realpathSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -11,6 +12,7 @@ import { join } from 'node:path'
 import { open, sleep } from './browser.mjs'
 const port = Number(process.env.DUET_PORT ?? 7979)
 const { DUET_TOKEN: T, DUET_SHOTS: shots } = process.env
+const model = process.env.DUET_MODEL ?? 'claude-haiku-5-5'
 if (!T) { console.error('DUET_TOKEN is required'); process.exit(2) }
 const H = { 'x-duet-token': T, 'content-type': 'application/json' }
 const call = async (method, path, body) => {
@@ -89,6 +91,35 @@ await page.click('.code-prompt button:has-text("지도가 가리키는 코드에
 const guessed = (await call('GET', `/api/canvas/${name}${q}`)).body.code
 check('it is bound to the repo of its files, from the commit it was made on', guessed?.root === ws && guessed.source.kind === 'branch' && guessed.source.base === first, JSON.stringify(guessed))
 check('the prompt goes away once bound', !(await page.$('.code-prompt')))
+
+// 4. A conversation builds one more box in one turn: that turn narrows the review within the map's code.
+await call('POST', `/api/canvas/${name}/patch`, { ws, note: 'turned', patch: { elements: [{ id: 'Turned', change: 'add', files: ['src/Turned.kt'] }] } })
+const s = (await call('POST', '/api/sessions', { ws, model, permissionMode: 'bypassPermissions' })).body
+await call('POST', `/api/sessions/${s.id}/messages`, { text: `Use the Write tool to create ${ws}/src/Turned.kt containing exactly: class Turned\nRun no other tools. Reply with one word: done.` })
+const t0 = Date.now()
+for (;;) {
+  await sleep(1500)
+  const i = (await call('GET', `/api/sessions${q}`)).body.find(x => x.id === s.id)
+  if (i.status === 'idle' && i.turns >= 1) break
+  if (i.status === 'waiting' || Date.now() - t0 > 180_000) { console.log('FAIL the turn did not finish', i.status); process.exit(1) }
+}
+await page.reload({ waitUntil: 'domcontentloaded' }); await sleep(1500)
+await page.keyboard.press('Meta+2'); await sleep(800)
+const turnButton = await until(() => page.$('.source-bar.bound button:has-text("턴만 보기")'))
+check('the bound review offers one turn of the map\'s code', Boolean(turnButton))
+await turnButton?.click(); await sleep(1500)
+const one = await page.$$eval('.review-nav .tree-row.file', rs => [...new Set(rs.map(r => r.title))].join(' '))
+const narrowed = await page.$eval('.source-bar', b => ({ bound: b.classList.contains('bound'), text: b.querySelector('.narrow-turn')?.textContent ?? '' })).catch(() => ({}))
+check('it lists only what that turn changed, still on the map\'s code', one === 'src/Turned.kt' && narrowed.bound && narrowed.text.includes('턴 1'), `${one} · ${JSON.stringify(narrowed)}`)
+check('nothing was refused', !(await page.$$eval('.toast', ts => ts.map(t => t.textContent).join(''))).includes('보는 중'))
+await page.keyboard.press('Meta+1'); await sleep(1200)
+const turnChip = await page.$eval('.canvas-bar .code-chip', c => c.textContent.trim()).catch(() => '')
+check('the canvas marks the box that turn built, and calls no other box unbuilt', (await badge('Turned')) === '코드 1' && (await badge('New')) === '' && turnChip.startsWith('한 턴만'), `${await badge('Turned')}|${await badge('New')}|${turnChip}`)
+if (shots) await page.screenshot({ path: `${shots}/map-code-turn.png` })
+await page.keyboard.press('Meta+2'); await sleep(600)
+await page.click('.narrow-turn .iconbtn'); await sleep(1500)
+const whole = await page.$$eval('.review-nav .tree-row.file', rs => [...new Set(rs.map(r => r.title))].sort().join(' '))
+check('closing the turn shows the whole of the map\'s code again', whole === 'src/New.kt src/Turned.kt' && !(await page.$('.narrow-turn')), whole)
 
 if (errors.length) { failed++; console.log('page errors', errors) }
 console.log('left behind:', base)

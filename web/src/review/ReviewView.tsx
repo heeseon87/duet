@@ -274,7 +274,8 @@ function ViewMenu() {
 
 /** A bound map holds the review on its code: what it shows, and the way to change it (on the map, not here). */
 function BoundBar() {
-  const { bound, root, source, diff, loading, refresh, editCode } = useReview()
+  const { bound, root, source, diff, loading, refresh, editCode, setSource, showMapCode, showLastTurn } = useReview()
+  const currentSession = useApp(s => s.currentSession)
   if (!bound) return null
   const adds = diff?.files.reduce((n, f) => n + f.additions, 0) ?? 0
   const dels = diff?.files.reduce((n, f) => n + f.deletions, 0) ?? 0
@@ -284,7 +285,20 @@ function BoundBar() {
         <MapIcon size={13} /><span className="ellipsis">지도 <b>{bound.title}</b>의 코드</span>
       </span>
       <span className="ref-pick static" title={root}><FolderGit2 size={13} /><b className="ellipsis">{root?.split('/').pop()}</b></span>
-      <span className="bound-source">{source.kind === 'branch' && source.compare === 'WORKTREE' ? `${sourceLabel(source).split(' ← ')[1]} 이후 지금까지(커밋 안 한 것 포함)` : sourceLabel(source)}</span>
+      {source.kind === 'turn' ? (
+        // One turn of the map's code: the same tree, narrowed to what the turn changed there.
+        <span className="narrow-turn">
+          <span className="muted">에서</span>
+          <TurnPicker source={source} onPick={setSource} />
+          <span className="muted">만</span>
+          <button className="iconbtn" title="지도의 코드 전체 보기" onClick={showMapCode}><X size={12} /></button>
+        </span>
+      ) : (
+        <>
+          <span className="bound-source">{source.kind === 'branch' && source.compare === 'WORKTREE' ? `${sourceLabel(source).split(' ← ')[1]} 이후 지금까지(커밋 안 한 것 포함)` : sourceLabel(source)}</span>
+          {currentSession && <button className="btn sm" title="이 대화에서 지도의 코드를 바꾼 마지막 턴의 변경만" onClick={() => void showLastTurn(currentSession)}><Bot size={13} /> 턴만 보기</button>}
+        </>
+      )}
       <button className="btn sm" onClick={editCode}>코드 기준 바꾸기</button>
       <span className="grow" />
       {diff && <span className="summary">파일 <b>{diff.files.length}</b>개 <b className="add">+{adds}</b> <b className="del">−{dels}</b></span>}
@@ -632,7 +646,7 @@ export function ReviewView() {
             <div className="empty"><Loader2 className="spin" size={18} /></div>
           ) : !files.length ? (
             <div className="empty">
-              <h3>{scope && diff.files.length ? `${scope.label}에는 바뀐 파일이 없어` : source.kind === 'turn' ? '이 턴은 파일을 바꾸지 않았어' : '바뀐 파일이 없어'}</h3>
+              <h3>{scope && diff.files.length ? `${scope.label}에는 바뀐 파일이 없어` : source.kind === 'turn' ? (useReview.getState().bound ? '이 턴은 지도의 코드에서 파일을 바꾸지 않았어' : '이 턴은 파일을 바꾸지 않았어') : '바뀐 파일이 없어'}</h3>
               <p>{sourceLabel(source)}</p>
             </div>
           ) : file ? (

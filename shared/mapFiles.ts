@@ -28,8 +28,11 @@ export type CodeMark = { state: 'built' | 'unplanned' | 'pending'; files: number
 const planned = (el: CanvasElement) =>
   el.change === 'add' || el.change === 'modify' || el.change === 'delete' || (el.members ?? []).some(m => m.change)
 
-/** Every part's mark, and how many changed files no part names. */
-export function codeMarks(map: CanvasMap, files: { path: string }[], root: string, home: string): { marks: Map<string, CodeMark>; outside: number } {
+/**
+ * Every part's mark, and how many changed files no part names. `pending: false` (one turn of the map's code) leaves out
+ * "not built yet": a part that turn did not touch may well be built.
+ */
+export function codeMarks(map: CanvasMap, files: { path: string }[], root: string, home: string, o: { pending?: boolean } = {}): { marks: Map<string, CodeMark>; outside: number } {
   const own = ownFiles(map, files, root, home)
   const ids = new Set(map.elements.map(e => e.id))
   const children = new Map<string, CanvasElement[]>()
@@ -42,7 +45,7 @@ export function codeMarks(map: CanvasMap, files: { path: string }[], root: strin
     for (const c of children.get(el.id) ?? []) for (const p of walk(c)) all.add(p)
     const group = el.kind === 'group'
     if (all.size) marks.set(el.id, { state: group || planned(el) ? 'built' : 'unplanned', files: all.size })
-    else if (!group && planned(el)) marks.set(el.id, { state: 'pending', files: 0 })
+    else if (!group && planned(el) && o.pending !== false) marks.set(el.id, { state: 'pending', files: 0 })
     return all
   }
   for (const el of map.elements) if (!el.parent || !ids.has(el.parent)) walk(el)
