@@ -89,6 +89,16 @@ export function pinNote(pin: string | undefined, maps: MapSummary[], before?: st
   return `[Duet] This terminal works from the Duet map "${pin}"${title ? ` (${title})` : ''}. When the person says "the map", "this terminal's map" or names no map, pass name "${pin}" to the duet_map_* tools. Use another map only when the person names it.`
 }
 
+/** Whether the conversation the model is sent still holds the note for this pin (a compaction may have dropped it). */
+export function heardPin(messages: readonly { content: unknown }[], pin: string): boolean {
+  const note = `[Duet] This terminal works from the Duet map "${pin}"`
+  const holds = (c: unknown): boolean =>
+    typeof c === 'string' ? c.includes(note)
+      : Array.isArray(c) ? c.some(holds)
+        : typeof c === 'object' && c !== null && (holds((c as { text?: unknown }).text) || holds((c as { content?: unknown }).content))
+  return messages.some(m => holds(m.content))
+}
+
 /** A tool's arguments: the call without the fields Claude Code adds to it. */
 export function argsOf(e: Record<string, unknown>): Record<string, unknown> {
   const { tool: _tool, tool_use_id: _id, ...args } = e

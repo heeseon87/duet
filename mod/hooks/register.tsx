@@ -1,6 +1,6 @@
 import type { EngineInterface, HttpResponse, Register, Timer } from 'claude-code'
 
-import { argsOf, duetHomeOf, labelOf, linkOf, noRepo, notConnected, pinNote, runDuet, statusText, unreachable, unreachableForPerson } from './duet'
+import { argsOf, duetHomeOf, heardPin, labelOf, linkOf, noRepo, notConnected, pinNote, runDuet, statusText, unreachable, unreachableForPerson } from './duet'
 import type { Link, Maps, MapSummary } from './duet'
 import { TOOLS } from './tools'
 
@@ -16,7 +16,6 @@ type Outgoing = { id: string; text: string; state: 'queued' | 'delivered' | 'wor
  * `held` is the one message this terminal has from Duet: submitted, it runs once the session is idle.
  * `isOn`: the person connected this terminal with `/duet`; until then it neither polls nor shows a status line.
  * `pin` is the map `/duet` pinned in this terminal; `told` is the pin this session's model last heard of.
- * `isCompacted`: the conversation was compacted since, and its summary may have dropped what the model was told.
  */
 const st = {
   session: '',
@@ -27,6 +26,7 @@ const st = {
   server: undefined as { base: string; token: string } | undefined,
   workspace: undefined as string | undefined,
   isOn: false,
+  hasTerminal: false,
   hasTools: false,
   isRegistered: false,
   link: { kind: 'off' } as Link,
@@ -35,7 +35,6 @@ const st = {
   maps: undefined as MapSummary[] | undefined,
   pin: undefined as string | undefined,
   told: undefined as { session: string; pin: string | undefined } | undefined,
-  isCompacted: false,
   held: undefined as { id: string; text: string; turnId?: string; isWorking: boolean } | undefined,
   lastTurn: '',
   isPolling: false,
@@ -53,6 +52,15 @@ function call($: EngineInterface, method: string, path: string, payload?: unknow
   })
 }
 
+/**
+ * The terminal draws the line dim at the end of the prompt hint (`ui.status` would draw it as a ⚠ notice);
+ * a session with no terminal (the SDK, -p) has no hint, and keeps the status line.
+ */
+function draw($: EngineInterface) {
+  if (st.hasTerminal) $.ui.invalidate('ui.render')
+  else $.ui.status(st.shown === '' ? undefined : st.shown)
+}
+
 function show($: EngineInterface, link: Link) {
   st.link = link
   // A poll still in flight when `/duet off` ran answers after it: the line stays cleared.
@@ -60,7 +68,7 @@ function show($: EngineInterface, link: Link) {
   const text = statusText(link)
   if (text === st.shown) return
   st.shown = text
-  $.ui.status(text)
+  draw($)
 }
 
 async function refreshStatus($: EngineInterface) {
@@ -144,6 +152,7 @@ async function turnOn($: EngineInterface) {
   if (st.isOn) return
   st.isOn = true
   st.retryAt = 0
+  st.hasTerminal = (await $.session.surfaces()).includes('terminal')
   if (!st.hasTools) {
     for (const t of TOOLS) await $.tool.register(t.spec)
     st.hasTools = true
@@ -165,7 +174,7 @@ async function turnOff($: EngineInterface) {
   st.maps = undefined
   st.link = { kind: 'off' }
   st.shown = ''
-  $.ui.status(undefined)
+  draw($)
 }
 
 /** Long-polls the server: the poll is the heartbeat, the inbox and the wake-up when a map changes. */
@@ -301,27 +310,17 @@ export const register: Register = on => {
     return next(e)
   })
 
-  // After a compaction the model hears of the pin again, at the next turn: a note added by the compaction's own
-  // hooks lands before the compacted conversation is put in place, and is gone with the rest.
-  on('command.run', { command: 'compact' }, async ($, e, next) => {
-    const result = await next(e)
-    st.isCompacted = true
-    return result
-  })
-  // A headless session (-p, the SDK) compacts as a /compact prompt instead, without this event.
-  on('session.compact', async ($, e, next) => {
-    const result = await next(e)
-    if (e.agentId === undefined && e.trigger !== 'precompute' && result.skip === undefined) st.isCompacted = true
-    return result
-  })
-
   on('turn.start', async ($, e, next) => {
     if (e.agentId !== undefined) return next(e)
     st.lastTurn = e.turnId
-    if (st.isCompacted) {
-      st.isCompacted = false
-      st.told = undefined
-      await tellPin($)
+    // A compaction (/compact, the threshold) may drop the pin note: the model hears it again before it answers.
+    // Read from what the model is sent, not from session.compact, which the built-in cc-plugin-sec-default (seated for Team and Enterprise organizations) keeps from installed plugins.
+    if (st.isOn && st.pin !== undefined) {
+      const sent = await $.session.messages({ as: 'api' }).catch(() => undefined)
+      if (sent && !heardPin(sent, st.pin)) {
+        st.told = undefined
+        await tellPin($)
+      }
     }
     const held = st.held
     if (held && !held.turnId && e.text === held.text) {
@@ -340,6 +339,9 @@ export const register: Register = on => {
     }
     return result
   })
+
+  on('ui.render', { component: 'PromptHint' }, ($, e, next) =>
+    st.isOn && st.hasTerminal && st.shown !== '' ? next({ ...e, props: { ...e.props, tail: st.shown } }) : next(e))
 
   on('tool.call', { tool: /^mcp__duet__duet_map_/ }, async ($, e) => relay($, String(e.tool), argsOf(e as unknown as Record<string, unknown>)))
     .catch(async ($, e, next) => ({ deny: `The Duet mod failed on this call (${next.error?.kind ?? 'error'}).` }))

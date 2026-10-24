@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
-import { argsOf, duetHomeOf, labelOf, linkOf, matchMap, noRepo, pinNote, runDuet, shownMap, statusText, unreachable, type MapSummary } from '../mod/hooks/duet.ts'
+import { argsOf, duetHomeOf, heardPin, labelOf, linkOf, matchMap, noRepo, pinNote, runDuet, shownMap, statusText, unreachable, type MapSummary } from '../mod/hooks/duet.ts'
 import { modTools } from '../scripts/mod-tools.ts'
 
 const map = (over: Partial<MapSummary>): MapSummary => ({ name: 'm', title: '지도', revision: 1, updated: 0, decisions: 0, openDecisions: 0, openThreads: 0, ...over })
@@ -83,6 +83,15 @@ describe('the terminal mod', () => {
   it('tells the model the pinned name to pass, and when the pin is gone', () => {
     expect(pinNote('mod-e2e-pin', [map({ name: 'mod-e2e-pin', title: '모드 고정 지도' })])).toContain('pass name "mod-e2e-pin" to the duet_map_* tools')
     expect(pinNote(undefined, [], 'mod-e2e')).toContain('no longer has a pinned Duet map (it was "mod-e2e")')
+  })
+
+  it('finds the pin note wherever the model was sent it: a row, a block, a tool result', () => {
+    const note = pinNote('swing', [map({ name: 'swing', title: '썸네일' })])
+    expect(heardPin([{ content: note }], 'swing')).toBe(true)
+    expect(heardPin([{ content: [{ type: 'text', text: `앞\n${note}` }] }], 'swing')).toBe(true)
+    expect(heardPin([{ content: [{ type: 'tool_result', content: [{ type: 'text', text: note }] }] }], 'swing')).toBe(true)
+    expect(heardPin([{ content: note }], 'other')).toBe(false)
+    expect(heardPin([{ content: [{ type: 'text', text: 'summary without it' }] }], 'swing')).toBe(false)
   })
 
   it('relays only the arguments the model wrote', () => {
