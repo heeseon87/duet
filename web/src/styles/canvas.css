@@ -60,6 +60,27 @@
 .preview-banner { background: var(--warn-bg); color: var(--warn); }
 
 .canvas-body { flex: 1; display: flex; min-height: 0; position: relative; }
+/* The map and what floats on it (the info card, hints); the code pane sits beside it. */
+.canvas-main { flex: 1; display: flex; min-width: 0; position: relative; }
+
+/* The code pane: the picked part's code beside the map */
+.code-pane { position: relative; flex: none; display: flex; flex-direction: column; min-width: 0; border-left: 1px solid var(--line); background: var(--panel); }
+.code-split { position: absolute; left: -4px; top: 0; bottom: 0; width: 8px; cursor: col-resize; z-index: 5; }
+.code-split:hover, .code-split:active { background: color-mix(in srgb, var(--accent) 30%, transparent); }
+.code-pane-head { display: flex; align-items: center; gap: 4px; padding: 8px 8px 6px 14px; font-size: 13px; }
+.code-tabs { display: flex; gap: 2px; padding: 0 10px 6px; overflow-x: auto; flex: none; }
+.code-tabs button { border: 0; background: transparent; height: 24px; padding: 0 8px; border-radius: 6px; font-size: 12px; color: var(--ink-3); white-space: nowrap; font-family: var(--font-mono); }
+.code-tabs button:hover { background: var(--hover); color: var(--ink); }
+.code-tabs button[aria-selected='true'] { background: var(--accent-soft); color: var(--accent-ink); }
+.code-pane-path { display: flex; align-items: baseline; gap: 8px; padding: 0 14px 6px; font-size: 12px; min-width: 0; border-bottom: 1px solid var(--line); }
+.code-pane-path .file-path { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.code-pane-path .muted { flex: none; }
+.code-pane-body { flex: 1; overflow: auto; min-height: 0; }
+.code-pane-empty { padding: 24px 16px; font-size: 12.5px; display: flex; justify-content: center; }
+/* The part's declaration (or the lines its reference names), and the lines the map's code changed. */
+.code-pane table.diff tr.target td { background: var(--accent-soft); }
+.code-pane table.diff tr.target td.no { color: var(--accent-ink); }
+.code-pane table.diff tr.changed td.no { box-shadow: inset -3px 0 var(--add); }
 .stage-canvas {
   flex: 1; position: relative; overflow: hidden; cursor: grab; touch-action: none; user-select: none;
   background-color: var(--cv-bg);

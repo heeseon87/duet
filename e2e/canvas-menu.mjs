@@ -139,7 +139,7 @@ check('the ask box survives a click elsewhere (typed text is not lost)', Boolean
 await page.focus('.ctx-ask textarea'); await page.keyboard.press('Escape'); await sleep(200)
 check('Esc closes the ask box', !(await page.$('.ctx-ask')))
 
-// 6. Code: a box with files opens it in review.
+// 6. Code: a box with files opens it in the code pane.
 const withFile = map.elements.find(e => e.files?.length === 1 && e.kind !== 'group')
 if (withFile) {
   await page.keyboard.press('f'); await sleep(600)
@@ -148,8 +148,9 @@ if (withFile) {
     await page.mouse.click(p.x, p.y, { button: 'right' }); await sleep(250)
     await clickItem('코드 열기'); await sleep(800)
     const tab = await page.evaluate(() => localStorage.getItem('duet.tab'))
-    check('"open code" jumps to the file in review', tab === 'review', tab)
-    await page.keyboard.press('Meta+1'); await sleep(800)
+    const shown = await page.$eval('.code-pane .code-pane-path .file-path', e => e.getAttribute('title')).catch(() => '')
+    check('"open code" shows the file in the code pane beside the map', tab === 'canvas' && shown === withFile.files[0].replace(/:\d+(-\d+)?$/, ''), JSON.stringify({ tab, shown }))
+    await page.keyboard.press('c'); await sleep(300)
   }
 } else console.log('SKIP no element with one file')
 

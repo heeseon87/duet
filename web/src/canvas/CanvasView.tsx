@@ -11,6 +11,7 @@ import { local, useApp } from '../state.ts'
 import { Popover, relTime } from '../lib/ui.tsx'
 import { Markdown } from '../lib/Markdown.tsx'
 import { MermaidStage, partIds, type StageHandle } from './MermaidStage.tsx'
+import { CodePane } from './CodePane.tsx'
 import { ContextMenu, FloatAt, type MenuEntry, type Point } from './ContextMenu.tsx'
 import { confirmDialog } from '../lib/confirm.tsx'
 import { download, standaloneSvg } from './exportSvg.ts'
@@ -324,11 +325,9 @@ function MadeDecision({ d, map, readOnly, show }: { d: CanvasDecision; map: Canv
   )
 }
 
-function Inspector({ map, readOnly, onHide, wide, onToggleWide, onFrame }: { map: CanvasMap; readOnly: boolean; onHide: () => void; wide: boolean; onToggleWide: () => void; onFrame: (ids: string[]) => void }) {
+function Inspector({ map, readOnly, onHide, wide, onToggleWide, onFrame, onCode }: { map: CanvasMap; readOnly: boolean; onHide: () => void; wide: boolean; onToggleWide: () => void; onFrame: (ids: string[]) => void; onCode: (file: string) => void }) {
   const { selected, select, threads, toggleCollapse, collapsed } = useCanvas()
   const show: Show = (d, ids) => { select(d); onFrame(ids) }
-  const setTab = useApp(s => s.setTab)
-  const openFile = useReview(s => s.openFile)
   const el = map.elements.find(e => e.id === selected)
   const rel = map.relations.find(r => relationKey(r) === selected)
   const msg = map.messages?.find(m => m.id === selected)
@@ -402,7 +401,7 @@ function Inspector({ map, readOnly, onHide, wide, onToggleWide, onFrame }: { map
             <div className="insp-section">
               <h4>코드</h4>
               {el.files.map(f => (
-                <button key={f} className="file-link" onClick={() => { setTab('review'); void openFile(f.replace(/:\d+$/, ''), Number(/:(\d+)$/.exec(f)?.[1]) || undefined) }}>
+                <button key={f} className="file-link" onClick={() => onCode(f)}>
                   <FileCode2 size={12} /><span className="ellipsis">{f}</span>
                 </button>
               ))}
@@ -555,17 +554,28 @@ export function CanvasView() {
   const setDraft = useApp(s => s.setDraft)
   const toast = useApp(s => s.toast)
   const setTab = useApp(s => s.setTab)
-  const openFile = useReview(s => s.openFile)
   const s = useCanvas()
   const stage = useRef<StageHandle>(null)
   const [menu, setMenu] = useState<{ target?: string; at: Point }>()
   const [asking, setAsking] = useState<{ target: string; at: Point }>()
-  // Explore mode starts (and stays) with the card away: clicking only highlights.
-  const [inspector, setInspector] = useState(() => !useCanvas.getState().explore)
+  // Explore mode starts (and stays) with the card away: clicking only highlights. So does the code pane, which stands in for the card.
+  const [inspector, setInspector] = useState(() => !useCanvas.getState().explore && local.get('canvas.code') !== '1')
   useEffect(() => { if (s.explore) setInspector(false) }, [s.explore])
   // A wider info card for long decisions and notes; remembered.
   const [wideInsp, setWideInsp] = useState(() => local.get('canvas.wideInspector') === '1')
   const toggleWide = () => setWideInsp(w => { local.set('canvas.wideInspector', w ? '0' : '1'); return !w })
+  // The code pane beside the map; remembered. It stands in for the info card: opening it puts the card away, and while
+  // it is open a pick does not bring the card back (`i` still does).
+  const [codeOpen, setCodeOpen] = useState(() => local.get('canvas.code') === '1')
+  const codeOpenRef = useRef(codeOpen)
+  codeOpenRef.current = codeOpen
+  const [codeWant, setCodeWant] = useState<{ file: string; nonce: number }>()
+  const showCode = (open: boolean, file?: string) => {
+    setCodeOpen(open)
+    local.set('canvas.code', open ? '1' : '0')
+    if (open) setInspector(false)
+    if (file) setCodeWant({ file, nonce: Date.now() })
+  }
 
   useEffect(() => { if (workspace) void s.loadList() }, [workspace?.path]) // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -590,7 +600,7 @@ export function CanvasView() {
     const key = (e: KeyboardEvent) => {
       if (useApp.getState().tab !== 'canvas') return
       const t = e.target as HTMLElement
-      if (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA') return
+      if (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable) return
       // Letting go of the selection also puts the info card away; `i` brings back the map's overview.
       if (e.key === 'Escape') { s.select(undefined); setInspector(false) }
       else if (e.key === 'f' && !e.metaKey) stage.current?.fit()
@@ -598,6 +608,7 @@ export function CanvasView() {
       else if (e.key === '-' && !e.metaKey) stage.current?.zoom(1 / 1.2)
       else if (e.key === 'i' && !e.metaKey) setInspector(v => !v)
       else if (e.key === 'e' && !e.metaKey) s.setExplore(!useCanvas.getState().explore)
+      else if (e.key === 'c' && !e.metaKey && !e.ctrlKey) showCode(!codeOpenRef.current)
       else return
       e.preventDefault()
     }
@@ -683,7 +694,8 @@ export function CanvasView() {
       // The code of this part (a package: everything in it), reviewed on its own.
       if (el && filesUnder(map, t).length) out.push({ kind: 'item', key: 'changes', icon: <FileDiff size={14} />, label: '이 부분의 변경 보기', run: () => { setTab('review'); void useReview.getState().showPart(map, t) } })
       const files = el?.files ?? []
-      const open = (f: string) => () => { setTab('review'); void openFile(f.replace(/:\d+$/, ''), Number(/:(\d+)$/.exec(f)?.[1]) || undefined) }
+      // In the code pane beside the map; the pane links on to the review.
+      const open = (f: string) => () => showCode(true, f)
       if (files.length === 1) out.push({ kind: 'item', key: 'file', icon: <FileCode2 size={14} />, label: '코드 열기', sub: files[0].split('/').pop(), run: open(files[0]) })
       else if (files.length > 1) {
         out.push({ kind: 'sep' }, { kind: 'head', label: '코드 열기' })
@@ -757,6 +769,7 @@ export function CanvasView() {
         )}
         <div className="seg">
           <button aria-pressed={s.explore} onClick={() => s.setExplore(!s.explore)} title={s.explore ? '탐색 모드 끄기 (e)' : '탐색 모드 (e)'}><Compass size={13} /><span className="bar-label"> 탐색</span></button>
+          <button aria-pressed={codeOpen} onClick={() => showCode(!codeOpen)} title={codeOpen ? '코드 칸 닫기 (c)' : '코드 칸: 누른 상자의 코드를 옆에서 보기 (c)'}><FileCode2 size={13} /><span className="bar-label"> 코드</span></button>
         </div>
         <div className="seg">
           <button onClick={() => stage.current?.zoom(1 / 1.2)} title="Zoom out (-)"><Minus size={13} /></button>
@@ -794,6 +807,7 @@ export function CanvasView() {
         </div>
       )}
       <div className="canvas-body">
+        <div className="canvas-main">
         <MermaidStage
           key={stageKey}
           ref={stage}
@@ -805,7 +819,7 @@ export function CanvasView() {
           selected={s.selected}
           threads={s.threads}
           code={code?.marks}
-          onSelect={t => { s.select(t); if (!useCanvas.getState().explore) setInspector(Boolean(t)) }}
+          onSelect={t => { s.select(t); if (!useCanvas.getState().explore && !codeOpen) setInspector(Boolean(t)) }}
           onToggleGroup={s.toggleCollapse}
           onContext={(t, at) => {
             // A known part is picked (lit) so the menu clearly speaks about it; the info card stays as it is.
@@ -816,7 +830,7 @@ export function CanvasView() {
           rightInset={inspector ? (wideInsp ? 584 : 364) : 0}
         />
         {inspector
-          ? <Inspector map={shownMap} readOnly={Boolean(s.preview)} onHide={() => setInspector(false)} wide={wideInsp} onToggleWide={toggleWide} onFrame={frameSoon} />
+          ? <Inspector map={shownMap} readOnly={Boolean(s.preview)} onHide={() => setInspector(false)} wide={wideInsp} onToggleWide={toggleWide} onFrame={frameSoon} onCode={f => showCode(true, f)} />
           : <button className="btn sm insp-open" onClick={() => setInspector(true)}><Eye size={13} /> 정보 <kbd>i</kbd></button>}
         {s.explore && <div className="stage-hint muted">탐색 모드 · e로 끄기</div>}
         {menu && <ContextMenu at={menu.at} entries={menuEntries(menu.target, menu.at)} onClose={() => setMenu(undefined)} />}
@@ -830,6 +844,8 @@ export function CanvasView() {
             <Ask target={asking.target} autoFocus placeholder="묻거나 고칠 점 적기" onSent={() => { setAsking(undefined); toast('보냈어') }} />
           </FloatAt>
         )}
+        </div>
+        {codeOpen && <CodePane key={stageKey} map={shownMap} want={codeWant} onClose={() => showCode(false)} />}
       </div>
     </div>
   )
