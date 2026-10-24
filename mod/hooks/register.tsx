@@ -1,6 +1,6 @@
 import type { EngineInterface, HttpResponse, Register, Timer } from 'claude-code'
 
-import { argsOf, duetHomeOf, heardPin, labelOf, linkOf, noRepo, notConnected, pinNote, runDuet, statusText, unreachable, unreachableForPerson } from './duet'
+import { argsOf, duetHomeOf, heardPin, labelOf, linkOf, newMapOf, noRepo, notConnected, pinNote, runDuet, statusText, unreachable, unreachableForPerson } from './duet'
 import type { Link, Maps, MapSummary } from './duet'
 import { TOOLS } from './tools'
 
@@ -271,13 +271,27 @@ export const register: Register = on => {
     st.duetHome = duetHomeOf(await $.env.get('DUET_HOME'), (await $.env.get('HOME')) ?? '')
     st.envToken = await $.env.get('DUET_TOKEN')
     // Nothing connects until the person runs /duet: no poll, no tools, no status line.
-    await $.command.register({ name: 'duet', description: 'Duet에 연결하고 기준 지도를 고정해: /duet [지도 이름이나 제목 | off(연결 끊기)]', argumentHint: '[지도 | off]' }).catch(() => undefined)
+    await $.command.register({ name: 'duet', description: 'Duet에 연결하고 기준 지도를 고정해: /duet [지도 이름이나 제목 | new <이름> [제목](빈 지도 만들기) | off(연결 끊기)]', argumentHint: '[지도 | new <이름> [제목] | off]' }).catch(() => undefined)
     return next(e)
   })
 
   // `/duet` connects and shows the pin and the maps, `/duet <map>` connects and pins one, `/duet off` unpins and disconnects;
   // the model hears of a change with the answer.
   on('command.run', { command: 'duet' }, async ($, e) => {
+    // `/duet new <name> [title]` makes an empty map without a model turn, asks its diagram, and pins it.
+    const made = newMapOf(e.args)
+    if (made !== undefined) {
+      if (made.name === '') return { text: '만들 지도 이름을 적어 줘: /duet new <이름> [제목]' }
+      await turnOn($)
+      const diagram = await $.ui.ask(`"${made.name}" 지도를 어떤 다이어그램으로 만들까?`, { options: ['class', 'sequence'], header: '종류' }).catch(() => undefined)
+      if (diagram !== 'class' && diagram !== 'sequence') return { text: '지도를 만들지 않았어' }
+      const before = st.pin
+      const out = await relay($, 'mcp__duet__duet_map_create', { name: made.name, diagram, title: made.title })
+      if ('deny' in out) return { text: out.deny }
+      st.told = { session: st.session, pin: made.name }
+      await setPin($, made.name)
+      return { text: `빈 ${diagram} 지도 "${made.title}"(${made.name})를 만들고 이 터미널에 고정했어`, context: [pinNote(made.name, st.maps ?? [], before)] }
+    }
     if (e.args.trim() === 'off') {
       const wasOn = st.isOn
       const done = runDuet(e.args, st.pin, { kind: 'maps', maps: [] })

@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
-import { argsOf, duetHomeOf, heardPin, labelOf, linkOf, matchMap, noRepo, pinNote, runDuet, shownMap, statusText, unreachable, type MapSummary } from '../mod/hooks/duet.ts'
+import { argsOf, duetHomeOf, heardPin, labelOf, linkOf, matchMap, newMapOf, noRepo, pinNote, runDuet, shownMap, statusText, unreachable, type MapSummary } from '../mod/hooks/duet.ts'
 import { modTools } from '../scripts/mod-tools.ts'
 
 const map = (over: Partial<MapSummary>): MapSummary => ({ name: 'm', title: '지도', revision: 1, updated: 0, decisions: 0, openDecisions: 0, openThreads: 0, ...over })
@@ -92,6 +92,14 @@ describe('the terminal mod', () => {
     expect(heardPin([{ content: [{ type: 'tool_result', content: [{ type: 'text', text: note }] }] }], 'swing')).toBe(true)
     expect(heardPin([{ content: note }], 'other')).toBe(false)
     expect(heardPin([{ content: [{ type: 'text', text: 'summary without it' }] }], 'swing')).toBe(false)
+  })
+
+  it('reads /duet new as a map to make, its title the name when none is given', () => {
+    expect(newMapOf('new thumbnail-worker 썸네일 워커')).toEqual({ name: 'thumbnail-worker', title: '썸네일 워커' })
+    expect(newMapOf('  new swing ')).toEqual({ name: 'swing', title: 'swing' })
+    expect(newMapOf('new')).toEqual({ name: '', title: '' })
+    expect(newMapOf('newer')).toBeUndefined()
+    expect(newMapOf('swing')).toBeUndefined()
   })
 
   it('relays only the arguments the model wrote', () => {

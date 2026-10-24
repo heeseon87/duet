@@ -73,6 +73,13 @@ export function runDuet(args: string, pin: string | undefined, source: Maps): { 
   return { text: `"${query}"에 맞는 지도가 없어. 이 작업 공간의 지도:\n${mapLines(maps, pin)}`, pin }
 }
 
+/** `/duet new <name> [title]`: the map to make, its title the name when none is given; `undefined` for any other `/duet`. */
+export function newMapOf(args: string): { name: string; title: string } | undefined {
+  const [head, name = '', ...title] = args.trim().split(/\s+/)
+  if (head !== 'new') return undefined
+  return { name, title: title.join(' ') || name }
+}
+
 /** Why `/duet` cannot list maps, for the person. */
 export function unreachableForPerson(link: Link, cwd: string): string {
   return link.kind === 'no-workspace'
