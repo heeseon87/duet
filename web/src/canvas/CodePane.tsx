@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
-import { FileDiff, Loader2, X } from 'lucide-react'
+import { FileDiff, Loader2, Minus, Plus, X } from 'lucide-react'
 import { fileOfRef, filesUnder, labelOf, relationKey, type CanvasMap } from '../../../shared/canvas.ts'
 import { absoluteRef } from '../../../shared/mapFiles.ts'
 import type { DiffResult } from '../../../shared/protocol.ts'
@@ -14,6 +14,8 @@ import { useCanvas } from './store.ts'
 const MIN_WIDTH = 320
 /** What the canvas keeps beside the pane, however wide the pane was dragged. */
 const STAGE_MIN = 360
+const MIN_SCALE = 0.7
+const MAX_SCALE = 2
 
 /** The file references a part stands for: a box's own (with their lines), a package's everything inside, a line's or a message's two ends'. */
 export function codeRefsOf(map: CanvasMap, target: string): string[] {
@@ -118,12 +120,18 @@ export function CodePane({ map, want, onClose }: { map: CanvasMap; want?: { file
   }, [text, from])
 
   const width = useWidth()
+  const zoom = useZoom(width.pane, body)
   const head = target ? labelOf(map, target) : undefined
   return (
-    <aside className="code-pane" ref={width.pane} style={{ width: width.value }}>
+    <aside className="code-pane" ref={width.pane} style={{ width: width.value, '--code-scale': zoom.scale } as React.CSSProperties}>
       <div className="code-split" onPointerDown={width.drag} title="끌어서 폭 조절" />
       <div className="code-pane-head">
         <b className="grow ellipsis">{head ?? '코드'}</b>
+        <div className="seg code-zoom">
+          <button onClick={() => zoom.step(-1)} disabled={zoom.scale <= MIN_SCALE} title="코드 축소 (⌘ + 휠)"><Minus size={12} /></button>
+          <button onClick={() => zoom.set(1)} title="100%로">{Math.round(zoom.scale * 100)}%</button>
+          <button onClick={() => zoom.step(1)} disabled={zoom.scale >= MAX_SCALE} title="코드 확대 (⌘ + 휠)"><Plus size={12} /></button>
+        </div>
         {source && (
           <button className="iconbtn" title="리뷰에서 보기" onClick={() => { setTab('review'); void openFile(fileOfRef(ref!), from > 0 ? from : undefined) }}><FileDiff size={14} /></button>
         )}
@@ -169,6 +177,44 @@ export function CodePane({ map, want, onClose }: { map: CanvasMap; want?: { file
         )}
     </aside>
   )
+}
+
+/**
+ * The code's own zoom, apart from the map's: the buttons step by 10%, ⌘ or ctrl + wheel over the pane (a trackpad
+ * pinch) follows the hand; remembered. The line at the top of the view stays there as the text grows or shrinks.
+ */
+function useZoom(pane: React.RefObject<HTMLElement | null>, body: React.RefObject<HTMLDivElement | null>) {
+  const [scale, setScale] = useState(() => Number(local.get('canvas.codeZoom')) || 1)
+  const scaleRef = useRef(scale)
+  scaleRef.current = scale
+  const anchor = useRef<{ line: number; offset: number }>(undefined)
+  const set = (next: number) => {
+    const s = Math.round(Math.min(MAX_SCALE, Math.max(MIN_SCALE, next)) * 100) / 100
+    const b = body.current?.getBoundingClientRect()
+    const row = b && document.elementFromPoint(b.left + 8, b.top + 1)?.closest<HTMLElement>('tr[data-line]')
+    if (b && row) anchor.current = { line: Number(row.dataset.line), offset: row.getBoundingClientRect().top - b.top }
+    setScale(s)
+    local.set('canvas.codeZoom', String(s))
+  }
+  useLayoutEffect(() => {
+    const a = anchor.current, b = body.current
+    anchor.current = undefined
+    const row = a && b?.querySelector(`tr[data-line="${a.line}"]`)
+    if (a && b && row) b.scrollTop += row.getBoundingClientRect().top - b.getBoundingClientRect().top - a.offset
+  }, [scale])
+  useEffect(() => {
+    const el = pane.current
+    if (!el) return
+    const wheel = (e: WheelEvent) => {
+      if (!e.ctrlKey && !e.metaKey) return
+      e.preventDefault()
+      // A mouse notch is about one 10% step; a pinch sends many small ones.
+      set(scaleRef.current * Math.exp(-Math.max(-10, Math.min(10, e.deltaY)) * 0.01))
+    }
+    el.addEventListener('wheel', wheel, { passive: false })
+    return () => el.removeEventListener('wheel', wheel)
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+  return { scale, set, step: (d: 1 | -1) => set(Math.round(scale * 10) / 10 + d * 0.1) }
 }
 
 /**
