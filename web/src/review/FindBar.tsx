@@ -4,17 +4,16 @@ import { ChevronDown, ChevronUp, Search, X } from 'lucide-react'
 type HighlightRegistry = { set(name: string, h: unknown): void; delete(name: string): void }
 type HighlightCtor = new (...ranges: Range[]) => unknown
 
-function registry(): { highlights: HighlightRegistry; Highlight: HighlightCtor } | null {
+export function registry(): { highlights: HighlightRegistry; Highlight: HighlightCtor } | null {
   const css = (globalThis as unknown as { CSS?: { highlights?: HighlightRegistry } }).CSS
   const Highlight = (globalThis as unknown as { Highlight?: HighlightCtor }).Highlight
   return css?.highlights && Highlight ? { highlights: css.highlights, Highlight } : null
 }
 
-/** Every match of `query` in the code cells under `root`, as ranges (case-insensitive unless the query has capitals). */
-function findRanges(root: HTMLElement, query: string): Range[] {
-  if (!query) return []
-  const smart = query !== query.toLowerCase()
-  const needle = smart ? query : query.toLowerCase()
+export const escapeRe = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+
+/** Every match of `re` (global) in the code cells under `root`, as ranges; a match may run across the cell's syntax spans. */
+export function matchRanges(root: HTMLElement, re: RegExp): Range[] {
   const out: Range[] = []
   for (const cell of root.querySelectorAll<HTMLElement>('td.code')) {
     // Join the cell's text nodes, find matches, then map offsets back to nodes.
@@ -26,25 +25,28 @@ function findRanges(root: HTMLElement, query: string): Range[] {
       nodes.push(n as Text)
       text += (n as Text).data
     }
-    const hay = smart ? text : text.toLowerCase()
-    let from = 0
-    while (from <= hay.length - needle.length) {
-      const at = hay.indexOf(needle, from)
-      if (at < 0) break
+    re.lastIndex = 0
+    for (let m = re.exec(text); m; m = re.exec(text)) {
+      if (!m[0]) { re.lastIndex++; continue }
+      const at = m.index, len = m[0].length
       const range = document.createRange()
       let pos = 0, started = false
       for (const node of nodes) {
-        const len = node.data.length
-        if (!started && at < pos + len) { range.setStart(node, at - pos); started = true }
-        if (started && at + needle.length <= pos + len) { range.setEnd(node, at + needle.length - pos); break }
-        pos += len
+        const l = node.data.length
+        if (!started && at < pos + l) { range.setStart(node, at - pos); started = true }
+        if (started && at + len <= pos + l) { range.setEnd(node, at + len - pos); break }
+        pos += l
       }
       out.push(range)
-      from = at + Math.max(1, needle.length)
       if (out.length > 2000) return out
     }
   }
   return out
+}
+
+/** Every match of `query` (case-insensitive unless the query has capitals). */
+function findRanges(root: HTMLElement, query: string): Range[] {
+  return query ? matchRanges(root, new RegExp(escapeRe(query), query !== query.toLowerCase() ? 'g' : 'gi')) : []
 }
 
 /** Find in the open file: highlights every match without touching the DOM, steps with ⏎ / ⇧⏎. */

@@ -12,7 +12,7 @@ const EXT: Record<string, string> = {
   json: 'json', jsonc: 'jsonc', yml: 'yaml', yaml: 'yaml', toml: 'toml', xml: 'xml', html: 'html', css: 'css', scss: 'scss',
   md: 'markdown', mdx: 'mdx', sql: 'sql', sh: 'bash', bash: 'bash', zsh: 'bash', gradle: 'groovy', groovy: 'groovy',
   dockerfile: 'dockerfile', properties: 'properties', graphql: 'graphql', proto: 'proto', vue: 'vue', svelte: 'svelte',
-  c: 'c', h: 'c', cpp: 'cpp', hpp: 'cpp', cs: 'csharp', php: 'php', lua: 'lua', ini: 'ini', mmd: 'mermaid',
+  c: 'c', h: 'c', cpp: 'cpp', hpp: 'cpp', cc: 'cpp', cxx: 'cpp', hh: 'cpp', hxx: 'cpp', cs: 'csharp', mts: 'typescript', cts: 'typescript', pyi: 'python', php: 'php', lua: 'lua', ini: 'ini', mmd: 'mermaid',
 }
 
 export function langOf(path: string): string | undefined {

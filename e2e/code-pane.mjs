@@ -1,7 +1,8 @@
 // The code pane: `c` opens the picked part's code beside the map, on its declaration or the lines its reference names,
 // with the lines the map's code changed marked. It follows the picks (a package's files, a line's two ends), keeps what
 // it shows on an empty click, shows the latest of quick picks, stands in for the info card while open, is resized by
-// its edge and remembered, and the menu, the info card and the pane itself lead to the code and on to the review.
+// its edge and remembered, zooms its code on its own, reads like an editor (the clicked word lit wherever it stands,
+// the file's structure), and the menu, the info card and the pane itself lead to the code and on to the review.
 //   DUET_PORT=7981 DUET_TOKEN=... [DUET_SCRATCH=<folder>] DUET_SHOTS=/dir node e2e/code-pane.mjs
 //   (makes a repo under DUET_SCRATCH, else the temp folder, opens it as a workspace and leaves it there.)
 import { execFileSync } from 'node:child_process'
@@ -63,10 +64,10 @@ const rows = cls => page.$$eval(`.code-pane tr.${cls}`, trs => trs.map(t => Numb
 const tabs = () => page.$$eval('.code-tabs button', bs => bs.map(b => b.textContent))
 const card = () => page.$('.inspector')
 const paneText = () => page.$eval('.code-pane', e => e.textContent).catch(() => '')
-/** The row is inside the pane's scrolled view. */
+/** The row is inside the pane's scrolled view (give or take a pixel's rounding). */
 const inView = no => page.evaluate(no => {
   const body = document.querySelector('.code-pane-body').getBoundingClientRect(), r = document.querySelector(`.code-pane tr[data-line="${no}"]`)?.getBoundingClientRect()
-  return Boolean(r && r.top >= body.top && r.bottom <= body.bottom)
+  return Boolean(r && r.top >= body.top - 1 && r.bottom <= body.bottom + 1)
 }, no)
 
 // 1. Closed by default: a pick opens the info card as before. `c` opens the pane on the picked box and puts the card away.
@@ -147,6 +148,71 @@ await page.waitForSelector('.code-zoom', { timeout: 20000 }); await sleep(500)
 check('the zoom is remembered', await percent() === kept, `${kept} → ${await percent()}`)
 await page.click('.code-zoom button[title="100%로"]'); await sleep(100)
 check('the percent resets it to 100%', await percent() === '100%')
+
+// 3c. Read like an editor: the word under a click (or a selection) lights up wherever it stands; the structure lists the
+// file's declarations, marks the one holding the clicked line and leads to one (floating over the code when narrow).
+await pickBox('Store')
+await until(() => page.$('.code-pane tr[data-line]'))
+const words = () => page.evaluate(() => CSS.highlights.get('duet-word')?.size ?? 0)
+/** The middle of the first character of `text` on a line of the pane. */
+const at = (no, text) => page.evaluate(([no, text]) => {
+  const cell = document.querySelector(`.code-pane tr[data-line="${no}"] td.code`)
+  const walker = document.createTreeWalker(cell, NodeFilter.SHOW_TEXT)
+  const nodes = []
+  let all = ''
+  for (let n = walker.nextNode(); n; n = walker.nextNode()) { nodes.push([n, all.length]); all += n.data }
+  const i = all.indexOf(text), [node, off] = nodes.findLast(([, o]) => o <= i)
+  const r = document.createRange(); r.setStart(node, i - off); r.setEnd(node, i - off + 1)
+  const b = r.getBoundingClientRect()
+  return { x: b.left + b.width / 2, y: b.top + b.height / 2 }
+}, [no, text])
+let p = await at(storeDecl + 1, 'db')
+await page.mouse.dblclick(p.x, p.y)
+check('a double-clicked word lights up wherever it stands, whole and case-sensitive', await until(async () => (await words()) === 2), String(await words()))
+check('the path line counts it', (await page.$eval('.code-pane-path', e => e.textContent)).includes('db 2곳'))
+p = await at(storeDecl + 3, 'save')
+await page.mouse.click(p.x, p.y)
+check('a click inside a word lights that word', await until(async () => (await words()) === 1), String(await words()))
+check('and marks its line', JSON.stringify(await rows('cursor-line')) === `[${storeDecl + 3}]`, JSON.stringify(await rows('cursor-line')))
+await page.evaluate(no => {
+  const cell = document.querySelector(`.code-pane tr[data-line="${no}"] td.code`), r = document.createRange()
+  const walker = document.createTreeWalker(cell, NodeFilter.SHOW_TEXT)
+  let all = ''
+  const nodes = []
+  for (let n = walker.nextNode(); n; n = walker.nextNode()) { nodes.push([n, all.length]); all += n.data }
+  const pos = i => { const [n, o] = nodes.findLast(([, o]) => o <= i); return [n, i - o] }
+  const i = all.indexOf('db.put')
+  r.setStart(...pos(i)); r.setEnd(...pos(i + 'db.put'.length))
+  getSelection().removeAllRanges(); getSelection().addRange(r)
+}, storeDecl + 3)
+check('a selection on one line lights up the same text', await until(async () => (await page.$eval('.code-pane-path', e => e.textContent)).includes('db.put 1곳')), await page.$eval('.code-pane-path', e => e.textContent))
+p = await at(storeDecl + 2, '{')
+await page.mouse.click(p.x, p.y)
+check('a click off any word clears the marks', await until(async () => (await words()) === 0), String(await words()))
+
+const outline = () => page.$$eval('.code-outline button', bs => bs.map(b => `${b.querySelector('.ol-kind').textContent} ${b.querySelector('.ellipsis').textContent}:${(parseInt(b.style.paddingLeft) - 8) / 12}`))
+const current = () => page.$eval('.code-outline button[aria-current="true"] .ellipsis', e => e.textContent).catch(() => '')
+await page.click('.code-pane-head button[title^="구조"]')
+await until(() => page.$('.code-outline button'))
+check('the structure lists the file\'s declarations, nested, the constructor\'s apart from the fields', JSON.stringify(await outline()) === '["C Store:0","c db:1","m save:1","f added:0"]', JSON.stringify(await outline()))
+check('beside the code when the pane is wide', !(await page.$('.code-outline.floating')))
+check('the declaration holding the clicked line is current', await current() === 'Store', await current())
+await page.click('.code-outline button:has-text("save")')
+check('a pick goes to the declaration and marks its name', await until(async () => (await words()) === 1 && JSON.stringify(await rows('cursor-line')) === `[${storeDecl + 3}]`) && await inView(storeDecl + 3))
+check('and it is current', await current() === 'save', await current())
+p = await at(storeDecl + 1, 'db')
+await page.mouse.click(p.x, p.y)
+check('a click in the code makes the declaration holding it current', await until(async () => (await current()) === 'db'), await current())
+check('the structure is remembered open', await page.evaluate(() => localStorage.getItem('duet.canvas.codeOutline')) === '1')
+await shot('structure')
+const edge2 = await page.$eval('.code-split', e => { const r = e.getBoundingClientRect(); return { x: r.left + r.width / 2, y: r.top + 200 } })
+await page.mouse.move(edge2.x, edge2.y); await page.mouse.down(); await page.mouse.move(edge2.x + 200, edge2.y, { steps: 6 }); await page.mouse.up(); await sleep(200)
+check('a narrow pane floats the structure over the code', Boolean(await page.$('.code-outline.floating')))
+await page.click('.code-outline button:has-text("added")')
+check('and a pick there puts it away, on the declaration', await until(async () => !(await page.$('.code-outline'))) && await inView(storeDecl + 5))
+await pickBox('Api')
+await until(async () => (await shownPath()) === 'src/api/Api.kt')
+check('another file starts without marks', await until(async () => (await words()) === 0), String(await words()))
 
 // 4. The menu and the info card open code in the pane; the pane leads on to the review.
 await page.keyboard.press('f'); await sleep(500)
