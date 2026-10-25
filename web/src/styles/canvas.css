@@ -120,10 +120,12 @@
 .stage-error pre { margin: 4px 0 0; white-space: pre-wrap; }
 .zoom-readout { position: absolute; left: 12px; bottom: 10px; font-size: 11px; color: var(--ink-4); font-variant-numeric: tabular-nums; pointer-events: none; }
 .stage-hint { position: absolute; left: 50%; transform: translateX(-50%); bottom: 10px; font-size: 11px; pointer-events: none; opacity: .8; }
-/* Every package's fold button: screen-sized at any zoom, gliding with the drawing (and only then: a drag or the wheel must not lag). */
-.stage-fold { position: absolute; z-index: 3; display: grid; place-items: center; width: 22px; height: 22px; padding: 0; background: var(--panel); color: var(--ink-3); border: 1px solid var(--line-strong); border-radius: 6px; box-shadow: var(--shadow-1); cursor: pointer; animation: fade .12s var(--ease); }
+/* Every package's fold button: sized by the stage (shrinking as the map zooms out, its hit area kept at 18px), gliding with the drawing (and only then: a drag or the wheel must not lag). */
+.stage-fold { position: absolute; z-index: 3; display: grid; place-items: center; padding: 0; background: var(--panel); color: var(--ink-3); border: 1px solid var(--line-strong); border-radius: 27%; box-shadow: var(--shadow-1); cursor: pointer; animation: fade .12s var(--ease); }
+.stage-fold::before { content: ''; position: absolute; inset: min(0px, calc((100% - 18px) / 2)); }
+.stage-fold svg { width: 64%; height: 64%; }
 .stage-fold:hover { color: var(--ink); border-color: var(--ink-3); }
-.stage-canvas.gliding .stage-fold { transition: left .3s var(--ease), top .3s var(--ease); }
+.stage-canvas.gliding .stage-fold { transition: left .3s var(--ease), top .3s var(--ease), width .3s var(--ease), height .3s var(--ease); }
 .empty-canvas .hero-mark { width: 48px; height: 48px; border-radius: 14px; display: grid; place-items: center; background: var(--accent-soft); color: var(--accent); }
 
 /* Parts of the drawing */

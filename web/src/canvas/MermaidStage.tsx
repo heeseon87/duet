@@ -86,8 +86,9 @@ let lastView: { key: string; view: View } | undefined
 
 /** A foldable package's frame in drawing units, measured with the drawing it belongs to, and whether that drawing shows it folded. */
 type Fold = { target: string; x: number; y: number; w: number; h: number; folded: boolean }
-/** A fold button's side, in screen pixels. */
+/** A fold button's side in screen pixels at 100% and beyond; zoomed out it shrinks with the drawing, and below FOLD_MIN (its chevrons blur) it is gone. */
 const FOLD_BTN = 22
+const FOLD_MIN = 8
 
 /** Low enough for the largest maps to fit whole; the wheel goes as far as a fit does. */
 const MIN_ZOOM = 0.05
@@ -380,13 +381,14 @@ export const MermaidStage = forwardRef<StageHandle, Props & { viewKey: string }>
   /**
    * Where each package's fold button stands, in stage pixels: on its frame's top edge at the right corner, across from
    * the decision pins at the left, so it stays inside its parent and off its neighbors. Off screen ones stay too (the
-   * stage clips them, the card covers them), so a glide that brings a corner in carries its button along. A package too
-   * small to hold one has none.
+   * stage clips them, the card covers them), so a glide that brings a corner in carries its button along. Zoomed out,
+   * the buttons shrink with the drawing and go once too small to read; a package too small to hold one has none.
    */
-  const foldButtons = settling ? [] : folds.flatMap(f => {
+  const foldSize = Math.round(FOLD_BTN * Math.min(1, view.k))
+  const foldButtons = settling || foldSize < FOLD_MIN ? [] : folds.flatMap(f => {
     const l = view.x + f.x * view.k, t = view.y + f.y * view.k, r = l + f.w * view.k
-    const left = r - 8 - FOLD_BTN
-    return left < l + 4 || f.h * view.k < FOLD_BTN ? [] : [{ ...f, left, top: t - FOLD_BTN / 2 }]
+    const left = r - foldSize * (1 + 8 / FOLD_BTN)
+    return left < l + 4 || f.h * view.k < foldSize ? [] : [{ ...f, left, top: t - foldSize / 2 }]
   })
 
   const onPointerMove = (e: React.PointerEvent) => {
@@ -436,7 +438,7 @@ export const MermaidStage = forwardRef<StageHandle, Props & { viewKey: string }>
       <div className="stage-inner" ref={inner} style={{ transform: `translate(${view.x}px, ${view.y}px) scale(${view.k})` }} />
       {foldButtons.map(f => (
         // Its own clicks: not a drag, a pick or a double-click of the stage underneath.
-        <button key={f.target} className="stage-fold" data-group={f.target} title={f.folded ? 'Expand' : 'Collapse'} style={{ left: f.left, top: f.top }}
+        <button key={f.target} className="stage-fold" data-group={f.target} title={f.folded ? 'Expand' : 'Collapse'} style={{ left: f.left, top: f.top, width: foldSize, height: foldSize }}
           onPointerDown={e => e.stopPropagation()} onPointerUp={e => e.stopPropagation()} onDoubleClick={e => e.stopPropagation()} onClick={() => onToggleGroup(f.target)}>
           {f.folded ? <ChevronsUpDown size={14} /> : <ChevronsDownUp size={14} />}
         </button>

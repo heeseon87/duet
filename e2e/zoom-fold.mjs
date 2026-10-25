@@ -1,7 +1,7 @@
 // Zooming to a part and folding a package without the menu: double-clicking a box or a package frames it (a package no
 // longer folds that way; a line or the empty canvas still fits the map), and every package that can fold shows its fold
 // button on its frame's top edge at the right corner, with no pointer near it; the buttons wait while a fold slides and
-// go with their corners through a wheel, a drag and a glide. With explore off, the info card a click opens narrows the
+// go with their corners through a wheel, a drag and a glide, shrinking as the map zooms out. With explore off, the info card a click opens narrows the
 // stage, framing centers in what is left, and the card covers the buttons under it.
 //   DUET_PORT=7981 DUET_TOKEN=... DUET_WS=<workspace> DUET_SHOTS=/dir node e2e/zoom-fold.mjs   (makes and removes a map named zoom-fold)
 import { open, sleep } from './browser.mjs'
@@ -52,7 +52,7 @@ const corners = (tol = 2) => page.evaluate(tol => {
   for (const b of document.querySelectorAll('.stage-fold')) {
     const f = document.querySelector(`.stage-inner > svg [data-group="${CSS.escape(b.dataset.group)}"]`)?.getBoundingClientRect()
     const r = b.getBoundingClientRect()
-    out[b.dataset.group] = Boolean(f) && Math.abs(r.top + r.height / 2 - f.top) < tol && Math.abs(r.right - (f.right - 8)) < tol
+    out[b.dataset.group] = Boolean(f) && Math.abs(r.top + r.height / 2 - f.top) < tol && Math.abs(r.right - (f.right - r.height * 8 / 22)) < tol
   }
   return out
 }, tol)
@@ -103,6 +103,19 @@ const s0 = await stage()
 await page.mouse.move(s0.left + 40, s0.bottom - 60)
 await page.mouse.wheel(0, -240); await sleep(300)
 check('after a wheel zoom, still on their corners', allOn(await corners()), JSON.stringify(await corners()))
+// Zoomed out, the buttons shrink with the drawing (22px at 100%), and once smaller than 8px they are gone.
+const sides = () => page.$$eval('.stage-fold', bs => [...new Set(bs.map(b => Math.round(b.getBoundingClientRect().height)))])
+const steps = []
+for (let i = 0; i < 6; i++) {
+  await page.mouse.wheel(0, 240); await sleep(300)
+  const k = parseInt(await zoom()) / 100, want = Math.round(22 * Math.min(1, k)), got = await sides()
+  // A small button still takes a click across 18px, off its own edge.
+  const hit = want >= 8 && want < 16 ? await page.$eval('.stage-fold[data-group="store"]', b => { const r = b.getBoundingClientRect(); return document.elementFromPoint(r.left - (18 - r.width) / 2 + 0.5, r.top + r.height / 2)?.closest('.stage-fold') === b }) : true
+  steps.push({ k, want, got, hit, ok: want < 8 ? got.length === 0 : got.length === 1 && Math.abs(got[0] - want) <= 1 && allOn(await corners()) && hit })
+}
+check('zoomed out, the buttons shrink on their corners, then go', steps.every(x => x.ok) && steps.some(x => x.want < 16 && x.want >= 8) && steps.some(x => x.want < 8), JSON.stringify(steps))
+for (let i = 0; i < 6; i++) { await page.mouse.wheel(0, -240); await sleep(80) }
+await sleep(300)
 await page.mouse.down(); await page.mouse.move(s0.left + 160, s0.bottom - 120, { steps: 6 }); await page.mouse.up(); await sleep(200)
 check('after a drag, still on their corners', allOn(await corners()), JSON.stringify(await corners()))
 await page.keyboard.press('f'); await sleep(140)
