@@ -3,7 +3,7 @@
 // it shows on an empty click, shows the latest of quick picks, stands in for the info card while open (the map gliding
 // to the middle of what is left as it opens and closes, the picked box kept in view), is resized by its edge (pushing
 // the map along) and remembered, zooms its code on its own, reads like an editor (the clicked word lit wherever it stands,
-// the file's structure), and the menu, the info card and the pane itself lead to the code and on to the review.
+// the file's structure, resized and closed by its edge), and the menu, the info card and the pane itself lead to the code and on to the review.
 //   DUET_PORT=7981 DUET_TOKEN=... [DUET_SCRATCH=<folder>] DUET_SHOTS=/dir node e2e/code-pane.mjs
 //   (makes a repo under DUET_SCRATCH, else the temp folder, opens it as a workspace and leaves it there.)
 import { execFileSync } from 'node:child_process'
@@ -217,6 +217,22 @@ await page.click('.code-pane-head button[title^="구조"]')
 await until(() => page.$('.code-outline button'))
 check('the structure lists the file\'s declarations, nested, the constructor\'s apart from the fields', JSON.stringify(await outline()) === '["C Store:0","c db:1","m save:1","f added:0"]', JSON.stringify(await outline()))
 check('beside the code when the pane is wide', !(await page.$('.code-outline.floating')))
+// Its edge resizes it (remembered); dragged to the left end it closes on release, and opens again at its width.
+const olWidth = () => page.$eval('.code-outline', e => e.getBoundingClientRect().width).catch(() => 0)
+const olEdge = () => page.$eval('.code-outline-split', e => { const r = e.getBoundingClientRect(); return { x: r.left + r.width / 2, y: r.top + 100 } })
+const ol0 = await olWidth()
+let oe = await olEdge()
+await page.mouse.move(oe.x, oe.y); await page.mouse.down(); await page.mouse.move(oe.x + 50, oe.y, { steps: 5 }); await page.mouse.up(); await sleep(150)
+const ol1 = await olWidth(), olKept = Number(await page.evaluate(() => localStorage.getItem('duet.canvas.codeOutlineWidth')))
+check('dragging the structure\'s edge widens it, and the width is remembered', Math.abs(ol1 - ol0 - 50) < 3 && Math.abs(olKept - ol1) <= 1, JSON.stringify({ ol0, ol1, olKept }))
+oe = await olEdge()
+await page.mouse.move(oe.x, oe.y); await page.mouse.down(); await page.mouse.move(oe.x - ol1, oe.y, { steps: 8 })
+const goneWhileDragging = !(await page.$('.code-outline'))
+await page.mouse.up(); await sleep(150)
+check('dragged to the left end, it closes on release', goneWhileDragging && !(await page.$('.code-outline')) && await page.evaluate(() => localStorage.getItem('duet.canvas.codeOutline')) === '0')
+await page.click('.code-pane-head button[title^="구조"]')
+await until(() => page.$('.code-outline button'))
+check('and opens again at the width it had', Math.abs((await olWidth()) - ol1) < 2, `${ol1} → ${await olWidth()}`)
 check('the declaration holding the clicked line is current', await current() === 'Store', await current())
 await page.click('.code-outline button:has-text("save")')
 check('a pick goes to the declaration and marks its name', await until(async () => (await words()) === 1 && JSON.stringify(await rows('cursor-line')) === `[${storeDecl + 3}]`) && await inView(storeDecl + 3))

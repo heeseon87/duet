@@ -20,6 +20,11 @@ const MIN_SCALE = 0.7
 const MAX_SCALE = 2
 /** Below this width the structure floats over the code instead of standing beside it. */
 const OUTLINE_BESIDE = 480
+/** The structure's narrowest, and the room the code keeps beside it. */
+const OUTLINE_MIN = 120
+const CODE_MIN = 200
+/** Its edge dragged left of this, the structure closes on release. */
+const OUTLINE_HIDE = 60
 const WORD_CHAR = /[\p{L}\p{N}_$]/u
 const isWord = (s: string) => /^[\p{L}\p{N}_$]+$/u.test(s)
 
@@ -136,6 +141,7 @@ export function CodePane({ map, want, slide, onClose }: { map: CanvasMap; want?:
   const width = useWidth()
   const zoom = useZoom(width.pane, body)
   const floating = width.value < OUTLINE_BESIDE
+  const outlineWidth = useOutlineWidth(width.value, floating, () => { setOutlineOpen(false); local.set('canvas.codeOutline', '0') })
   // A pick in the structure goes to its line and marks its name, as a click on the name would.
   const goTo = (it: OutlineItem) => {
     body.current?.querySelector(`[data-line="${it.line}"]`)?.scrollIntoView({ block: 'center' })
@@ -179,7 +185,10 @@ export function CodePane({ map, want, slide, onClose }: { map: CanvasMap; want?:
               </span>
             </div>
             <div className="code-pane-view">
-            {outlineOpen && text !== undefined && <Outline items={outline} active={active} floating={floating} onPick={goTo} />}
+            {outlineOpen && text !== undefined && !outlineWidth.hiding && <Outline items={outline} active={active} floating={floating} width={outlineWidth.value} onPick={goTo} />}
+            {outlineOpen && text !== undefined && (
+              <div className="code-outline-split" style={{ left: outlineWidth.hiding ? 0 : outlineWidth.value }} onPointerDown={outlineWidth.drag} title="끌어서 구조 폭 조절, 왼쪽 끝까지 끌면 닫기" />
+            )}
             <div className="code-pane-body" ref={body}>
               {file?.key !== key || (text === undefined && !file.missing) ? <div className="code-pane-empty"><Loader2 className="spin" size={16} /></div>
                 : file.missing ? <div className="code-pane-empty muted">{source.ref === 'WORKTREE' ? '작업 트리' : source.ref.slice(0, 7)}에 이 파일이 없어. 아직 구현 전일 수 있어.</div>
@@ -217,11 +226,11 @@ const BADGE: Record<SymbolKind, [string, string, string]> = {
 }
 
 /** The file's declarations, nested; the one holding the caret line is marked and kept in view, and a pick leads to it. */
-function Outline({ items, active, floating, onPick }: { items?: OutlineItem[]; active?: OutlineItem; floating: boolean; onPick: (it: OutlineItem) => void }) {
+function Outline({ items, active, floating, width, onPick }: { items?: OutlineItem[]; active?: OutlineItem; floating: boolean; width: number; onPick: (it: OutlineItem) => void }) {
   const nav = useRef<HTMLElement>(null)
   useEffect(() => { nav.current?.querySelector('[aria-current="true"]')?.scrollIntoView({ block: 'nearest' }) }, [active])
   return (
-    <nav className={`code-outline${floating ? ' floating' : ''}`} ref={nav} aria-label="구조">
+    <nav className={`code-outline${floating ? ' floating' : ''}`} ref={nav} aria-label="구조" style={{ width }}>
       {!items ? <div className="code-outline-empty muted">이 언어의 구조는 아직 못 읽어. Kotlin, Java, Swift, C#, C·C++, TS·JS, Python, SQL, 마크다운을 읽어.</div>
         : !items.length ? <div className="code-outline-empty muted">구조로 보여 줄 선언이 없어.</div>
         : items.map(it => {
@@ -367,4 +376,39 @@ function useWidth() {
     handle.addEventListener('pointerup', up)
   }
   return { pane, value: fit(wanted), drag }
+}
+
+/**
+ * The structure's width: dragged by its right edge and remembered, the code keeping room beside it (floating over the
+ * code, it covers at most 80% of it). Dragged past its narrowest toward the left edge, it closes on release and opens
+ * again at the width it had before that drag.
+ */
+function useOutlineWidth(pane: number, floating: boolean, close: () => void) {
+  const [wanted, setWanted] = useState(() => Number(local.get('canvas.codeOutlineWidth')) || 0)
+  const [hiding, setHiding] = useState(false)
+  const fit = (w: number) => Math.round(Math.max(OUTLINE_MIN, Math.min(w, floating ? pane * 0.8 : pane - CODE_MIN)))
+  // Never dragged: 30% of the pane within 150–260px, or 260px floating.
+  const value = fit(wanted || (floating ? 260 : Math.min(260, Math.max(150, pane * 0.3))))
+  const drag = (e: React.PointerEvent) => {
+    e.preventDefault()
+    const handle = e.currentTarget as HTMLElement
+    handle.setPointerCapture(e.pointerId)
+    const x0 = e.clientX, from = value, before = wanted
+    let last = from, gone = false
+    const move = (m: PointerEvent) => {
+      const raw = from + m.clientX - x0
+      gone = raw < OUTLINE_HIDE
+      setHiding(gone)
+      if (!gone) { last = fit(raw); setWanted(last) }
+    }
+    const up = () => {
+      handle.removeEventListener('pointermove', move)
+      handle.removeEventListener('pointerup', up)
+      setHiding(false)
+      if (gone) { setWanted(before); close() } else local.set('canvas.codeOutlineWidth', String(last))
+    }
+    handle.addEventListener('pointermove', move)
+    handle.addEventListener('pointerup', up)
+  }
+  return { value, hiding, drag }
 }
