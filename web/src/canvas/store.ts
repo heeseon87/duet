@@ -91,7 +91,7 @@ export const useCanvas = create<CanvasState>((set, get) => ({
   threads: [],
   deliveries: {},
   collapsed: new Set(),
-  explore: local.get('canvas.explore') === '1',
+  explore: local.get('canvas.explore') !== '0',
   loading: false,
 
   loadList: async () => {

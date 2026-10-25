@@ -559,14 +559,14 @@ export function CanvasView() {
   const [menu, setMenu] = useState<{ target?: string; at: Point }>()
   const [asking, setAsking] = useState<{ target: string; at: Point }>()
   // Explore mode starts (and stays) with the card away: clicking only highlights. So does the code pane, which stands in for the card.
-  const [inspector, setInspector] = useState(() => !useCanvas.getState().explore && local.get('canvas.code') !== '1')
+  const [inspector, setInspector] = useState(() => !useCanvas.getState().explore && local.get('canvas.code') === '0')
   useEffect(() => { if (s.explore) setInspector(false) }, [s.explore])
   // A wider info card for long decisions and notes; remembered.
   const [wideInsp, setWideInsp] = useState(() => local.get('canvas.wideInspector') === '1')
   const toggleWide = () => setWideInsp(w => { local.set('canvas.wideInspector', w ? '0' : '1'); return !w })
   // The code pane beside the map; remembered. It stands in for the info card: opening it puts the card away, and while
   // it is open a pick does not bring the card back (`i` still does).
-  const [codeOpen, setCodeOpen] = useState(() => local.get('canvas.code') === '1')
+  const [codeOpen, setCodeOpen] = useState(() => local.get('canvas.code') !== '0')
   const codeOpenRef = useRef(codeOpen)
   codeOpenRef.current = codeOpen
   const [codeWant, setCodeWant] = useState<{ file: string; nonce: number }>()

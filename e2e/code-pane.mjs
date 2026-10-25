@@ -4,6 +4,7 @@
 // to the middle of what is left as it opens and closes, the picked box kept in view), is resized by its edge (pushing
 // the map along) and remembered, zooms its code on its own, reads like an editor (the clicked word lit wherever it stands,
 // the file's structure, resized and closed by its edge), and the menu, the info card and the pane itself lead to the code and on to the review.
+// Left to its defaults the canvas opens in explore mode with the pane open.
 //   DUET_PORT=7981 DUET_TOKEN=... [DUET_SCRATCH=<folder>] DUET_SHOTS=/dir node e2e/code-pane.mjs
 //   (makes a repo under DUET_SCRATCH, else the temp folder, opens it as a workspace and leaves it there.)
 import { execFileSync } from 'node:child_process'
@@ -49,6 +50,17 @@ await call('POST', `/api/canvas/${name}/patch`, { ws, note: 'm', patch: {
 } })
 appendFileSync(join(ws, 'src/store/Store.kt'), 'fun added() = 1\n')
 const addedLine = storeDecl + 5
+
+// Nothing remembered yet: explore mode on, the pane open, no info card.
+{
+  const first = await open({ port, token: T, ws, width: 1500, height: 940, appDefaults: true })
+  await first.page.evaluate(([w, m]) => { localStorage.setItem('duet.tab', 'canvas'); localStorage.setItem(`duet.canvas.current:${w}`, m) }, [ws, name])
+  await first.page.reload({ waitUntil: 'domcontentloaded' })
+  await first.page.waitForSelector('.stage-inner > svg .cv-node[data-target="Store"]', { timeout: 20000 }); await sleep(800)
+  const d = await first.page.evaluate(() => ({ pane: Boolean(document.querySelector('.code-pane')), card: Boolean(document.querySelector('.inspector')), explore: document.querySelector('.canvas-bar button[title^="탐색 모드"]')?.getAttribute('aria-pressed') }))
+  check('left to its defaults the canvas opens exploring, with the code pane', d.pane && !d.card && d.explore === 'true', JSON.stringify(d))
+  await first.browser.close()
+}
 
 const { browser, page, errors } = await open({ port, token: T, ws, width: 1500, height: 940 })
 await page.evaluate(([w, m]) => {

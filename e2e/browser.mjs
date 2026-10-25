@@ -19,7 +19,7 @@ function executable() {
   return undefined
 }
 
-export async function open({ port = 7981, token, ws, width = 1480, height = 920, theme = 'light' } = {}) {
+export async function open({ port = 7981, token, ws, width = 1480, height = 920, theme = 'light', appDefaults = false } = {}) {
   let browser
   try {
     browser = await chromium.launch()
@@ -32,6 +32,9 @@ export async function open({ port = 7981, token, ws, width = 1480, height = 920,
   page.on('pageerror', e => errors.push(e.message))
   page.on('console', m => { if (m.type() === 'error') errors.push(m.text()) })
   await page.addInitScript(t => { try { localStorage.setItem('duet.theme', t) } catch {} }, theme)
+  // The canvas opens in explore mode with the code pane; the scripts were written against both off, so they start
+  // there unless they set them (or ask for the app's own defaults).
+  if (!appDefaults) await page.addInitScript(() => { try { for (const k of ['duet.canvas.explore', 'duet.canvas.code']) if (localStorage.getItem(k) === null) localStorage.setItem(k, '0') } catch {} })
   await page.goto(`http://127.0.0.1:${port}/?t=${token}${ws ? `&ws=${encodeURIComponent(ws)}` : ''}`, { waitUntil: 'domcontentloaded' })
   return { browser, page, errors }
 }
