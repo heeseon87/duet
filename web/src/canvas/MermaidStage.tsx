@@ -631,22 +631,31 @@ const CODE_TEXT: Record<CodeMark['state'], (n: number) => string> = {
   pending: () => '구현 전',
 }
 
-/** Where a box stands against the map's code, along its bottom edge from the left (the folded-package count is on the right). */
+/**
+ * Where a box stands against the map's code, along its bottom edge from the left (the folded-package count is on the
+ * right). Once the review marks all its changed files viewed, a check leads the text.
+ */
 function codeBadge(node: SVGGraphicsElement, mark: CodeMark | undefined, b: DOMRect) {
   const text = mark ? CODE_TEXT[mark.state](mark.files) : ''
+  const seen = Boolean(mark?.files && mark.viewed === mark.files)
   const old = node.querySelector<SVGGElement>(':scope > .cv-code')
   if (!text) { old?.remove(); return }
-  if (old?.getAttribute('data-text') === text) return
+  if (old?.getAttribute('data-text') === text && old.classList.contains('viewed') === seen) return
   old?.remove()
   const g = document.createElementNS('http://www.w3.org/2000/svg', 'g')
-  g.setAttribute('class', `cv-code ${mark!.state}`)
+  g.setAttribute('class', `cv-code ${mark!.state}${seen ? ' viewed' : ''}`)
   g.setAttribute('data-text', text)
-  g.innerHTML = `<rect rx="7" ry="7"></rect><text dy="3.6" text-anchor="middle">${text}</text>`
+  // The review's check (lucide Check), 10px.
+  g.innerHTML = `<rect rx="7" ry="7"></rect>${seen ? '<path class="check" d="M20 6 9 17l-5-5"></path>' : ''}<text dy="3.6" text-anchor="middle">${text}</text>`
   node.appendChild(g)
   const t = g.querySelector('text')!
-  const w = t.getComputedTextLength() + 12
+  const tw = t.getComputedTextLength()
+  const icon = seen ? 12 : 0
+  const w = tw + 12 + icon
   const r = g.querySelector('rect')!
   r.setAttribute('width', String(w)); r.setAttribute('height', '15'); r.setAttribute('x', String(-w / 2)); r.setAttribute('y', '-7.5')
+  t.setAttribute('x', String(-w / 2 + 6 + icon + tw / 2))
+  g.querySelector('.check')?.setAttribute('transform', `translate(${-w / 2 + 5}, -5) scale(${10 / 24})`)
   g.setAttribute('transform', `translate(${b.x + w / 2 + 6}, ${b.y + b.height})`)
 }
 

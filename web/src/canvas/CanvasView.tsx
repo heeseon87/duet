@@ -586,10 +586,10 @@ export function CanvasView() {
   const shownMap = s.preview?.map ?? s.map
   // The same files the review lists, matched to the parts the same way: what is built, what is not yet.
   const bound = useReview(r => r.bound), editing = useReview(r => r.editing), diff = useReview(r => r.diff), root = useReview(r => r.root), home = useReview(r => r.home)
-  const oneTurn = useReview(r => r.source.kind === 'turn')
+  const oneTurn = useReview(r => r.source.kind === 'turn'), viewed = useReview(r => r.viewed)
   const code = useMemo(
-    () => (shownMap?.diagram === 'class' && bound && bound.map === s.mapName && !editing && diff && root && home ? codeMarks(shownMap, diff.files, root, home, { pending: !oneTurn }) : undefined),
-    [shownMap, bound, s.mapName, editing, diff, root, home, oneTurn],
+    () => (shownMap?.diagram === 'class' && bound && bound.map === s.mapName && !editing && diff && root && home ? codeMarks(shownMap, diff.files, root, home, { pending: !oneTurn, viewed: new Set(Object.keys(viewed)) }) : undefined),
+    [shownMap, bound, s.mapName, editing, diff, root, home, oneTurn, viewed],
   )
   const foldable = useMemo(() => {
     const parents = new Set((shownMap?.elements ?? []).map(e => e.parent).filter(Boolean))

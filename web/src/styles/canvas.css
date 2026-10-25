@@ -391,6 +391,7 @@ details.insp-section[open] > summary { margin-bottom: 4px; }
 .stage-inner .cv-code.unplanned text { fill: var(--agent); }
 .stage-inner .cv-code.pending rect { stroke-dasharray: 3 2; }
 .stage-inner .cv-code.pending text { fill: var(--ink-3); font-weight: 600; }
+.stage-inner .cv-code .check { fill: none !important; stroke: var(--add) !important; stroke-width: 3.2 !important; stroke-linecap: round; stroke-linejoin: round; }
 
 /* A chip in the bar gives way first; the buttons never wrap their words. */
 .canvas-bar button { white-space: nowrap; }

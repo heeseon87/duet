@@ -3,6 +3,7 @@
 // changed from the review and saved (another kind of comparison, a worktree beside the workspace), and a map from
 // before maps knew their code is asked once and bound to the repo its files are in, from the commit it was made on.
 // One turn of a conversation narrows the review within the map's code, and the canvas marks what that turn touched.
+// A box whose files the review marks viewed carries a check until they change again.
 //   DUET_PORT=7981 DUET_TOKEN=... DUET_SCRATCH=<folder> node e2e/map-code.mjs
 //   (makes a repo and a worktree beside it under DUET_SCRATCH, and leaves them there; one Haiku conversation.)
 import { execFileSync } from 'node:child_process'
@@ -63,6 +64,16 @@ if (shots) await page.screenshot({ path: `${shots}/map-code-built.png` })
 await page.click('.canvas-bar .code-chip'); await sleep(800)
 const listed = await page.$$eval('.review-nav .tree-row.file', rs => [...new Set(rs.map(r => r.title))].join(' '))
 check('the chip opens the review on the same file', listed === 'src/New.kt', listed)
+
+// Viewed in the review: the box carries a check, and loses it once the file changes again.
+await page.click('label.toggle:has-text("Viewed") input'); await sleep(300)
+await page.keyboard.press('Meta+1'); await sleep(1200)
+const viewedMark = () => page.$eval('.stage-inner > svg .cv-node[data-target="New"] > .cv-code', b => b.classList.contains('viewed') && Boolean(b.querySelector('.check'))).catch(() => false)
+check('a box whose files are all viewed carries a check, its text unchanged', (await viewedMark()) && (await badge('New')) === '코드 1', await badge('New'))
+if (shots) await page.screenshot({ path: `${shots}/map-code-viewed.png` })
+writeFileSync(join(ws, 'src/New.kt'), 'class New {\n  val x = 1\n}\n')
+check('the check goes once the file changes again', (await until(async () => !(await viewedMark()))) === true)
+await page.keyboard.press('Meta+2'); await sleep(800)
 
 // 2. The map's code changed from the review: another comparison, saved.
 await page.click('.source-bar button:has-text("코드 기준 바꾸기")'); await sleep(300)

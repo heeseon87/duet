@@ -106,17 +106,24 @@ describe('the parts a map\'s code changed', async () => {
   it('marks built, not yet built and unplanned parts, and counts what no part names', () => {
     const { marks, outside } = codeMarks(map, files, '/r', '/r')
     expect(Object.fromEntries(marks)).toEqual({
-      pkg: { state: 'built', files: 1 },
-      Built: { state: 'built', files: 1 },
-      Waiting: { state: 'pending', files: 0 },
-      Kept: { state: 'unplanned', files: 2 },
+      pkg: { state: 'built', files: 1, viewed: 0 },
+      Built: { state: 'built', files: 1, viewed: 0 },
+      Waiting: { state: 'pending', files: 0, viewed: 0 },
+      Kept: { state: 'unplanned', files: 2, viewed: 0 },
     })
     expect(outside).toBe(1)
   })
 
   it('leaves out "not built yet" for one turn of the map\'s code', () => {
     const { marks } = codeMarks(map, [file('src/Built.kt')], '/r', '/r', { pending: false })
-    expect(Object.fromEntries(marks)).toEqual({ pkg: { state: 'built', files: 1 }, Built: { state: 'built', files: 1 }, Kept: { state: 'unplanned', files: 1 } })
+    expect(Object.fromEntries(marks)).toEqual({ pkg: { state: 'built', files: 1, viewed: 0 }, Built: { state: 'built', files: 1, viewed: 0 }, Kept: { state: 'unplanned', files: 1, viewed: 0 } })
+  })
+
+  it('counts the viewed files of a part and of everything inside a package', () => {
+    const { marks } = codeMarks(map, files, '/r', '/r', { viewed: new Set(['src/Built.kt', 'README.md']) })
+    expect(marks.get('pkg')).toEqual({ state: 'built', files: 1, viewed: 1 })
+    expect(marks.get('Built')).toEqual({ state: 'built', files: 1, viewed: 1 })
+    expect(marks.get('Kept')).toEqual({ state: 'unplanned', files: 2, viewed: 1 })
   })
 
   it('agrees with the review\'s map layout on every file, the workspace being another folder than the tree', () => {
