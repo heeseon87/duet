@@ -5,6 +5,12 @@ import { fileOfRef } from './canvas.ts'
 export const absoluteRef = (home: string, ref: string) => (ref.startsWith('/') ? ref : `${home}/${fileOfRef(ref).replace(/^\.\//, '')}`)
 
 /**
+ * The folder a map's relative file references start from: the root of its code when that tree is another repository
+ * outside the workspace, else the workspace (a tree inside it, like a worktree, keeps workspace-relative references).
+ */
+export const refBase = (home: string, codeRoot?: string) => (codeRoot && codeRoot !== home && !codeRoot.startsWith(home + '/') ? codeRoot : home)
+
+/**
  * The changed files each element names itself (not those of the parts inside it), by element id. One matcher for the
  * review's map layout and the canvas's code marks, so the two never disagree on which file belongs to which part.
  */

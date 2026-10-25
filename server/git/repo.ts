@@ -159,6 +159,19 @@ export function codeHere(cwd: string, home?: string): MapCode | undefined {
   return { root, source: head ? { kind: 'branch', base: head, compare: 'WORKTREE' } : { kind: 'working' }, set: Date.now() }
 }
 
+/** The refs of a source that `root` cannot resolve to a commit: a review of commits from another repository shows nothing. */
+export function missingRefs(root: string, source: DiffSource): string[] {
+  const refs = source.kind === 'branch' ? [source.base, source.compare] : source.kind === 'commits' ? [source.from, source.to] : []
+  return refs.filter((ref): ref is string => !!ref && ref !== 'WORKTREE').filter(ref => {
+    try {
+      execFileSync('git', ['rev-parse', '--verify', '-q', `${ref}^{commit}`], { cwd: root, stdio: 'ignore', env: { ...process.env, GIT_OPTIONAL_LOCKS: '0' } })
+      return false
+    } catch {
+      return true
+    }
+  })
+}
+
 /** What a map made to review code is bound to, as the tool takes it: `pr`, `pr:123`, `branch:main...feat`, `commits:a..b`. */
 export function codeSourceOf(text: string): DiffSource | undefined {
   const [kind, rest = ''] = text.trim().split(/:(.*)/s)

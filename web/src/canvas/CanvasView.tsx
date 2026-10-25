@@ -4,7 +4,7 @@ import {
   Check, CircleDot, FileCode2, FileDiff, ArrowLeft, ArrowRight, ArrowUp, ArrowDown, X, Bot, User, Trash2, Send, Pencil, Share, ImageDown, FolderGit2,
 } from 'lucide-react'
 import { deliveryLabel, describeDiff, diffMaps, exportMermaid, filesUnder, labelOf, relationKey, shapedBy, stepMark, type CanvasDecision, type CanvasElement, type CanvasMap, type CanvasRelation } from '../../../shared/canvas.ts'
-import { codeMarks } from '../../../shared/mapFiles.ts'
+import { codeMarks, refBase } from '../../../shared/mapFiles.ts'
 import type { CanvasThread } from '../../../shared/protocol.ts'
 import { api } from '../api.ts'
 import { local, useApp } from '../state.ts'
@@ -588,8 +588,8 @@ export function CanvasView() {
   const bound = useReview(r => r.bound), editing = useReview(r => r.editing), diff = useReview(r => r.diff), root = useReview(r => r.root), home = useReview(r => r.home)
   const oneTurn = useReview(r => r.source.kind === 'turn'), viewed = useReview(r => r.viewed)
   const code = useMemo(
-    () => (shownMap?.diagram === 'class' && bound && bound.map === s.mapName && !editing && diff && root && home ? codeMarks(shownMap, diff.files, root, home, { pending: !oneTurn, viewed: new Set(Object.keys(viewed)) }) : undefined),
-    [shownMap, bound, s.mapName, editing, diff, root, home, oneTurn, viewed],
+    () => (shownMap?.diagram === 'class' && bound && bound.map === s.mapName && !editing && diff && root && home ? codeMarks(shownMap, diff.files, root, refBase(home, s.code?.root), { pending: !oneTurn, viewed: new Set(Object.keys(viewed)) }) : undefined),
+    [shownMap, bound, s.mapName, s.code, editing, diff, root, home, oneTurn, viewed],
   )
   const foldable = useMemo(() => {
     const parents = new Set((shownMap?.elements ?? []).map(e => e.parent).filter(Boolean))

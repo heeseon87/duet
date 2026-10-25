@@ -8,6 +8,7 @@ import { fileURLToPath } from 'node:url'
 import { z } from 'zod'
 import type { CanvasThread, ContextItem, DiffSource, PermissionDecision, PermissionMode, ReviewComment, ReviewRepo, ServerEvent, SessionEvent, TerminalInfo, Workspace } from '../shared/protocol.ts'
 import { deliveryOf, fileOfRef, type CanvasPatch, type CanvasRevision, type Delivery } from '../shared/canvas.ts'
+import { refBase } from '../shared/mapFiles.ts'
 import { DUET_HOME, HttpError, readJson, writeJson, ensureDir, newId } from './util.ts'
 import { codeHere, gitInfo, grep, headAt, listFiles, log as gitLog, readAt, toplevel, workspaceName, currentBranch, mainRoot } from './git/repo.ts'
 import { computeDiff } from './git/diff.ts'
@@ -152,7 +153,7 @@ async function workspaceOfPath(path: string): Promise<string | undefined> {
   const real = (() => { try { return realpathSync(path) } catch { return resolve(path) } })()
   const all = []
   for (const w of workspaces()) {
-    const maps = canvas.list(w.path).flatMap(m => canvas.get(w.path, m.name).map.elements.flatMap(e => (e.files ?? []).map(f => resolve(w.path, fileOfRef(f)))))
+    const maps = canvas.list(w.path).flatMap(m => canvas.get(w.path, m.name).map.elements.flatMap(e => (e.files ?? []).map(f => resolve(refBase(w.path, m.code?.root), fileOfRef(f)))))
     all.push({ path: w.path, reaches: [...(await sessions.touchedRepos(w.path)).keys(), ...maps] })
   }
   return workspaceFor(real, await repoOf(real), all)
@@ -391,7 +392,7 @@ route('GET', '/api/review/repos', async ({ url }) => {
     const roots = new Set<string>()
     if (m.code && m.code.root !== ws) roots.add(m.code.root)
     for (const ref of new Set(map.elements.flatMap(e => (e.files ?? []).map(fileOfRef)))) {
-      const top = await repoOf(resolve(ws, ref))
+      const top = await repoOf(resolve(refBase(ws, m.code?.root), ref))
       if (top && top !== ws) roots.add(top)
     }
     for (const r of roots) {
@@ -514,10 +515,10 @@ route('POST', '/api/canvas/:name/code', async ({ req, params }) => {
   const ws = knownWorkspace(b.ws)
   if (b.source === null) return canvas.setCode(ws, params.name, undefined)
   if (b.guess) {
-    const { map } = canvas.get(ws, params.name)
+    const { map, code } = canvas.get(ws, params.name)
     const tally = new Map<string, number>()
     for (const ref of new Set(map.elements.flatMap(e => (e.files ?? []).map(fileOfRef)))) {
-      const top = await repoOf(resolve(ws, ref))
+      const top = await repoOf(resolve(refBase(ws, code?.root), ref))
       if (top) tally.set(top, (tally.get(top) ?? 0) + 1)
     }
     const root = [...tally].sort((x, y) => y[1] - x[1])[0]?.[0] ?? ws

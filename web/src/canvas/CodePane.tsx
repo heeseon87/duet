@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { FileDiff, ListTree, Loader2, Minus, Plus, X } from 'lucide-react'
 import { fileOfRef, filesUnder, labelOf, relationKey, type CanvasMap } from '../../../shared/canvas.ts'
-import { absoluteRef } from '../../../shared/mapFiles.ts'
+import { absoluteRef, refBase } from '../../../shared/mapFiles.ts'
 import type { DiffResult } from '../../../shared/protocol.ts'
 import { api, q } from '../api.ts'
 import { Line, useTokens } from '../lib/Code.tsx'
@@ -58,10 +58,11 @@ type Source = { root: string; path: string; ref: string; marks: boolean }
  * Where to read a file: in the code the review shows for this map (at that version, its changed lines marked) when the
  * map is bound and the file is in it, else as it is on disk in the review's tree or the workspace.
  */
-function sourceOf(abs: string, workspace: string, mapName: string | undefined, review: { root?: string; diff?: DiffResult; bound?: { map: string }; editing: boolean }): Source | undefined {
+function sourceOf(abs: string, workspace: string, mapName: string | undefined, review: { root?: string; diff?: DiffResult; bound?: { map: string }; editing: boolean }, codeRoot?: string): Source | undefined {
   const { root, diff, bound, editing } = review
   const mine = Boolean(bound && bound.map === mapName && !editing && diff && root)
-  for (const r of [root, workspace]) {
+  // The map's own repository too: its files open from there while the review shows another tree.
+  for (const r of [root, workspace, codeRoot]) {
     if (!r || !abs.startsWith(r + '/')) continue
     const path = abs.slice(r.length + 1)
     return mine && r === root ? { root: r, path, ref: diff!.newRef, marks: true } : { root: r, path, ref: 'WORKTREE', marks: false }
@@ -78,7 +79,7 @@ export function CodePane({ map, target, want, slide, onClose }: { map: CanvasMap
   const workspace = useApp(s => s.workspace?.path ?? '')
   const setTab = useApp(s => s.setTab)
   const [slideIn] = useState(slide)
-  const mapName = useCanvas(s => s.mapName)
+  const mapName = useCanvas(s => s.mapName), codeRoot = useCanvas(s => s.code?.root)
   const diff = useReview(s => s.diff), root = useReview(s => s.root), bound = useReview(s => s.bound), editing = useReview(s => s.editing)
   const openFile = useReview(s => s.openFile)
   const [pick, setPick] = useState<string>()
@@ -88,7 +89,7 @@ export function CodePane({ map, target, want, slide, onClose }: { map: CanvasMap
 
   const refs = useMemo(() => codeRefsOf(map, target), [map, target])
   const ref = refs.find(r => r === pick) ?? refs.find(r => fileOfRef(r) === fileOfRef(pick ?? '')) ?? refs[0]
-  const source = ref ? sourceOf(absoluteRef(workspace, ref), workspace, mapName, { root, diff, bound, editing }) : undefined
+  const source = ref ? sourceOf(absoluteRef(refBase(workspace, codeRoot), ref), workspace, mapName, { root, diff, bound, editing }, codeRoot) : undefined
   const key = source ? `${source.root}\0${source.ref}\0${source.path}` : ''
 
   // A quick run of picks: only the answer for the file shown now is kept.

@@ -65,6 +65,10 @@ export const TOOLS: { relays: string; spec: ToolSpec }[] = [
           "code": {
             "description": "only for a map made to review code that exists: what it reviews, \"pr\" (the PR of the checked-out branch), \"pr:123\", \"branch:main...feature\" or \"commits:abc..def\". Leave it out for a design map: it is bound to this tree from its current commit, so the code built from it shows in the review",
             "type": "string"
+          },
+          "repo": {
+            "description": "a folder of the git repository the code is in, absolute or relative to this folder; for code built in a worktree, that worktree (a design map follows its uncommitted changes). Leave it out when that is this folder's tree. In another repository outside the workspace, the map's files are relative to its root",
+            "type": "string"
           }
         },
         "required": [
@@ -218,7 +222,7 @@ export const TOOLS: { relays: string; spec: ToolSpec }[] = [
                   ]
                 },
                 "files": {
-                  "description": "repo-relative paths",
+                  "description": "paths relative to the folder canvas_create and canvas_read name for the map's files, or absolute",
                   "anyOf": [
                     {
                       "type": "array",

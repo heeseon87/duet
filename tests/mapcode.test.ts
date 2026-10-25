@@ -137,3 +137,52 @@ describe('the parts a map\'s code changed', async () => {
     for (const [id, m] of marks) if (m.paths.length) expect(counts.get(id)).toBe(m.paths.length)
   })
 })
+
+describe('canvas_create binds the map to another repository', () => {
+  const terminalIn = (cwd: string) => ({ terminal: { id: 'term-0002', label: 't', cwd } })
+
+  it('takes repo over the terminal\'s folder, and starts the parts\' files from that root', () => {
+    const { done: ws } = repos()
+    const { done: other } = repos()
+    const range = `commits:${git(other, 'rev-parse', '--short', 'HEAD')}`
+    const made = run(store, ws, 'canvas_create', { name: 'elsewhere', diagram: 'class', title: '옆 저장소', code: range, repo: join(other, 'src') }, terminalIn(ws))
+    expect(made.isError).toBeUndefined()
+    expect(made.text).toContain(`in ${other}. Its parts' files are relative to ${other}.`)
+    expect(store.get(ws, 'elsewhere').code?.root).toBe(other)
+  })
+
+  it('refuses commits the repository does not have, and a repo outside git', () => {
+    const { done: ws } = repos()
+    const { done: other } = repos()
+    // Two fresh repos made in the same second share their first commit; a second one only the other has.
+    writeFileSync(join(other, 'b.txt'), 'b\n')
+    git(other, 'add', '.')
+    git(other, 'commit', '-q', '-m', 'second')
+    const theirs = git(other, 'rev-parse', 'HEAD')
+    const wrong = run(store, ws, 'canvas_create', { name: 'wrong', diagram: 'class', title: '틀림', code: `commits:${theirs}` }, terminalIn(ws))
+    expect(wrong).toMatchObject({ isError: true })
+    expect(wrong.text).toContain('Pass repo')
+    expect(store.exists(ws, 'wrong')).toBe(false)
+    const nogit = run(store, ws, 'canvas_create', { name: 'nogit', diagram: 'class', title: '틀림', repo: mkdtempSync(join(tmpdir(), 'duet-nogit-')) }, terminalIn(ws))
+    expect(nogit).toMatchObject({ isError: true })
+  })
+})
+
+describe('where a map\'s relative files start', async () => {
+  const { refBase, ownFiles } = await import('../shared/mapFiles.ts')
+  const map = { schema: 1 as const, diagram: 'class' as const, title: 't', relations: [], elements: [{ id: 'A', files: ['src/A.kt'] }, { id: 'W', files: ['wt/src/W.kt'] }] }
+  const file = (path: string) => ({ path })
+
+  it('starts from another repository\'s root, and from the workspace for a tree inside it', () => {
+    expect(refBase('/ws', '/repos/other')).toBe('/repos/other')
+    expect(refBase('/ws', '/ws/wt')).toBe('/ws')
+    expect(refBase('/ws', '/ws')).toBe('/ws')
+    expect(refBase('/ws', undefined)).toBe('/ws')
+    expect(refBase('/ws', '/wsx')).toBe('/wsx')
+  })
+
+  it('matches the review\'s files either way', () => {
+    expect([...ownFiles(map, [file('src/A.kt')], '/repos/other', refBase('/ws', '/repos/other')).keys()]).toEqual(['A'])
+    expect([...ownFiles(map, [file('src/W.kt')], '/ws/wt', refBase('/ws', '/ws/wt')).keys()]).toEqual(['W'])
+  })
+})

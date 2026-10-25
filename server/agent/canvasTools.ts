@@ -1,9 +1,11 @@
+import { resolve } from 'node:path'
 import { createSdkMcpServer, tool } from '@anthropic-ai/claude-agent-sdk'
 import { z } from 'zod'
 import { toMermaid, type CanvasPatch } from '../../shared/canvas.ts'
+import { refBase } from '../../shared/mapFiles.ts'
 import { describeSource } from '../../shared/protocol.ts'
 import type { CanvasStore } from '../canvas/store.ts'
-import { codeHere, codeSourceOf } from '../git/repo.ts'
+import { codeHere, codeSourceOf, missingRefs } from '../git/repo.ts'
 
 const change = z.enum(['keep', 'result', 'modify', 'delete', 'add'])
 const member = z.object({ text: z.string(), change: z.enum(['add', 'modify', 'delete']).optional() })
@@ -15,7 +17,7 @@ const element = z.object({
   change: change.nullable().optional(),
   members: z.array(member).nullable().optional(),
   note: z.string().nullable().optional(),
-  files: z.array(z.string()).nullable().optional().describe('repo-relative paths'),
+  files: z.array(z.string()).nullable().optional().describe('paths relative to the folder canvas_create and canvas_read name for the map\'s files, or absolute'),
   decision: z.string().nullable().optional().describe('the decision that shapes this part (D1). Tag every part a decision shapes, and keep the tag after the person chooses: the map shows what each decision shaped'),
   option: z.string().nullable().optional().describe('the option this part belongs to (D1-a); for a made decision, its chosen option. Leave it out when the part stands whichever way the decision goes'),
   before: z.string().optional().describe('move this element right before this sibling (same parent). Top-level groups are drawn in map order: left to right within a row (top to bottom when direction is LR); boxes tied by lines go where the lines put them. Keep an order the person set unless asked'),
@@ -57,7 +59,7 @@ export const INSTRUCTIONS = `Duet canvas: design maps the person reviews with yo
 - When asked to tag existing decisions, read the map, find the parts each decision shaped, and add decision (and, for a made decision, its chosen option) to them.
 - The person's canvas comments arrive as prompts that name the map and the target. Answer in chat, and update the map so the drawing matches what you said.
 - Keep the map and the code in step: when you change the code's structure, update the map in the same turn.
-- Each map is bound to the code it is about, and the person reviews that code beside it. When you build or change the code of a part, set the part's files (repo-relative paths) in the same turn: the review lists each changed file under the part that names it, and the map marks which parts are built.
+- Each map is bound to the code it is about, and the person reviews that code beside it. When you build or change the code of a part, set the part's files (relative to the folder canvas_read names for them) in the same turn: the review lists each changed file under the part that names it, and the map marks which parts are built.
 - The person can also edit the map directly (labels, status, notes, removals). Read the map before you change it, and keep their edits.`
 
 /** The canvas tools, written once: Duet's conversations get them over MCP, the terminal mod relays its calls to the server. */
@@ -72,6 +74,7 @@ export const CANVAS_TOOLS = {
       title: z.string(),
       context: z.string().optional().describe('one or two sentences: what this map is for'),
       code: z.string().optional().describe('only for a map made to review code that exists: what it reviews, "pr" (the PR of the checked-out branch), "pr:123", "branch:main...feature" or "commits:abc..def". Leave it out for a design map: it is bound to this tree from its current commit, so the code built from it shows in the review'),
+      repo: z.string().optional().describe('a folder of the git repository the code is in, absolute or relative to this folder; for code built in a worktree, that worktree (a design map follows its uncommitted changes). Leave it out when that is this folder\'s tree. In another repository outside the workspace, the map\'s files are relative to its root'),
     },
   },
   canvas_update: {
@@ -103,6 +106,9 @@ export const CANVAS_TOOLS = {
 
 export type CanvasToolName = keyof typeof CANVAS_TOOLS
 
+/** Where a bound map's relative part files start: the workspace, or the root of another repository outside it. */
+const filesFrom = (workspace: string, root: string) => ` Its parts' files are relative to ${refBase(workspace, root)}.`
+
 /** A terminal signs its revisions and replies; a Duet conversation is the session itself. `cwd`: where a new map's code is. */
 export type Caller = { terminal?: { id: string; label: string; cwd?: string }; cwd?: string }
 
@@ -125,7 +131,7 @@ export function runCanvasTool(store: CanvasStore, workspace: string, name: Canva
         const parts = [
           ...guide,
           `rev ${cur.revision}`,
-          ...(cur.code ? [`Its code (what the person reviews beside it): ${describeSource(cur.code.source)} in ${cur.code.root}.`] : []),
+          ...(cur.code ? [`Its code (what the person reviews beside it): ${describeSource(cur.code.source)} in ${cur.code.root}.${filesFrom(workspace, cur.code.root)}`] : []),
           '```json', JSON.stringify(cur.map, null, 1), '```',
           '```mermaid', toMermaid(cur.map).text, '```',
         ]
@@ -136,14 +142,18 @@ export function runCanvasTool(store: CanvasStore, workspace: string, name: Canva
         return { text: parts.join('\n') }
       }
       case 'canvas_create': {
-        const { name: map, diagram, title, context, code: asked } = args as { name: string; diagram: 'class' | 'sequence'; title: string; context?: string; code?: string }
-        const here = codeHere(caller.terminal?.cwd || caller.cwd || workspace, workspace)
+        const { name: map, diagram, title, context, code: asked, repo } = args as { name: string; diagram: 'class' | 'sequence'; title: string; context?: string; code?: string; repo?: string }
+        const from = caller.terminal?.cwd || caller.cwd || workspace
+        const here = codeHere(repo ? resolve(from, repo) : from, workspace)
         const source = asked ? codeSourceOf(asked) : undefined
         if (asked && !source) return { isError: true, text: `Nothing was made: code "${asked}" is not one of pr, pr:<number>, branch:<base>...<compare>, commits:<from>..<to>.` }
+        if (repo && !here) return { isError: true, text: `Nothing was made: repo "${repo}" is not a folder inside a git repository.` }
         if (asked && !here) return { isError: true, text: 'Nothing was made: a map that reviews code needs a folder inside a git repository.' }
+        const missing = here && source ? missingRefs(here.root, source) : []
+        if (missing.length) return { isError: true, text: `Nothing was made: ${missing.join(', ')} is not a commit in ${here!.root}. Pass repo: a folder of the repository the code is in.` }
         const code = here && source ? { ...here, source } : here
         const cur = store.create(workspace, map, diagram, title, context, 'agent', signed('새 지도'), code)
-        const bound = code ? ` Its review shows ${describeSource(code.source)} in ${code.root}.` : ''
+        const bound = code ? ` Its review shows ${describeSource(code.source)} in ${code.root}.${filesFrom(workspace, code.root)}` : ''
         return { text: [...guide, `Created ${map} (rev ${cur.revision}). The person sees it on the Canvas tab.${bound}`].join('\n') }
       }
       case 'canvas_update': {

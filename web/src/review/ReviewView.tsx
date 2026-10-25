@@ -14,6 +14,7 @@ import { PrPanel, PrPicker } from './PullRequest.tsx'
 import { FindBar } from './FindBar.tsx'
 import { changedFiles, sourceLabel, turnRefs, useReview } from './store.ts'
 import { listedFiles, mapGroups, type MapNode } from './mapGroups.ts'
+import { refBase } from '../../../shared/mapFiles.ts'
 import { useCanvas } from '../canvas/store.ts'
 
 type LogEntry = { sha: string; short: string; subject: string; author: string; date: number; refs: string }
@@ -512,7 +513,7 @@ function MapTree({ model }: { model: ReturnType<typeof mapGroups> }) {
 export function ReviewView() {
   const workspace = useApp(s => s.workspace)
   const { home, root, init, diff, loading, error, selected, select, fileView, toggleViewed, viewed, setMode, toggle, refresh, closeFile, source, comments, group, setGroup, scope, setScope, filter, setFilter, sinceTurn } = useReview()
-  const map = useCanvas(s => s.map)
+  const map = useCanvas(s => s.map), mapCode = useCanvas(s => s.code)
   const [navTab, setNavTab] = useState<'files' | 'comments'>('files')
   const [finding, setFinding] = useState(false)
   const findScope = useCallback(() => document.querySelector<HTMLElement>('.review-main .file-diff'), [])
@@ -521,7 +522,7 @@ export function ReviewView() {
   // A part of the map, the filter box, then the layout (folders or the map) decide the list and its order.
   const filtered = useMemo(() => listedFiles(diff?.files ?? [], root, scope, filter), [diff, scope, root, filter])
   const byMap = group === 'map' && map?.diagram === 'class' && home && root
-  const model = useMemo(() => (byMap ? mapGroups(map, filtered, root, home) : undefined), [byMap, map, filtered, root, home])
+  const model = useMemo(() => (byMap ? mapGroups(map, filtered, root, refBase(home, mapCode?.root)) : undefined), [byMap, map, mapCode, filtered, root, home])
   const files = model ? model.order : filtered
   const file = files.find(f => f.path === selected)
 
