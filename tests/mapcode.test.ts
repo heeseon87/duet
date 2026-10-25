@@ -5,10 +5,12 @@ import { join } from 'node:path'
 import { beforeAll, describe, expect, it } from 'vitest'
 import type { CanvasStore } from '../server/canvas/store.ts'
 import type { runCanvasTool as Run } from '../server/agent/canvasTools.ts'
-import { codeHere, codeSourceOf } from '../server/git/repo.ts'
+import type { codeHere as CodeHere, codeSourceOf as CodeSourceOf } from '../server/git/repo.ts'
 
 let store: CanvasStore
 let run: typeof Run
+let codeHere: typeof CodeHere
+let codeSourceOf: typeof CodeSourceOf
 const git = (cwd: string, ...args: string[]) => execFileSync('git', ['-c', 'user.email=t@duet', '-c', 'user.name=t', ...args], { cwd, encoding: 'utf8' }).trim()
 
 /** A repo with one commit, and one with none. */
@@ -24,7 +26,10 @@ function repos() {
 }
 
 beforeAll(async () => {
+  // Every server module is imported only after this: util.ts reads DUET_HOME once, as it loads, and a static import
+  // would load it first and write the test maps into the person's real Duet home.
   process.env.DUET_HOME = mkdtempSync(join(tmpdir(), 'duet-code-home-'))
+  ;({ codeHere, codeSourceOf } = await import('../server/git/repo.ts'))
   const { CanvasStore } = await import('../server/canvas/store.ts')
   run = (await import('../server/agent/canvasTools.ts')).runCanvasTool
   store = new CanvasStore(() => undefined, () => undefined)
