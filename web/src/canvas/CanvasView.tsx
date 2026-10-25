@@ -570,7 +570,11 @@ export function CanvasView() {
   const codeOpenRef = useRef(codeOpen)
   codeOpenRef.current = codeOpen
   const [codeWant, setCodeWant] = useState<{ file: string; nonce: number }>()
+  // Opened by the person this render: the pane slides in (a reload or a map switch just shows it).
+  const codeSlide = useRef(false)
+  useEffect(() => { codeSlide.current = false })
   const showCode = (open: boolean, file?: string) => {
+    if (open && !codeOpenRef.current) codeSlide.current = true
     setCodeOpen(open)
     local.set('canvas.code', open ? '1' : '0')
     if (open) setInspector(false)
@@ -845,7 +849,7 @@ export function CanvasView() {
           </FloatAt>
         )}
         </div>
-        {codeOpen && <CodePane key={stageKey} map={shownMap} want={codeWant} onClose={() => showCode(false)} />}
+        {codeOpen && <CodePane key={stageKey} map={shownMap} want={codeWant} slide={codeSlide.current} onClose={() => showCode(false)} />}
       </div>
     </div>
   )

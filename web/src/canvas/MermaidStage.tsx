@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useImperativeHandle, useLayoutEffect, useRef, useState, forwardRef } from 'react'
 import { ChevronsDownUp, ChevronsUpDown } from 'lucide-react'
+import { flushSync } from 'react-dom'
 import { relationKey, shapedBy, toMermaid, type CanvasMap, type MapDiff } from '../../../shared/canvas.ts'
 import type { CodeMark } from '../../../shared/mapFiles.ts'
 import type { CanvasThread } from '../../../shared/protocol.ts'
@@ -341,6 +342,43 @@ export const MermaidStage = forwardRef<StageHandle, Props & { viewKey: string }>
     if (r.top + dy < top) dy = top - r.top
     if (dx || dy) { glide(); setView(v => ({ ...v, x: v.x + dx, y: v.y + dy })) }
   }, [selected, glide])
+
+  // The stage narrows or widens (the code pane, the agent panel, the window): the drawing keeps its middle in the open
+  // area (the stage less the info card), gliding when the change is a jump, and a picked part that was in view stays so.
+  const seen = useRef<{ width: number; inset: number }>(undefined)
+  useLayoutEffect(() => {
+    // The card alone coming or going covers or bares the drawing and never moves it. Coming with a change of width
+    // (opening the pane puts the card away), it is left for the observer to take with that change.
+    if (seen.current && outer.current?.getBoundingClientRect().width === seen.current.width) seen.current.inset = inset.current
+  }, [props.rightInset])
+  useEffect(() => {
+    const host = outer.current
+    if (!host) return
+    const obs = new ResizeObserver(() => {
+      const box = host.getBoundingClientRect(), was = seen.current
+      // Hidden, it has no middle: keep the last size, so coming back applies whatever changed meanwhile.
+      if (!box.width) return
+      seen.current = { width: box.width, inset: inset.current }
+      if (!was || box.width === was.width) return
+      let dx = (box.width - inset.current - (was.width - was.inset)) / 2
+      const sel = latest.current.selected
+      const el = sel ? host.querySelector<SVGGraphicsElement>(`[data-target="${CSS.escape(sel)}"]:not(.cv-edge-hit)`) : null
+      if (el) {
+        // In the stage's own coordinates, where the view has not moved yet.
+        const r = el.getBoundingClientRect(), l = r.left - box.left, rr = r.right - box.left
+        const right = box.width - inset.current - 24
+        if (rr > 0 && l < was.width - was.inset) {
+          if (rr + dx > right) dx = right - rr
+          if (l + dx < 24) dx = 24 - l
+        }
+      }
+      if (Math.abs(box.width - was.width) > 160) glide()
+      // Before this frame paints, so a dragged edge and the drawing move together.
+      flushSync(() => setView(v => ({ ...v, x: v.x + dx })))
+    })
+    obs.observe(host)
+    return () => obs.disconnect()
+  }, [glide])
 
   // Selection, glow and badges change often; they only touch classes.
   // Only when what it shows changes: panning and zooming must not touch every box's classes.

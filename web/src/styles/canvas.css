@@ -65,6 +65,7 @@
 
 /* The code pane: the picked part's code beside the map */
 .code-pane { position: relative; flex: none; display: flex; flex-direction: column; min-width: 0; border-left: 1px solid var(--line); background: var(--panel); }
+.code-pane.slide { animation: slide-in .2s var(--ease); }
 .code-split { position: absolute; left: -4px; top: 0; bottom: 0; width: 8px; cursor: col-resize; z-index: 5; }
 .code-split:hover, .code-split:active { background: color-mix(in srgb, var(--accent) 30%, transparent); }
 .code-pane-head { display: flex; align-items: center; gap: 4px; padding: 8px 8px 6px 14px; font-size: 13px; }

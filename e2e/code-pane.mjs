@@ -1,7 +1,8 @@
 // The code pane: `c` opens the picked part's code beside the map, on its declaration or the lines its reference names,
 // with the lines the map's code changed marked. It follows the picks (a package's files, a line's two ends), keeps what
-// it shows on an empty click, shows the latest of quick picks, stands in for the info card while open, is resized by
-// its edge and remembered, zooms its code on its own, reads like an editor (the clicked word lit wherever it stands,
+// it shows on an empty click, shows the latest of quick picks, stands in for the info card while open (the map gliding
+// to the middle of what is left as it opens and closes, the picked box kept in view), is resized by its edge (pushing
+// the map along) and remembered, zooms its code on its own, reads like an editor (the clicked word lit wherever it stands,
 // the file's structure), and the menu, the info card and the pane itself lead to the code and on to the review.
 //   DUET_PORT=7981 DUET_TOKEN=... [DUET_SCRATCH=<folder>] DUET_SHOTS=/dir node e2e/code-pane.mjs
 //   (makes a repo under DUET_SCRATCH, else the temp folder, opens it as a workspace and leaves it there.)
@@ -52,11 +53,19 @@ const addedLine = storeDecl + 5
 const { browser, page, errors } = await open({ port, token: T, ws, width: 1500, height: 940 })
 await page.evaluate(([w, m]) => {
   localStorage.setItem('duet.tab', 'canvas'); localStorage.setItem(`duet.canvas.current:${w}`, m); localStorage.setItem('duet.sideOpen', '0')
-  localStorage.removeItem('duet.canvas.code'); localStorage.removeItem('duet.canvas.codeWidth'); localStorage.setItem('duet.canvas.explore', '0')
+  localStorage.removeItem('duet.canvas.code'); localStorage.removeItem('duet.canvas.codeWidth'); localStorage.setItem('duet.canvas.explore', '0'); localStorage.removeItem('duet.canvas.wideInspector')
 }, [ws, name])
 await page.reload({ waitUntil: 'domcontentloaded' })
 await page.waitForSelector('.stage-inner > svg .cv-node[data-target="Store"]', { timeout: 20000 }); await sleep(1200)
 const shot = async n => { if (shots) await page.screenshot({ path: `${shots}/code-pane-${n}.png` }) }
+/** Where the drawing stands, the open area of the stage (less the info card) and the picked box, in screen pixels. */
+const where = id => page.evaluate(id => {
+  const st = document.querySelector('.stage-canvas').getBoundingClientRect(), card = document.querySelector('.inspector')?.getBoundingClientRect()
+  const b = document.querySelector(`.stage-inner > svg .cv-node[data-target="${id}"]`).getBoundingClientRect()
+  return { x: document.querySelector('.stage-inner > svg').getBoundingClientRect().left, left: st.left, right: card ? Math.min(st.right, card.left) : st.right, box: { left: b.left, right: b.right }, gliding: document.querySelector('.stage-canvas').classList.contains('gliding') }
+}, id)
+/** The box sits inside the open area. */
+const shown = w => w.box.left >= w.left && w.box.right <= w.right
 const center = sel => page.$eval(sel, e => { const r = e.getBoundingClientRect(); return { x: r.left + r.width / 2, y: r.top + r.height / 2 } })
 const pickBox = async id => { const p = await center(`.stage-inner > svg .cv-node[data-target="${id}"]`); await page.mouse.click(p.x, p.y) }
 const shownPath = () => page.$eval('.code-pane .code-pane-path .file-path', e => e.getAttribute('title')).catch(() => '')
@@ -74,8 +83,14 @@ const inView = no => page.evaluate(no => {
 check('the pane starts closed', !(await page.$('.code-pane')))
 await pickBox('Store'); await sleep(400)
 check('closed, a pick opens the info card', Boolean(await card()))
+const w0 = await where('Store')
 await page.keyboard.press('c')
 await until(() => page.$('.code-pane tr[data-line]'))
+await sleep(400)
+// The open area's middle stays where the drawing was: it moves by half of what the area lost (the card's 364 back, the pane's width taken).
+const w1 = await where('Store'), pane0 = await page.$eval('.code-pane', e => e.getBoundingClientRect().width)
+check('opening, the map glides to the middle of what is left', Math.abs(w1.x - w0.x - (364 - pane0) / 2) < 2 || Math.abs(w1.box.right - (w1.right - 24)) < 2, JSON.stringify({ moved: w1.x - w0.x, want: (364 - pane0) / 2 }))
+check('and the picked box stays in view', shown(w1), JSON.stringify(w1))
 check('c opens the pane on the picked box\'s file', await shownPath() === 'src/store/Store.kt', await shownPath())
 check('and puts the info card away', !(await card()))
 check('the class declaration is marked', JSON.stringify(await rows('target')) === `[${storeDecl}]`, JSON.stringify(await rows('target')))
@@ -111,9 +126,15 @@ check('after quick picks it shows the last one', await shownPath() === 'src/api/
 // 3. Its edge resizes it; open and width are remembered.
 const before = await page.$eval('.code-pane', e => e.getBoundingClientRect().width)
 const edge = await page.$eval('.code-split', e => { const r = e.getBoundingClientRect(); return { x: r.left + r.width / 2, y: r.top + 200 } })
-await page.mouse.move(edge.x, edge.y); await page.mouse.down(); await page.mouse.move(edge.x - 120, edge.y, { steps: 6 }); await page.mouse.up(); await sleep(200)
+const d0 = await where('Store')
+await page.mouse.move(edge.x, edge.y); await page.mouse.down(); await page.mouse.move(edge.x - 120, edge.y, { steps: 6 })
+// Measured as the next frame paints: the stage follows a resize just before painting.
+await page.evaluate(() => new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r))))
+const d1 = await where('Store'), mid = await page.$eval('.code-pane', e => e.getBoundingClientRect().width)
+await page.mouse.up(); await sleep(200)
 const wider = await page.$eval('.code-pane', e => e.getBoundingClientRect().width)
 check('dragging its edge widens it', Math.abs(wider - before - 120) < 4, `${before} → ${wider}`)
+check('and pushes the map along at once', !d1.gliding && mid > before && Math.abs(d1.x - d0.x + (mid - before) / 2) < 1, JSON.stringify({ moved: d1.x - d0.x, widened: mid - before, gliding: d1.gliding }))
 await page.reload({ waitUntil: 'domcontentloaded' })
 await page.waitForSelector('.code-pane', { timeout: 20000 }); await sleep(800)
 check('open and width are remembered', Math.abs((await page.$eval('.code-pane', e => e.getBoundingClientRect().width)) - wider) < 2)
@@ -229,8 +250,11 @@ check('the pane leads to the file in the review', await page.evaluate(() => loca
 await page.keyboard.press('Meta+1'); await sleep(800)
 
 // 5. `c` closes it, and a pick opens the card again.
-await page.keyboard.press('c'); await sleep(200)
+const c0 = await where('Store'), pane1 = await page.$eval('.code-pane', e => e.getBoundingClientRect().width)
+await page.keyboard.press('c'); await sleep(400)
 check('c closes the pane', !(await page.$('.code-pane')))
+const c1 = await where('Store')
+check('closing, the map glides back to the middle', Math.abs(c1.x - c0.x - pane1 / 2) < 2, JSON.stringify({ moved: c1.x - c0.x, want: pane1 / 2 }))
 await page.keyboard.press('Escape'); await sleep(200)
 await pickBox('Store'); await sleep(400)
 check('closed again, a pick opens the info card', Boolean(await card()))

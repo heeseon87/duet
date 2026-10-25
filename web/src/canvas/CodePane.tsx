@@ -68,9 +68,11 @@ function sourceOf(abs: string, workspace: string, mapName: string | undefined, r
  * The code of the part picked on the canvas, beside the map. It follows the picks (a decision or the empty canvas keeps
  * what it shows), opens on the part's declaration or its referenced lines, and marks the lines the map's code changed.
  */
-export function CodePane({ map, want, onClose }: { map: CanvasMap; want?: { file: string; nonce: number }; onClose: () => void }) {
+/** `slide`: opened just now by the person (not a reload or a map switch), so it slides in beside the gliding map. */
+export function CodePane({ map, want, slide, onClose }: { map: CanvasMap; want?: { file: string; nonce: number }; slide?: boolean; onClose: () => void }) {
   const workspace = useApp(s => s.workspace?.path ?? '')
   const setTab = useApp(s => s.setTab)
+  const [slideIn] = useState(slide)
   const selected = useCanvas(s => s.selected)
   const mapName = useCanvas(s => s.mapName)
   const diff = useReview(s => s.diff), root = useReview(s => s.root), bound = useReview(s => s.bound), editing = useReview(s => s.editing)
@@ -143,7 +145,7 @@ export function CodePane({ map, want, onClose }: { map: CanvasMap; want?: { file
   }
   const head = target ? labelOf(map, target) : undefined
   return (
-    <aside className="code-pane" ref={width.pane} style={{ width: width.value, '--code-scale': zoom.scale } as React.CSSProperties}>
+    <aside className={`code-pane ${slideIn ? 'slide' : ''}`} ref={width.pane} style={{ width: width.value, '--code-scale': zoom.scale } as React.CSSProperties}>
       <div className="code-split" onPointerDown={width.drag} title="끌어서 폭 조절" />
       <div className="code-pane-head">
         <b className="grow ellipsis">{head ?? '코드'}</b>
