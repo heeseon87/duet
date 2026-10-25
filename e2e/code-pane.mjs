@@ -5,7 +5,8 @@
 // the map along) and remembered, zooms its code on its own, reads like an editor (the clicked word lit wherever it stands,
 // the file's structure, resized and closed by its edge), and the menu, the info card and the pane itself lead to the code and on to the review.
 // The review's Viewed is set from the canvas too: the pane's checkbox for its file, the menu for a part's files at once.
-// Left to its defaults the canvas opens in explore mode with the pane open.
+// Left to its defaults the canvas opens in explore mode with the code on: the pane shows up with the first pick, and
+// stays out of the way with no part to show (another map, a part removed).
 //   DUET_PORT=7981 DUET_TOKEN=... [DUET_SCRATCH=<folder>] DUET_SHOTS=/dir node e2e/code-pane.mjs
 //   (makes a repo under DUET_SCRATCH, else the temp folder, opens it as a workspace and leaves it there.)
 import { execFileSync } from 'node:child_process'
@@ -52,14 +53,18 @@ await call('POST', `/api/canvas/${name}/patch`, { ws, note: 'm', patch: {
 appendFileSync(join(ws, 'src/store/Store.kt'), 'fun added() = 1\n')
 const addedLine = storeDecl + 5
 
-// Nothing remembered yet: explore mode on, the pane open, no info card.
+// Nothing remembered yet: explore mode and the code on, no info card, and the pane waits for a pick.
 {
   const first = await open({ port, token: T, ws, width: 1500, height: 940, appDefaults: true })
   await first.page.evaluate(([w, m]) => { localStorage.setItem('duet.tab', 'canvas'); localStorage.setItem(`duet.canvas.current:${w}`, m) }, [ws, name])
   await first.page.reload({ waitUntil: 'domcontentloaded' })
   await first.page.waitForSelector('.stage-inner > svg .cv-node[data-target="Store"]', { timeout: 20000 }); await sleep(800)
-  const d = await first.page.evaluate(() => ({ pane: Boolean(document.querySelector('.code-pane')), card: Boolean(document.querySelector('.inspector')), explore: document.querySelector('.canvas-bar button[title^="탐색 모드"]')?.getAttribute('aria-pressed') }))
-  check('left to its defaults the canvas opens exploring, with the code pane', d.pane && !d.card && d.explore === 'true', JSON.stringify(d))
+  const d = await first.page.evaluate(() => ({ pane: Boolean(document.querySelector('.code-pane')), card: Boolean(document.querySelector('.inspector')), explore: document.querySelector('.canvas-bar button[title^="탐색 모드"]')?.getAttribute('aria-pressed'), code: document.querySelector('.canvas-bar button[title^="코드 칸"]')?.getAttribute('aria-pressed') }))
+  check('left to its defaults the canvas opens exploring with the code on, no pane before a pick', !d.pane && !d.card && d.explore === 'true' && d.code === 'true', JSON.stringify(d))
+  const b = await first.page.$eval('.stage-inner > svg .cv-node[data-target="Store"]', e => { const r = e.getBoundingClientRect(); return { x: r.left + r.width / 2, y: r.top + r.height / 2 } })
+  await first.page.mouse.click(b.x, b.y)
+  const path = await first.page.waitForSelector('.code-pane .code-pane-path .file-path', { timeout: 5000 }).then(e => e.getAttribute('title')).catch(() => '')
+  check('the first pick brings the pane, on that box\'s file', path === 'src/store/Store.kt', path)
   await first.browser.close()
 }
 
@@ -149,7 +154,10 @@ const wider = await page.$eval('.code-pane', e => e.getBoundingClientRect().widt
 check('dragging its edge widens it', Math.abs(wider - before - 120) < 4, `${before} → ${wider}`)
 check('and pushes the map along at once', !d1.gliding && mid > before && Math.abs(d1.x - d0.x + (mid - before) / 2) < 1, JSON.stringify({ moved: d1.x - d0.x, widened: mid - before, gliding: d1.gliding }))
 await page.reload({ waitUntil: 'domcontentloaded' })
-await page.waitForSelector('.code-pane', { timeout: 20000 }); await sleep(800)
+await page.waitForSelector('.stage-inner > svg .cv-node[data-target="Store"]', { timeout: 20000 }); await sleep(800)
+check('reloaded, the code stays on and the pane waits for a pick', !(await page.$('.code-pane')) && await page.$eval('.canvas-bar button[title^="코드 칸"]', b => b.getAttribute('aria-pressed')) === 'true')
+await pickBox('Store')
+await page.waitForSelector('.code-pane', { timeout: 5000 }); await sleep(800)
 check('open and width are remembered', Math.abs((await page.$eval('.code-pane', e => e.getBoundingClientRect().width)) - wider) < 2)
 check('opening with the pane, the info card stays away', !(await card()))
 await shot('wide')
@@ -178,7 +186,9 @@ check('and not the map', await page.$eval('.zoom-readout', e => e.textContent) =
 await page.click('.code-zoom button[title^="코드 확대"]'); await sleep(100)
 const kept = await percent()
 await page.reload({ waitUntil: 'domcontentloaded' })
-await page.waitForSelector('.code-zoom', { timeout: 20000 }); await sleep(500)
+await page.waitForSelector('.stage-inner > svg .cv-node[data-target="Store"]', { timeout: 20000 }); await sleep(800)
+await pickBox('Store')
+await page.waitForSelector('.code-zoom', { timeout: 5000 }); await sleep(500)
 check('the zoom is remembered', await percent() === kept, `${kept} → ${await percent()}`)
 await page.click('.code-zoom button[title="100%로"]'); await sleep(100)
 check('the percent resets it to 100%', await percent() === '100%')
@@ -309,20 +319,20 @@ await page.keyboard.press('Escape'); await sleep(200)
 await pickBox('Store'); await sleep(400)
 check('closed again, a pick opens the info card', Boolean(await card()))
 
-// 6. Nothing stale: another map, or a part the agent removed, leaves the pane on its hint.
-const hint = () => paneText().then(t => t.includes('지도에서 상자를 누르면'))
+// 6. Nothing stale: another map, or a part the agent removed, puts the pane away until the next pick.
+const gone = () => page.$('.code-pane').then(p => !p)
 await page.keyboard.press('c')
 check('opened again, it shows the picked box', await until(async () => (await shownPath()) === 'src/store/Store.kt'), await shownPath())
 await call('POST', '/api/canvas', { ws, name: 'code-pane-b', diagram: 'class', title: '다른 지도' })
 await call('POST', '/api/canvas/code-pane-b/patch', { ws, note: 'b', patch: { elements: [{ id: 'Store' }] } })
 await page.click('.map-pick'); await page.click('.popover .menu-item:has-text("다른 지도")')
-check('another map, even with a box of the same id, starts on the hint', await until(hint), await paneText())
+check('another map, even with a box of the same id, starts with no pane', await until(gone), await paneText())
 await page.click('.map-pick'); await page.click('.popover .menu-item:has-text("코드 칸 시험")')
 await page.waitForSelector('.stage-inner > svg .cv-node[data-target="Store"]', { timeout: 15000 }); await sleep(800)
 await pickBox('Store')
 await until(async () => (await shownPath()) === 'src/store/Store.kt')
 await call('POST', `/api/canvas/${name}/patch`, { ws, note: 'rm', patch: { remove: { elements: ['Store'] } } })
-check('a part the agent removed leaves the pane on its hint', await until(hint), await paneText())
+check('a part the agent removed puts the pane away', await until(gone), await paneText())
 await page.keyboard.press('c')
 
 await call('DELETE', `/api/canvas/${name}?ws=${encodeURIComponent(ws)}`)

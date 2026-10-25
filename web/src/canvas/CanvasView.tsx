@@ -600,6 +600,19 @@ export function CanvasView() {
   const ghosts = useMemo(() => (s.compareMap && s.map && !s.preview ? diffMaps(s.compareMap, s.map) : undefined), [s.compareMap, s.map, s.preview])
   const changes = useMemo(() => (ghosts && s.map ? describeDiff(ghosts, s.map) : []), [ghosts, s.map])
 
+  // The part the code pane shows: the last one picked on this map (an empty click or a decision keeps it). Until then,
+  // or once the part is gone, the pane stays out of the way even while it is on.
+  const isPart = (id: string | undefined) => Boolean(id && shownMap && (shownMap.elements.some(e => e.id === id) || shownMap.relations.some(r => relationKey(r) === id) || shownMap.messages?.some(m => m.id === id)))
+  const mapKey = `${workspace?.path}:${s.mapName}`
+  const [codePart, setCodePart] = useState<{ map: string; id: string }>()
+  const codeTarget = codePart?.map === mapKey && isPart(codePart.id) ? codePart.id : undefined
+  useEffect(() => {
+    if (!isPart(s.selected)) return
+    // Showing up on this pick, the pane slides in.
+    if (!codeTarget && codeOpenRef.current) codeSlide.current = true
+    setCodePart({ map: mapKey, id: s.selected! })
+  }, [s.selected]) // eslint-disable-line react-hooks/exhaustive-deps
+
   useEffect(() => {
     const key = (e: KeyboardEvent) => {
       if (useApp.getState().tab !== 'canvas') return
@@ -838,7 +851,7 @@ export function CanvasView() {
           onToggleGroup={s.toggleCollapse}
           onContext={(t, at) => {
             // A known part is picked (lit) so the menu clearly speaks about it; the info card stays as it is.
-            const known = t && (shownMap.elements.some(e => e.id === t) || shownMap.relations.some(r => relationKey(r) === t) || shownMap.messages?.some(m => m.id === t))
+            const known = isPart(t)
             if (known) s.select(t)
             setMenu({ target: known ? t : undefined, at })
           }}
@@ -860,7 +873,7 @@ export function CanvasView() {
           </FloatAt>
         )}
         </div>
-        {codeOpen && <CodePane key={stageKey} map={shownMap} want={codeWant} slide={codeSlide.current} onClose={() => showCode(false)} />}
+        {codeOpen && codeTarget && <CodePane key={stageKey} map={shownMap} target={codeTarget} want={codeWant} slide={codeSlide.current} onClose={() => showCode(false)} />}
       </div>
     </div>
   )

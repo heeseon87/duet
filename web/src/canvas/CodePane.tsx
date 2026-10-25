@@ -70,30 +70,23 @@ function sourceOf(abs: string, workspace: string, mapName: string | undefined, r
 }
 
 /**
- * The code of the part picked on the canvas, beside the map. It follows the picks (a decision or the empty canvas keeps
- * what it shows), opens on the part's declaration or its referenced lines, and marks the lines the map's code changed.
+ * The code of the part picked on the canvas (`target`), beside the map. It opens on the part's declaration or its
+ * referenced lines, and marks the lines the map's code changed.
  */
 /** `slide`: opened just now by the person (not a reload or a map switch), so it slides in beside the gliding map. */
-export function CodePane({ map, want, slide, onClose }: { map: CanvasMap; want?: { file: string; nonce: number }; slide?: boolean; onClose: () => void }) {
+export function CodePane({ map, target, want, slide, onClose }: { map: CanvasMap; target: string; want?: { file: string; nonce: number }; slide?: boolean; onClose: () => void }) {
   const workspace = useApp(s => s.workspace?.path ?? '')
   const setTab = useApp(s => s.setTab)
   const [slideIn] = useState(slide)
-  const selected = useCanvas(s => s.selected)
   const mapName = useCanvas(s => s.mapName)
   const diff = useReview(s => s.diff), root = useReview(s => s.root), bound = useReview(s => s.bound), editing = useReview(s => s.editing)
   const openFile = useReview(s => s.openFile)
-  const isPart = (id: string | undefined) => Boolean(id && (map.elements.some(e => e.id === id) || map.relations.some(r => relationKey(r) === id) || map.messages?.some(m => m.id === id)))
-  const [picked, setPicked] = useState<string>()
   const [pick, setPick] = useState<string>()
   // Only a new pick moves the pane: an edit of the map keeps the file tab the person chose.
-  useEffect(() => {
-    if (isPart(selected)) { setPicked(selected); setPick(undefined) }
-  }, [selected]) // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => setPick(undefined), [target])
   useEffect(() => { if (want) setPick(want.file) }, [want])
-  // A part the agent has since removed is no longer shown.
-  const target = isPart(picked) ? picked : undefined
 
-  const refs = useMemo(() => (target ? codeRefsOf(map, target) : []), [map, target])
+  const refs = useMemo(() => codeRefsOf(map, target), [map, target])
   const ref = refs.find(r => r === pick) ?? refs.find(r => fileOfRef(r) === fileOfRef(pick ?? '')) ?? refs[0]
   const source = ref ? sourceOf(absoluteRef(workspace, ref), workspace, mapName, { root, diff, bound, editing }) : undefined
   const key = source ? `${source.root}\0${source.ref}\0${source.path}` : ''
@@ -113,7 +106,7 @@ export function CodePane({ map, want, slide, onClose }: { map: CanvasMap; want?:
   const lines = useMemo(() => (text ?? '').replace(/\n$/, '').split('\n'), [text])
   const tokens = useTokens(text ?? '', source?.path)
 
-  const el = target ? map.elements.find(e => e.id === target) : undefined
+  const el = map.elements.find(e => e.id === target)
   const span = ref ? linesOf(ref) : undefined
   const decl = useMemo(() => (text === undefined || span || !el ? undefined : declarationOf(lines, [el.id, el.label ?? ''])), [text, lines, span, el])
   const [from, to] = span ?? (decl ? [decl, decl] : [0, -1])
@@ -152,12 +145,12 @@ export function CodePane({ map, want, slide, onClose }: { map: CanvasMap; want?:
     marks.setWord(isWord(it.name) ? { text: it.name, whole: true } : undefined)
     if (floating) setOutlineOpen(false)
   }
-  const head = target ? labelOf(map, target) : undefined
+  const head = labelOf(map, target)
   return (
     <aside className={`code-pane ${slideIn ? 'slide' : ''}`} ref={width.pane} style={{ width: width.value, '--code-scale': zoom.scale } as React.CSSProperties}>
       <div className="code-split" onPointerDown={width.drag} title="끌어서 폭 조절" />
       <div className="code-pane-head">
-        <b className="grow ellipsis">{head ?? '코드'}</b>
+        <b className="grow ellipsis">{head}</b>
         <button className="iconbtn" aria-pressed={outlineOpen} title={outlineOpen ? '구조 닫기' : '구조: 이 파일의 클래스·함수 목록'} onClick={toggleOutline}><ListTree size={14} /></button>
         <div className="seg code-zoom">
           <button onClick={() => zoom.step(-1)} disabled={zoom.scale <= MIN_SCALE} title="코드 축소 (⌘ + 휠)"><Minus size={12} /></button>
@@ -176,8 +169,7 @@ export function CodePane({ map, want, slide, onClose }: { map: CanvasMap; want?:
           ))}
         </div>
       )}
-      {!target ? <div className="code-pane-empty muted">지도에서 상자를 누르면 그 코드가 여기 보여.</div>
-        : !ref ? <div className="code-pane-empty muted">«{head}»에는 연결된 파일이 없어.</div>
+      {!ref ? <div className="code-pane-empty muted">«{head}»에는 연결된 파일이 없어.</div>
         : !source ? <div className="code-pane-empty muted">{fileOfRef(ref)}은 작업 공간 밖에 있어서 여기서 열 수 없어.</div>
         : (
           <>
