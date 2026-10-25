@@ -106,24 +106,25 @@ describe('the parts a map\'s code changed', async () => {
   it('marks built, not yet built and unplanned parts, and counts what no part names', () => {
     const { marks, outside } = codeMarks(map, files, '/r', '/r')
     expect(Object.fromEntries(marks)).toEqual({
-      pkg: { state: 'built', files: 1, viewed: 0 },
-      Built: { state: 'built', files: 1, viewed: 0 },
-      Waiting: { state: 'pending', files: 0, viewed: 0 },
-      Kept: { state: 'unplanned', files: 2, viewed: 0 },
+      pkg: { state: 'built', paths: ['src/Built.kt'], viewed: 0 },
+      Built: { state: 'built', paths: ['src/Built.kt'], viewed: 0 },
+      Waiting: { state: 'pending', paths: [], viewed: 0 },
+      Kept: { state: 'unplanned', paths: ['src/Kept.kt', 'src/Built.kt'], viewed: 0 },
     })
     expect(outside).toBe(1)
   })
 
   it('leaves out "not built yet" for one turn of the map\'s code', () => {
     const { marks } = codeMarks(map, [file('src/Built.kt')], '/r', '/r', { pending: false })
-    expect(Object.fromEntries(marks)).toEqual({ pkg: { state: 'built', files: 1, viewed: 0 }, Built: { state: 'built', files: 1, viewed: 0 }, Kept: { state: 'unplanned', files: 1, viewed: 0 } })
+    const one = { paths: ['src/Built.kt'], viewed: 0 }
+    expect(Object.fromEntries(marks)).toEqual({ pkg: { state: 'built', ...one }, Built: { state: 'built', ...one }, Kept: { state: 'unplanned', ...one } })
   })
 
   it('counts the viewed files of a part and of everything inside a package', () => {
     const { marks } = codeMarks(map, files, '/r', '/r', { viewed: new Set(['src/Built.kt', 'README.md']) })
-    expect(marks.get('pkg')).toEqual({ state: 'built', files: 1, viewed: 1 })
-    expect(marks.get('Built')).toEqual({ state: 'built', files: 1, viewed: 1 })
-    expect(marks.get('Kept')).toEqual({ state: 'unplanned', files: 2, viewed: 1 })
+    expect(marks.get('pkg')?.viewed).toBe(1)
+    expect(marks.get('Built')?.viewed).toBe(1)
+    expect(marks.get('Kept')?.viewed).toBe(1)
   })
 
   it('agrees with the review\'s map layout on every file, the workspace being another folder than the tree', () => {
@@ -133,6 +134,6 @@ describe('the parts a map\'s code changed', async () => {
     const counts = new Map<string, number>()
     const walk = (n: (typeof groups.nodes)[number]) => { counts.set(n.el.id, n.count); n.children.forEach(walk) }
     groups.nodes.forEach(walk)
-    for (const [id, m] of marks) if (m.files) expect(counts.get(id)).toBe(m.files)
+    for (const [id, m] of marks) if (m.paths.length) expect(counts.get(id)).toBe(m.paths.length)
   })
 })

@@ -636,8 +636,8 @@ const CODE_TEXT: Record<CodeMark['state'], (n: number) => string> = {
  * right). Once the review marks all its changed files viewed, a check leads the text.
  */
 function codeBadge(node: SVGGraphicsElement, mark: CodeMark | undefined, b: DOMRect) {
-  const text = mark ? CODE_TEXT[mark.state](mark.files) : ''
-  const seen = Boolean(mark?.files && mark.viewed === mark.files)
+  const text = mark ? CODE_TEXT[mark.state](mark.paths.length) : ''
+  const seen = Boolean(mark?.paths.length && mark.viewed === mark.paths.length)
   const old = node.querySelector<SVGGElement>(':scope > .cv-code')
   if (!text) { old?.remove(); return }
   if (old?.getAttribute('data-text') === text && old.classList.contains('viewed') === seen) return

@@ -21,10 +21,10 @@ export function ownFiles<F extends { path: string }>(map: CanvasMap, files: F[],
 /**
  * How a part stands against its map's code: `built` (its files changed, as planned), `unplanned` (its files changed
  * though the map marks no change on it), `pending` (a change is planned and none of its files changed yet).
- * `files` counts the changed files of the part and everything inside it, each once; `viewed`, how many of those the
+ * `paths` lists the changed files of the part and everything inside it, each once; `viewed`, how many of those the
  * review marks viewed.
  */
-export type CodeMark = { state: 'built' | 'unplanned' | 'pending'; files: number; viewed: number }
+export type CodeMark = { state: 'built' | 'unplanned' | 'pending'; paths: string[]; viewed: number }
 
 const planned = (el: CanvasElement) =>
   el.change === 'add' || el.change === 'modify' || el.change === 'delete' || (el.members ?? []).some(m => m.change)
@@ -46,8 +46,8 @@ export function codeMarks(map: CanvasMap, files: { path: string }[], root: strin
     for (const c of children.get(el.id) ?? []) for (const p of walk(c)) all.add(p)
     const group = el.kind === 'group'
     const viewed = [...all].filter(p => o.viewed?.has(p)).length
-    if (all.size) marks.set(el.id, { state: group || planned(el) ? 'built' : 'unplanned', files: all.size, viewed })
-    else if (!group && planned(el) && o.pending !== false) marks.set(el.id, { state: 'pending', files: 0, viewed: 0 })
+    if (all.size) marks.set(el.id, { state: group || planned(el) ? 'built' : 'unplanned', paths: [...all], viewed })
+    else if (!group && planned(el) && o.pending !== false) marks.set(el.id, { state: 'pending', paths: [], viewed: 0 })
     return all
   }
   for (const el of map.elements) if (!el.parent || !ids.has(el.parent)) walk(el)

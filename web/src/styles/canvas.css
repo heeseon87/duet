@@ -76,6 +76,7 @@
 .code-tabs button[aria-selected='true'] { background: var(--accent-soft); color: var(--accent-ink); }
 .code-pane-path { display: flex; align-items: baseline; gap: 8px; padding: 0 14px 6px; font-size: 12px; min-width: 0; border-bottom: 1px solid var(--line); }
 .code-pane-path .file-path { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.code-pane-path .toggle { margin-left: auto; flex: none; align-self: center; }
 .code-pane-path .muted { flex: none; }
 .code-pane-view { flex: 1; display: flex; min-height: 0; position: relative; }
 .code-pane-body { flex: 1; overflow: auto; min-height: 0; min-width: 0; }

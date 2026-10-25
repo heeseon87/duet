@@ -4,6 +4,7 @@
 // to the middle of what is left as it opens and closes, the picked box kept in view), is resized by its edge (pushing
 // the map along) and remembered, zooms its code on its own, reads like an editor (the clicked word lit wherever it stands,
 // the file's structure, resized and closed by its edge), and the menu, the info card and the pane itself lead to the code and on to the review.
+// The review's Viewed is set from the canvas too: the pane's checkbox for its file, the menu for a part's files at once.
 // Left to its defaults the canvas opens in explore mode with the pane open.
 //   DUET_PORT=7981 DUET_TOKEN=... [DUET_SCRATCH=<folder>] DUET_SHOTS=/dir node e2e/code-pane.mjs
 //   (makes a repo under DUET_SCRATCH, else the temp folder, opens it as a workspace and leaves it there.)
@@ -269,10 +270,31 @@ const s = await center('.stage-inner > svg .cv-node[data-target="Store"]')
 await page.mouse.click(s.x, s.y, { button: 'right' }); await sleep(250)
 await page.click('.ctx-menu .menu-item:has-text("코드 열기")')
 check('the menu\'s "코드 열기" opens the file in the pane', await until(async () => (await shownPath()) === 'src/store/Store.kt') && await page.evaluate(() => localStorage.getItem('duet.tab')) === 'canvas')
+
+// The review's Viewed, from the canvas: the pane's checkbox for its file, the menu for a part's files at once.
+const paneViewed = () => page.$eval('.code-pane .code-pane-path .toggle input', i => i.checked).catch(() => null)
+const badgeViewed = id => page.$eval(`.stage-inner > svg .cv-node[data-target="${id}"] > .cv-code`, b => b.classList.contains('viewed')).catch(() => false)
+const menuOn = async (sel, at = c => c) => { const r = await page.$eval(sel, e => { const b = e.getBoundingClientRect(); return { x: b.left, y: b.top, w: b.width, h: b.height } }); const p = at(r); await page.mouse.click(p.x ?? r.x + r.w / 2, p.y ?? r.y + r.h / 2, { button: 'right' }); await sleep(250) }
+check('a changed file offers Viewed in the pane, not viewed yet', (await paneViewed()) === false, String(await paneViewed()))
+await page.click('.code-pane .code-pane-path .toggle input'); await sleep(300)
+check('checking it marks the file viewed, and the box\'s badge carries the check', (await paneViewed()) === true && await until(() => badgeViewed('Store')))
+const cardBefore = Boolean(await card())
+await page.keyboard.press('i'); await sleep(300)
+check('the checkbox keeps the canvas keys', Boolean(await card()) !== cardBefore)
+await page.keyboard.press('i'); await sleep(300)
+await menuOn('.stage-inner > svg .cv-node[data-target="Store"]', () => ({}))
+check('the box\'s menu offers to take it back', Boolean(await page.$('.ctx-menu .menu-item:has-text("Viewed 해제")')))
+await shot('viewed')
+await page.click('.ctx-menu .menu-item:has-text("Viewed 해제")'); await sleep(300)
+check('and the pane and the badge follow', (await paneViewed()) === false && !(await badgeViewed('Store')))
+await menuOn('.stage-inner > svg .cv-cluster[data-target="storepkg"]', r => ({ x: r.x + 12, y: r.y + 12 }))
+await page.click('.ctx-menu .menu-item:has-text("Viewed로 표시")'); await sleep(300)
+check('a package\'s menu marks all the files in it viewed', (await paneViewed()) === true, String(await paneViewed()))
 await pickBox('Api'); await sleep(300)
 await page.keyboard.press('i'); await sleep(300)
 await page.click('.inspector .file-link:has-text("ApiClient.kt")')
 check('the info card\'s file opens in the pane', await until(async () => (await shownPath()) === 'src/api/ApiClient.kt'), await shownPath())
+check('a file the map\'s code did not change has no Viewed', (await paneViewed()) === null)
 await page.click('.code-pane-head button[title="리뷰에서 보기"]'); await sleep(800)
 check('the pane leads to the file in the review', await page.evaluate(() => localStorage.getItem('duet.tab')) === 'review')
 await page.keyboard.press('Meta+1'); await sleep(800)

@@ -117,10 +117,13 @@ export function CodePane({ map, want, slide, onClose }: { map: CanvasMap; want?:
   const span = ref ? linesOf(ref) : undefined
   const decl = useMemo(() => (text === undefined || span || !el ? undefined : declarationOf(lines, [el.id, el.label ?? ''])), [text, lines, span, el])
   const [from, to] = span ?? (decl ? [decl, decl] : [0, -1])
+  // The file as the map's code changed it: its new lines are marked, and it is marked viewed as in the review.
+  const changedFile = useMemo(() => (source?.marks && diff ? diff.files.find(x => x.path === source.path) : undefined), [source?.marks, source?.path, diff])
   const changed = useMemo(() => {
-    const f = source?.marks && diff ? diff.files.find(x => x.path === source.path) : undefined
+    const f = changedFile
     return new Set(f && !f.binary && !f.large ? f.hunks.flatMap(h => h.lines.filter(l => l.type === 'add' && l.newNo).map(l => l.newNo!)) : [])
-  }, [source?.marks, source?.path, diff])
+  }, [changedFile])
+  const viewed = useReview(s => Boolean(changedFile && s.viewed[changedFile.path])), toggleViewed = useReview(s => s.toggleViewed)
 
   const body = useRef<HTMLDivElement>(null)
   useEffect(() => {
@@ -183,6 +186,7 @@ export function CodePane({ map, want, slide, onClose }: { map: CanvasMap; want?:
               <span className="muted">{source.ref === 'WORKTREE' ? 'Working tree' : source.ref.slice(0, 7)}{text !== undefined && ` · ${lines.length}줄`}{changed.size > 0 && ` · 바뀐 줄 ${changed.size}`}
                 {marks.word && marks.hits > 0 && <> · <code>{marks.word.text.length > 24 ? `${marks.word.text.slice(0, 23)}…` : marks.word.text}</code> {marks.hits > 2000 ? '2000+' : marks.hits}곳</>}
               </span>
+              {changedFile && <label className="toggle" title="리뷰의 Viewed"><input type="checkbox" checked={viewed} onChange={() => toggleViewed(changedFile)} /> Viewed</label>}
             </div>
             <div className="code-pane-view">
             {outlineOpen && text !== undefined && !outlineWidth.hiding && <Outline items={outline} active={active} floating={floating} width={outlineWidth.value} onPick={goTo} />}

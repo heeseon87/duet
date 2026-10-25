@@ -8,7 +8,7 @@ import { codeMarks } from '../../../shared/mapFiles.ts'
 import type { CanvasThread } from '../../../shared/protocol.ts'
 import { api } from '../api.ts'
 import { local, useApp } from '../state.ts'
-import { Popover, relTime, shortcutKey } from '../lib/ui.tsx'
+import { Popover, isTypingTarget, relTime, shortcutKey } from '../lib/ui.tsx'
 import { Markdown } from '../lib/Markdown.tsx'
 import { MermaidStage, partIds, type StageHandle } from './MermaidStage.tsx'
 import { CodePane } from './CodePane.tsx'
@@ -603,8 +603,8 @@ export function CanvasView() {
   useEffect(() => {
     const key = (e: KeyboardEvent) => {
       if (useApp.getState().tab !== 'canvas') return
-      const t = e.target as HTMLElement
-      if (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable) return
+      // A checkbox (the code pane's Viewed) keeps the keys.
+      if (isTypingTarget(e.target)) return
       const k = shortcutKey(e)
       // Letting go of the selection also puts the info card away; `i` brings back the map's overview.
       if (k === 'Escape') { s.select(undefined); setInspector(false) }
@@ -698,6 +698,16 @@ export function CanvasView() {
       const out: MenuEntry[] = [{ kind: 'head', label: labelOf(map, t), sub: el ? kindLabel(el.kind) : rel ? '관계선' : '메시지' }, ...ask(t)]
       // The code of this part (a package: everything in it), reviewed on its own.
       if (el && filesUnder(map, t).length) out.push({ kind: 'item', key: 'changes', icon: <FileDiff size={14} />, label: '이 부분의 변경 보기', run: () => { setTab('review'); void useReview.getState().showPart(map, t) } })
+      // The review's Viewed, for all the changed files of this part at once.
+      const mark = el ? code?.marks.get(t) : undefined
+      if (mark?.paths.length && diff) {
+        const all = mark.viewed === mark.paths.length, paths = new Set(mark.paths)
+        out.push({
+          kind: 'item', key: 'viewed', icon: <Check size={14} />, label: all ? 'Viewed 해제' : 'Viewed로 표시',
+          sub: mark.viewed && !all ? `${mark.viewed}/${mark.paths.length}` : `파일 ${mark.paths.length}개`,
+          run: () => useReview.getState().setViewed(diff.files.filter(f => paths.has(f.path)), !all),
+        })
+      }
       const files = el?.files ?? []
       // In the code pane beside the map; the pane links on to the review.
       const open = (f: string) => () => showCode(true, f)

@@ -80,6 +80,8 @@ type ReviewState = {
   toggle: (k: 'ignoreWhitespace' | 'wrap') => void
   setContext: (n: number) => void
   toggleViewed: (f: DiffFile) => void
+  /** Marks these files viewed (or not) at once: a part of the map from the canvas. */
+  setViewed: (files: DiffFile[], on: boolean) => void
   openFile: (path: string, line?: number, ref?: string) => Promise<void>
   closeFile: () => void
   setDraft: (d: Draft | undefined) => void
@@ -351,11 +353,15 @@ export const useReview = create<ReviewState>((set, get) => ({
   },
   setContext: n => { local.set('review.context', String(n)); set({ context: n }); void get().refresh() },
 
-  toggleViewed: f => {
+  toggleViewed: f => get().setViewed([f], !get().viewed[f.path]),
+
+  setViewed: (files, on) => {
     const { root, source, viewed } = get()
     const next = { ...viewed }
-    if (next[f.path]) delete next[f.path]
-    else next[f.path] = sig(f)
+    for (const f of files) {
+      if (on) next[f.path] = sig(f)
+      else delete next[f.path]
+    }
     if (root) local.set(`review.viewed:${root}:${keyOf(source)}`, JSON.stringify(next))
     set({ viewed: next })
   },
