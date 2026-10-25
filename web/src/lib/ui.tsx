@@ -100,3 +100,13 @@ export function isTypingTarget(t: EventTarget | null): boolean {
   if (el.tagName === 'INPUT') return !['checkbox', 'radio'].includes((el as HTMLInputElement).type)
   return el.tagName === 'TEXTAREA' || el.isContentEditable
 }
+
+/**
+ * The key a shortcut reads. With the Korean input source a letter key arrives as its jamo ("ㄹ" for f, "ㅒ" for ⇧o),
+ * or as "Process" while the IME composes, so those read as the letter of the key pressed.
+ */
+export function shortcutKey(e: KeyboardEvent): string {
+  const letter = /^Key([A-Z])$/.exec(e.code)?.[1]
+  if (!letter || !(e.key === 'Process' || /^[\u3131-\u318e]$/.test(e.key))) return e.key
+  return e.shiftKey ? letter : letter.toLowerCase()
+}

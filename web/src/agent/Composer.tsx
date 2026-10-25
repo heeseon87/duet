@@ -2,7 +2,7 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { ArrowUp, ChevronDown, Square, X, ListPlus, Gauge, Cpu, ShieldCheck, Eye } from 'lucide-react'
 import type { ContextItem, Effort, PermissionMode, SessionInfo } from '../../../shared/protocol.ts'
 import { useApp } from '../state.ts'
-import { Popover, compact } from '../lib/ui.tsx'
+import { Popover, compact, shortcutKey } from '../lib/ui.tsx'
 import type { Transcript } from './transcript.ts'
 import { fuzzy, repoFiles } from '../lib/files.ts'
 import { sourceLabel, useReview } from '../review/store.ts'
@@ -131,7 +131,7 @@ export function Composer({ session, transcript, terminal }: { session?: SessionI
 
   useEffect(() => {
     const key = (e: KeyboardEvent) => {
-      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'l') { e.preventDefault(); ref.current?.focus() }
+      if ((e.metaKey || e.ctrlKey) && shortcutKey(e).toLowerCase() === 'l') { e.preventDefault(); ref.current?.focus() }
     }
     window.addEventListener('keydown', key)
     return () => window.removeEventListener('keydown', key)

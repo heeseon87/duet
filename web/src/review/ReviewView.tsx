@@ -5,7 +5,7 @@ import {
 } from 'lucide-react'
 import type { DiffFile, DiffSource, GitInfo, TurnRef } from '../../../shared/protocol.ts'
 import { api, q } from '../api.ts'
-import { Popover, relTime, isTypingTarget, useNow } from '../lib/ui.tsx'
+import { Popover, relTime, isTypingTarget, shortcutKey, useNow } from '../lib/ui.tsx'
 import { local, useApp } from '../state.ts'
 import { DiffView, STATUS_LETTER } from './DiffView.tsx'
 import { CommentsDock } from './Comments.tsx'
@@ -542,7 +542,7 @@ export function ReviewView() {
   useEffect(() => {
     const key = (e: KeyboardEvent) => {
       if (useApp.getState().tab !== 'review') return
-      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'f' && !e.shiftKey) { e.preventDefault(); setFinding(true); return }
+      if ((e.metaKey || e.ctrlKey) && shortcutKey(e).toLowerCase() === 'f' && !e.shiftKey) { e.preventDefault(); setFinding(true); return }
       if (isTypingTarget(e.target) || e.metaKey || e.ctrlKey || e.altKey) return
       if (e.key === '/') { e.preventDefault(); setFinding(true); return }
       const i = files.findIndex(f => f.path === selected)
@@ -557,7 +557,7 @@ export function ReviewView() {
         if (target) target.scrollIntoView({ block: 'start', behavior: 'smooth' })
         else go(d)
       }
-      switch (e.key) {
+      switch (shortcutKey(e)) {
         case 'j': go(1); break
         case 'k': go(-1); break
         case ']': case 'n': hunk(1); break

@@ -30,7 +30,7 @@ cd ~/github/duet && npm install
 | 명령 팔레트 (`⌘K`) | 명령, 파일 열기, 입력하는 동안 코드 검색(전체는 `⇧⏎`), 지도·대화 전환 |
 | 테마 | 화면 시스템/밝게/어둡게, 코드 색 팔레트 18가지(밝은·어두운 짝). `?`로 단축키 전체 |
 
-리뷰 단축키: `j`/`k` 파일, `n`/`p` hunk, `v` Viewed, `u`/`s` Unified·Split, `w` Hide whitespace changes 켜고 끄기(기본은 켜짐), `/` 찾기, `m` 코멘트 탭, `r` Refresh. 전체 목록은 `?`.
+리뷰 단축키: `j`/`k` 파일, `n`/`p` hunk, `v` Viewed, `u`/`s` Unified·Split, `w` Hide whitespace changes 켜고 끄기(기본은 켜짐), `/` 찾기, `m` 코멘트 탭, `r` Refresh. 전체 목록은 `?`. 글자 단축키는 한글 입력 상태에서도 같은 자리의 키로 동작한다(`ㅓ`는 `j`).
 
 ## 지도와 코드
 

@@ -8,7 +8,7 @@ import { codeMarks } from '../../../shared/mapFiles.ts'
 import type { CanvasThread } from '../../../shared/protocol.ts'
 import { api } from '../api.ts'
 import { local, useApp } from '../state.ts'
-import { Popover, relTime } from '../lib/ui.tsx'
+import { Popover, relTime, shortcutKey } from '../lib/ui.tsx'
 import { Markdown } from '../lib/Markdown.tsx'
 import { MermaidStage, partIds, type StageHandle } from './MermaidStage.tsx'
 import { CodePane } from './CodePane.tsx'
@@ -605,14 +605,15 @@ export function CanvasView() {
       if (useApp.getState().tab !== 'canvas') return
       const t = e.target as HTMLElement
       if (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable) return
+      const k = shortcutKey(e)
       // Letting go of the selection also puts the info card away; `i` brings back the map's overview.
-      if (e.key === 'Escape') { s.select(undefined); setInspector(false) }
-      else if (e.key === 'f' && !e.metaKey) stage.current?.fit()
-      else if ((e.key === '=' || e.key === '+') && !e.metaKey) stage.current?.zoom(1.2)
-      else if (e.key === '-' && !e.metaKey) stage.current?.zoom(1 / 1.2)
-      else if (e.key === 'i' && !e.metaKey) setInspector(v => !v)
-      else if (e.key === 'e' && !e.metaKey) s.setExplore(!useCanvas.getState().explore)
-      else if (e.key === 'c' && !e.metaKey && !e.ctrlKey) showCode(!codeOpenRef.current)
+      if (k === 'Escape') { s.select(undefined); setInspector(false) }
+      else if (k === 'f' && !e.metaKey) stage.current?.fit()
+      else if ((k === '=' || k === '+') && !e.metaKey) stage.current?.zoom(1.2)
+      else if (k === '-' && !e.metaKey) stage.current?.zoom(1 / 1.2)
+      else if (k === 'i' && !e.metaKey) setInspector(v => !v)
+      else if (k === 'e' && !e.metaKey) s.setExplore(!useCanvas.getState().explore)
+      else if (k === 'c' && !e.metaKey && !e.ctrlKey) showCode(!codeOpenRef.current)
       else return
       e.preventDefault()
     }

@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { ChevronDown, FileDiff, FolderGit2, GitBranch, Keyboard, Monitor, Moon, PanelRightClose, PanelRightOpen, RotateCw, Shapes, Sun, Command, WifiOff } from 'lucide-react'
 import { connection, subscribe } from './api.ts'
 import { local, useApp } from './state.ts'
-import { Popover, isTypingTarget } from './lib/ui.tsx'
+import { Popover, isTypingTarget, shortcutKey } from './lib/ui.tsx'
 import { PALETTES } from './lib/highlight.ts'
 import { RepoPicker } from './lib/RepoPicker.tsx'
 import { AgentPanel } from './agent/AgentPanel.tsx'
@@ -214,12 +214,12 @@ export function App() {
   useEffect(() => {
     const key = (e: KeyboardEvent) => {
       const mod = e.metaKey || e.ctrlKey
-      if (mod && e.key.toLowerCase() === 'k') { e.preventDefault(); setPalette(!useApp.getState().paletteOpen) }
+      if (mod && shortcutKey(e).toLowerCase() === 'k') { e.preventDefault(); setPalette(!useApp.getState().paletteOpen) }
       else if (mod && e.key === '1') { e.preventDefault(); useApp.getState().closeReader(); setTab('canvas') }
       else if (mod && e.key === '2') { e.preventDefault(); useApp.getState().closeReader(); setTab('review') }
       else if (mod && e.key === '.') { e.preventDefault(); const s = useApp.getState(); s.setFocus(!s.focus) }
       else if (mod && e.key === '3') { e.preventDefault(); setSide(useApp.getState().sideWidth, !useApp.getState().sideOpen) }
-      else if (mod && e.shiftKey && e.key.toLowerCase() === 'o') { e.preventDefault(); void useApp.getState().newSession() }
+      else if (mod && e.shiftKey && shortcutKey(e).toLowerCase() === 'o') { e.preventDefault(); void useApp.getState().newSession() }
       else if (e.key === '?' && !isTypingTarget(e.target)) { e.preventDefault(); setHelp(h => !h) }
       else if (e.key === 'Escape' && !isTypingTarget(e.target)) {
         const s = useApp.getState()
