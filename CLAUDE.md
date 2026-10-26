@@ -51,7 +51,7 @@ DUET_HOME=/tmp/duet-dev npx tsx watch server/main.ts --port 7981   # 개발 서�
 ## 관례
 
 - 커밋 메시지는 한국어로 쓰고 `feat:`, `feat(mod):`, `fix(canvas):`, `chore(mod):` 같은 접두를 붙인다. 본문에는 무엇이 왜 바뀌었는지 쓰고, 변경이 여럿이면 `- ` 목록으로 쓴다.
-- mod 동작을 바꾼 커밋들을 push하기 전에 `mod/.claude-plugin/plugin.json`의 버전을 올리는 `chore(mod)` 커밋을 따로 하나 둔다(예: 4292acd 뒤의 c2988dc). 기능 커밋마다 올리지는 않는다.
+- mod 동작을 바꾼 커밋들을 push하기 전에 `mod/.claude-plugin/plugin.json`의 버전을 올리는 `chore(mod)` 커밋을 따로 하나 둔다(예: 4292acd 뒤의 c2988dc). 기능 커밋마다 올리지는 않는다. 다른 사람은 유미 마켓플레이스(`heeseon87/yuumi`, 로컬 `~/github/claude-kit`)의 `marketplace.json`이 sha로 고정한 mod를 받으므로, push한 뒤 그 `sha`를 이 커밋으로 바꿔 유미도 push한다.
 - 코드 주석은 영어로, 화면 문구와 사용자에게 보이는 오류 메시지는 한국어 반말로 쓴다.
 - mod에 새 훅 이벤트를 쓰기 전에 확인한다. Team·Enterprise 조직 계정에서는 내장 플러그인 `cc-plugin-sec-default`가 `prompt.section`, `context`, `attachment`, `compose`, `skill.prompt`, `attribution.text`, `session.compact`, `settings.read`, `classic.*`를 사용자 플러그인에 넘기지 않는다. `session.compact`를 대신한 방법은 README '기준 지도' 항목에 있다.
 - 상태 줄을 지우면 SDK가 받는 `ui_status`의 text는 `undefined`가 아니라 `null`이다.

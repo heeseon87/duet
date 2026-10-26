@@ -2,6 +2,25 @@
 
 설계 캔버스, 코드 리뷰, 실시간 에이전트를 한 화면에 둔 로컬 협업 도구다. 에이전트는 이 컴퓨터의 Claude Code(Agent SDK)로 돌고, 브라우저는 `127.0.0.1`에서만 열린다.
 
+## 설치
+
+macOS에서 Node 20.19 이상(22는 22.12 이상), git, 한 번 로그인한 Claude Code(또는 `ANTHROPIC_API_KEY`)가 필요하다. 에이전트는 Agent SDK가 함께 설치하는 Claude Code로 돌고, 그 사람의 로그인과 사용자 설정(CLAUDE.md, 훅)을 그대로 쓴다. 리뷰의 PR은 쓰는 쪽의 `gh`, `glab`, `az`가 있어야 보인다.
+
+```bash
+git clone https://github.com/heeseon87/duet.git ~/github/duet
+cd ~/github/duet && npm install
+ln -s ~/github/duet/bin/duet.mjs ~/.local/bin/duet    # ~/.local/bin이 PATH에 있어야 한다
+```
+
+첫 `duet`이 웹 화면을 빌드하므로 개발 의존성까지 설치한다(`npm install --omit=dev`로는 빌드하지 못한다). 업데이트는 `git pull` 뒤 `duet`이다. 실행기가 웹을 다시 빌드하고, 일하는 대화가 없으면 서버를 다시 띄운다.
+
+터미널 mod(아래 '터미널에서')는 Claude Code 안에서 유미 마켓플레이스로 설치한다.
+
+```
+/plugin marketplace add heeseon87/yuumi
+/plugin install duet@yuumi
+```
+
 ## 실행
 
 ```bash
@@ -13,12 +32,6 @@ duet --no-open    # 브라우저 대신 주소만 출력
 ```
 
 `duet`은 `~/.local/bin/duet` → `bin/duet.mjs` 심링크다. 서버가 없으면 띄우고, 웹 빌드가 오래됐으면 다시 빌드하고, 서버 코드가 바뀌었으면 (일하는 대화가 없을 때) 다시 띄운다. 기본 포트는 7979다.
-
-처음 한 번은 의존성을 설치한다.
-
-```bash
-cd ~/github/duet && npm install
-```
 
 ## 화면
 
@@ -67,11 +80,13 @@ scripts/mod-tools.ts   mod/hooks/tools.ts를 캔버스 도구에서 다시 쓴�
 
 `mod/`는 Claude Code mod다. 터미널의 Claude Code 세션이 Duet 지도를 만들고 읽고 고치고, Duet에서 보낸 것을 받는다. Duet은 그대로 돈다.
 
+보통은 유미 마켓플레이스에서 설치한다(위 '설치'). 유미는 이 저장소의 `mod/`를 커밋 sha로 고정해 두므로, 받는 쪽은 그 커밋의 mod를 쓴다. 이 체크아웃의 mod를 바로 쓰려면(개발) 다음처럼 띄운다.
+
 ```bash
 claude --plugin-dir ~/github/duet/mod     # 이 세션에만
 ```
 
-늘 켜 두려면 다른 로컬 플러그인처럼 `~/.claude/local-plugins/duet` → `~/github/duet/mod` 심링크를 만들고 `CLAUDE_CODE_PLUGIN_DIRS`에 더한다. Claude Code 2.1.287 이상이 필요하다.
+늘 켜 두려면 다른 로컬 플러그인처럼 `~/.claude/local-plugins/duet` → `~/github/duet/mod` 심링크를 만들고 `CLAUDE_CODE_PLUGIN_DIRS`에 더한다. 어느 쪽이든 Claude Code 2.1.287 이상이 필요하다.
 
 - **도구.** `duet_map_list`, `duet_map_read`, `duet_map_create`, `duet_map_update`, `duet_map_reply`. Duet 대화의 `canvas_*` 도구와 설명·스키마가 같고(`npm run mod:tools`로 다시 쓰고, 테스트가 어긋남을 잡는다), 서버의 같은 코드로 돈다. 터미널이 만들거나 고친 rev는 에이전트 것으로 남고 메모 앞에 `터미널 · <폴더> · <세션 id 8자>`가 붙는다. 터미널에는 MCP 서버 지시가 없어서, 지도를 그리는 법은 `duet_map_read`와 `duet_map_create`의 결과 앞에 붙는다.
 - **지도 만들기.** `duet_map_create`는 빈 지도를 만들고, 모델은 결과에 붙은 그리는 법을 읽고 바로 `duet_map_update`로 그린다. 폴더가 어느 작업 공간에도 없으면 먼저 그 폴더의 git 저장소를 작업 공간 메뉴에서 연 것처럼 Duet 작업 공간으로 열고, 터미널을 거기에 등록한 뒤 만든다. git 저장소 밖이면 git 저장소가 필요하다고 답하고 아무것도 열지 않는다. 다른 도구는 작업 공간 밖에서 그대로 거절하고, `duet_map_create`로 시작할 수 있다고 알린다.
