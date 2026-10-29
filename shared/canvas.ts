@@ -472,7 +472,10 @@ export type MapDiff = {
   addedMessages: Set<string>
   removedMessages: Map<string, CanvasMessage>
   changedMessages: Set<string>
+  fragmentsChanged: Set<string>
   decisionsChanged: Set<string>
+  /** Map-level fields: title, context, direction. */
+  fieldsChanged: Set<string>
 }
 
 const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b)
@@ -482,8 +485,9 @@ export function diffMaps(before: CanvasMap, after: CanvasMap): MapDiff {
     addedElements: new Set(), removedElements: new Map(), changedElements: new Set(),
     addedRelations: new Set(), removedRelations: new Map(), changedRelations: new Set(),
     addedMessages: new Set(), removedMessages: new Map(), changedMessages: new Set(),
-    decisionsChanged: new Set(),
+    fragmentsChanged: new Set(), decisionsChanged: new Set(), fieldsChanged: new Set(),
   }
+  for (const k of ['title', 'context', 'direction'] as const) if (!same(before[k], after[k])) d.fieldsChanged.add(k)
   const be = new Map(before.elements.map(e => [e.id, e]))
   const ae = new Map(after.elements.map(e => [e.id, e]))
   for (const [id, e] of ae) {
@@ -508,6 +512,9 @@ export function diffMaps(before: CanvasMap, after: CanvasMap): MapDiff {
     else if (!same(old, m)) d.changedMessages.add(id)
   }
   for (const [id, m] of bm) if (!am.has(id)) d.removedMessages.set(id, m)
+  const bf = new Map((before.fragments ?? []).map(x => [x.id, x]))
+  for (const x of after.fragments ?? []) if (!same(bf.get(x.id), x)) d.fragmentsChanged.add(x.id)
+  for (const x of before.fragments ?? []) if (!(after.fragments ?? []).some(y => y.id === x.id)) d.fragmentsChanged.add(x.id)
   const bd = new Map((before.decisions ?? []).map(x => [x.id, x]))
   for (const x of after.decisions ?? []) if (!same(bd.get(x.id), x)) d.decisionsChanged.add(x.id)
   for (const x of before.decisions ?? []) if (!(after.decisions ?? []).some(y => y.id === x.id)) d.decisionsChanged.add(x.id)
@@ -517,13 +524,14 @@ export function diffMaps(before: CanvasMap, after: CanvasMap): MapDiff {
 export function diffSize(d: MapDiff): number {
   return d.addedElements.size + d.removedElements.size + d.changedElements.size + d.addedRelations.size +
     d.removedRelations.size + d.changedRelations.size + d.addedMessages.size + d.removedMessages.size +
-    d.changedMessages.size + d.decisionsChanged.size
+    d.changedMessages.size + d.fragmentsChanged.size + d.decisionsChanged.size + d.fieldsChanged.size
 }
 
 /** One line per change, for the timeline and for the agent's tool result. */
 export function describeDiff(d: MapDiff, after: CanvasMap): string[] {
   const out: string[] = []
   const name = (id: string) => after.elements.find(e => e.id === id)?.label ?? id
+  for (const k of d.fieldsChanged) out.push(`~ ${k}`)
   for (const id of d.addedElements) out.push(`+ ${name(id)}`)
   for (const [id, e] of d.removedElements) out.push(`− ${e.label ?? id}`)
   for (const id of d.changedElements) out.push(`~ ${name(id)}`)
@@ -533,6 +541,7 @@ export function describeDiff(d: MapDiff, after: CanvasMap): string[] {
   for (const id of d.addedMessages) out.push(`+ message ${id}`)
   for (const id of d.removedMessages.keys()) out.push(`− message ${id}`)
   for (const id of d.changedMessages) out.push(`~ message ${id}`)
+  for (const id of d.fragmentsChanged) out.push(`~ fragment ${id}`)
   for (const id of d.decisionsChanged) out.push(`~ ${id}`)
   return out
 }

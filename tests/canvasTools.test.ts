@@ -44,4 +44,11 @@ describe('canvas tools from a terminal', () => {
   it('refuses a name that is taken', () => {
     expect(run(store, ws, 'canvas_create', { name: 'from-terminal', diagram: 'class', title: '다시' }, terminal)).toMatchObject({ isError: true })
   })
+
+  it('writes a rev for a patch that only changes the context', () => {
+    const before = store.get(ws, 'from-terminal').revision
+    const res = run(store, ws, 'canvas_update', { name: 'from-terminal', note: '목적 고침', context: '새 목적' }, terminal)
+    expect(res.text).toBe(`rev ${before + 1}\n  ~ context`)
+    expect(store.get(ws, 'from-terminal').map.context).toBe('새 목적')
+  })
 })

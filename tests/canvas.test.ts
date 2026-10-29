@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { applyPatch, chooseOption, deliveryLabel, deliveryOf, diffMaps, emptyMap, normalizeDecisions, relationKey, reopenDecision, reorderedGroups, safeText, toMermaid, validate, type CanvasMap } from '../shared/canvas.ts'
+import { applyPatch, chooseOption, deliveryLabel, deliveryOf, describeDiff, diffMaps, emptyMap, normalizeDecisions, relationKey, reopenDecision, reorderedGroups, safeText, toMermaid, validate, type CanvasMap } from '../shared/canvas.ts'
 
 function base(): CanvasMap {
   const m = emptyMap('class', 'test')
@@ -158,6 +158,23 @@ describe('diffMaps', () => {
     expect([...d.removedElements.keys()]).toEqual(['C'])
     expect([...d.changedElements]).toEqual(['A'])
     expect([...d.removedRelations.keys()]).toEqual(['B->C:dependency'])
+  })
+
+  // A patch that touches only these used to leave no diff, so the store wrote no revision.
+  it('finds map-level fields and fragments', () => {
+    const a = base()
+    for (const patch of [{ title: 'renamed' }, { context: 'why' }, { direction: 'LR' as const }]) {
+      const field = Object.keys(patch)[0]
+      expect(describeDiff(diffMaps(a, applyPatch(a, patch, 'agent').map), a)).toEqual([`~ ${field}`])
+    }
+    const seq = applyPatch(emptyMap('sequence', 'seq'), {
+      elements: [{ id: 'A', kind: 'actor' }, { id: 'B' }],
+      messages: [{ id: 'm1', from: 'A', to: 'B', label: 'ask' }, { id: 'm2', from: 'B', to: 'A', label: 'answer', kind: 'reply' }],
+    }, 'agent').map
+    const looped = applyPatch(seq, { fragments: [{ id: 'f1', kind: 'loop', label: 'retry', first: 'm1', last: 'm2' }] }, 'agent')
+    expect(looped.errors).toEqual([])
+    expect(describeDiff(diffMaps(seq, looped.map), looped.map)).toEqual(['~ fragment f1'])
+    expect(describeDiff(diffMaps(looped.map, seq), seq)).toEqual(['~ fragment f1'])
   })
 })
 
