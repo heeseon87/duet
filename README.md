@@ -21,6 +21,8 @@ ln -s ~/github/duet/bin/duet.mjs ~/.local/bin/duet    # ~/.local/bin이 PATH에 
 /plugin install duet@yuumi
 ```
 
+mod는 설치만으로는 도구를 등록하지 않는다. Claude Code를 새로 띄울 때마다 `/duet`을 한 번 쳐야 `duet_map_*` 도구가 생긴다(아래 '연결(`/duet`)'). 치기 전에 지도를 그려 달라고 하면 모델은 그 도구를 찾지 못한다. `/duet` 자체가 없는 명령이라고 나오면 mod가 로드되지 않은 것이므로 `/plugins`의 Errors와 Claude Code 버전(2.1.287 이상)을 확인한다.
+
 ## 실행
 
 ```bash
