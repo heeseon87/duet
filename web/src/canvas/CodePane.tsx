@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
-import { FileDiff, ListTree, Loader2, Minus, Plus, X } from 'lucide-react'
+import { FileDiff, ListTree, Loader2, Minus, Palette, Plus, X } from 'lucide-react'
 import { fileOfRef, filesUnder, labelOf, relationKey, type CanvasMap } from '../../../shared/canvas.ts'
 import { absoluteRef, refBase } from '../../../shared/mapFiles.ts'
 import type { DiffResult } from '../../../shared/protocol.ts'
@@ -12,6 +12,8 @@ import { escapeRe, matchRanges, registry } from '../review/FindBar.tsx'
 import { widestCols } from '../review/diffModel.ts'
 import { useCanvas } from './store.ts'
 import { activeAt, outlineOf, type OutlineItem, type SymbolKind } from './outline.ts'
+import { VAR_COLORS, varLangOf, type VarMark } from './variables.ts'
+import { variableMarks } from './variablesLoader.ts'
 
 const MIN_WIDTH = 320
 /** What the canvas keeps beside the pane, however wide the pane was dragged. */
@@ -132,6 +134,9 @@ export function CodePane({ map, target, want, slide, onClose }: { map: CanvasMap
   const marks = useWordMarks(body, key, tokens)
   const [outlineOpen, setOutlineOpen] = useState(() => local.get('canvas.codeOutline') === '1')
   const toggleOutline = () => setOutlineOpen(o => { local.set('canvas.codeOutline', o ? '0' : '1'); return !o })
+  const [varsOn, setVarsOn] = useState(() => local.get('canvas.codeVars') === '1')
+  const toggleVars = () => setVarsOn(o => { local.set('canvas.codeVars', o ? '0' : '1'); return !o })
+  useVariableColors(body, text, source?.path, tokens, varsOn)
   const outline = useMemo(() => (outlineOpen && text !== undefined && source ? outlineOf(lines, source.path) : undefined), [outlineOpen, text, lines, source?.path]) // eslint-disable-line react-hooks/exhaustive-deps
   const active = outline && marks.caret !== undefined ? activeAt(outline, marks.caret) : undefined
 
@@ -153,6 +158,9 @@ export function CodePane({ map, target, want, slide, onClose }: { map: CanvasMap
       <div className="code-pane-head">
         <b className="grow ellipsis">{head}</b>
         <button className="iconbtn" aria-pressed={outlineOpen} title={outlineOpen ? '구조 닫기' : '구조: 이 파일의 클래스·함수 목록'} onClick={toggleOutline}><ListTree size={14} /></button>
+        {varLangOf(source?.path) && (
+          <button className="iconbtn" aria-pressed={varsOn} title={varsOn ? '변수 색 끄기' : '변수 색: 변수마다 선언부터 쓰는 곳까지 한 색으로, 스코프별로'} onClick={toggleVars}><Palette size={14} /></button>
+        )}
         <div className="seg code-zoom">
           <button onClick={() => zoom.step(-1)} disabled={zoom.scale <= MIN_SCALE} title="코드 축소 (⌘ + 휠)"><Minus size={12} /></button>
           <button onClick={() => zoom.set(1)} title="100%로">{Math.round(zoom.scale * 100)}%</button>
@@ -277,6 +285,53 @@ function useWordMarks(body: React.RefObject<HTMLDivElement | null>, key: string,
   }, [word, tokens, body])
   useEffect(() => () => registry()?.highlights.delete('duet-word'), [])
   return { word, setWord, hits, caret, setCaret }
+}
+
+/**
+ * Variable colors: each variable keeps one color from its declaration to every use, scope by scope (variables.ts).
+ * Painted with the CSS highlight API like the word marks, and found again when the colors replace the rows' text nodes.
+ */
+function useVariableColors(body: React.RefObject<HTMLDivElement | null>, text: string | undefined, path: string | undefined, tokens: unknown, on: boolean) {
+  const [marks, setMarks] = useState<VarMark[]>()
+  useEffect(() => {
+    setMarks(undefined)
+    if (!on || text === undefined || !path || !varLangOf(path)) return
+    let live = true
+    variableMarks(text, path).then(m => { if (live) setMarks(m) }, () => {})
+    return () => { live = false }
+  }, [on, text, path])
+  useEffect(() => {
+    const reg = registry(), b = body.current
+    if (!reg) return
+    for (let i = 0; i < VAR_COLORS; i++) reg.highlights.delete(`duet-var-${i}`)
+    if (!marks?.length || !b) return
+    const byLine = new Map<number, VarMark[]>()
+    for (const m of marks) byLine.set(m.line, [...(byLine.get(m.line) ?? []), m])
+    const ranges: Range[][] = Array.from({ length: VAR_COLORS }, () => [])
+    for (const [line, ms] of byLine) {
+      const cell = b.querySelector(`tr[data-line="${line + 1}"] > td.code`)
+      if (!cell) continue
+      // Each text node with the column it starts at; a column falls in the last node that starts at or before it.
+      const nodes: [Text, number][] = []
+      const walker = document.createTreeWalker(cell, NodeFilter.SHOW_TEXT)
+      let at = 0
+      for (let n = walker.nextNode(); n; n = walker.nextNode()) { nodes.push([n as Text, at]); at += (n as Text).data.length }
+      const point = (col: number): [Text, number] | undefined => {
+        for (let i = nodes.length - 1; i >= 0; i--) if (nodes[i][1] <= col) return [nodes[i][0], Math.min(col - nodes[i][1], nodes[i][0].data.length)]
+        return undefined
+      }
+      for (const m of ms) {
+        const s = point(m.start), e = point(m.end)
+        if (!s || !e) continue
+        const r = document.createRange()
+        r.setStart(...s)
+        r.setEnd(...e)
+        ranges[m.color].push(r)
+      }
+    }
+    ranges.forEach((rs, i) => { if (rs.length) reg.highlights.set(`duet-var-${i}`, new reg.Highlight(...rs)) })
+  }, [marks, tokens, body])
+  useEffect(() => () => { const reg = registry(); for (let i = 0; i < VAR_COLORS; i++) reg?.highlights.delete(`duet-var-${i}`) }, [])
 }
 
 /** The word around a caret in a code cell. */
