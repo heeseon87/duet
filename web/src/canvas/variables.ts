@@ -7,11 +7,14 @@ import type { Node, Query } from 'web-tree-sitter'
 import { langOf } from '../lib/highlight.ts'
 
 /** How many colors take turns: variables in sight of each other get different ones, up to this many. */
-export const VAR_COLORS = 6
+export const VAR_COLORS = 8
 
 export type VarLang = 'kotlin' | 'java' | 'typescript' | 'tsx'
-/** One identifier to paint: its 0-based line, its columns in UTF-16 units (as the DOM counts them), its variable's color. */
-export type VarMark = { line: number; start: number; end: number; color: number }
+/**
+ * One identifier to paint: its 0-based line, its columns in UTF-16 units (as the DOM counts them), its variable's color,
+ * and whether that variable is a class's property or field (drawn underlined, apart from a local of the same color).
+ */
+export type VarMark = { line: number; start: number; end: number; color: number; field: boolean }
 
 const LANGS = new Set<string>(['kotlin', 'java', 'typescript', 'tsx'])
 
@@ -145,7 +148,7 @@ export function localMarks(root: Node, query: Query, rules: Rules = {}): VarMark
   }
 
   const marks: VarMark[] = []
-  for (const d of all) if (d.node) marks.push({ line: d.node.startPosition.row, start: d.node.startPosition.column, end: d.node.startPosition.column + d.node.endIndex - d.node.startIndex, color: color.get(d)! })
-  for (const [ref, d] of uses) marks.push({ line: ref.line, start: ref.col, end: ref.col + ref.name.length, color: color.get(d)! })
+  for (const d of all) if (d.node) marks.push({ line: d.node.startPosition.row, start: d.node.startPosition.column, end: d.node.startPosition.column + d.node.endIndex - d.node.startIndex, color: color.get(d)!, field: d.hoisted })
+  for (const [ref, d] of uses) marks.push({ line: ref.line, start: ref.col, end: ref.col + ref.name.length, color: color.get(d)!, field: d.hoisted })
   return marks
 }

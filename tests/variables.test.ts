@@ -24,17 +24,22 @@ async function paint(lang: VarLang, src: string) {
   const marks = localMarks(tree.rootNode, query, RULES[lang])
   tree.delete()
   const color = new Map<string, number>()
+  const fields = new Set<string>()
   for (const m of marks) {
     const at = `${lines[m.line].slice(m.start, m.end)}@${m.line + 1}:${m.start}`
     expect(color.has(at), `${at} painted twice`).toBe(false)
     color.set(at, m.color)
+    if (m.field) fields.add(at)
   }
   /** The color of the n-th (from 0) occurrence of `name` on a line, or undefined when it is not painted. */
-  const at = (line: number, name: string, n = 0) => {
+  const find = (line: number, name: string, n: number) => {
     const col = [...lines[line - 1].matchAll(new RegExp(`(?<![\\w])${name}(?![\\w$])`, 'g'))][n]?.index
-    return col === undefined ? undefined : color.get(`${name}@${line}:${col}`)
+    return col === undefined ? undefined : `${name}@${line}:${col}`
   }
-  return { at, count: color.size }
+  const at = (line: number, name: string, n = 0) => { const k = find(line, name, n); return k ? color.get(k) : undefined }
+  /** Whether the n-th occurrence is painted as a class's property or field. */
+  const field = (line: number, name: string, n = 0) => { const k = find(line, name, n); return Boolean(k && fields.has(k)) }
+  return { at, field, count: color.size }
 }
 
 describe('varLangOf', () => {
@@ -75,11 +80,17 @@ describe('localMarks: Kotlin', () => {
     expect(at(11, 'total')).toBe(at(13, 'total'))
   })
 
+  it('marks a class property, at its declaration and its uses, apart from parameters and locals', async () => {
+    const { field } = await paint('kotlin', src)
+    expect([field(1, 'repo'), field(8, 'repo'), field(13, 'total'), field(11, 'total')]).toEqual([true, true, true, true])
+    expect([field(2, 'order'), field(3, 'order'), field(3, 'lines'), field(4, 'sum')]).toEqual([false, false, false, false])
+  })
+
   it('tells apart variables in sight of each other', async () => {
     const { at } = await paint('kotlin', src)
-    // The class's repo, name and total, then the function's order, n and lines: six in sight, six colors.
-    const inSight = [at(1, 'repo'), at(1, 'name'), at(13, 'total'), at(2, 'order'), at(2, 'n'), at(3, 'lines')]
-    expect(new Set(inSight).size).toBe(VAR_COLORS)
+    // The class's repo, name and total, then the function's order, n, lines and sum: all in sight, all apart.
+    const inSight = [at(1, 'repo'), at(1, 'name'), at(13, 'total'), at(2, 'order'), at(2, 'n'), at(3, 'lines'), at(4, 'sum')]
+    expect(new Set(inSight).size).toBe(inSight.length)
   })
 
   it('follows scopes: loop and lambda parameters, a catch parameter, shadowing, the implicit it', async () => {
@@ -157,6 +168,12 @@ describe('localMarks: Java', () => {
     expect(at(11, 'total')).toBe(at(13, 'total'))
     expect(at(3, 'repo', 2)).toBe(at(3, 'repo'))
     expect(at(3, 'repo')).not.toBe(at(2, 'repo'))
+  })
+
+  it('marks fields, and not the constructor parameter that shares a name', async () => {
+    const { field } = await paint('java', src)
+    expect([field(2, 'repo'), field(9, 'repo'), field(13, 'total'), field(11, 'total')]).toEqual([true, true, true, true])
+    expect([field(3, 'repo'), field(3, 'repo', 2), field(4, 'order'), field(6, 'sum')]).toEqual([false, false, false, false])
   })
 
   it('leaves fields after a dot and method names alone', async () => {

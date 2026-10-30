@@ -106,23 +106,38 @@
 .ol-kind.k-doc { color: var(--ink-3); background: var(--hover); }
 /* The word under the click wherever it stands, and the clicked line. */
 ::highlight(duet-word) { background-color: color-mix(in srgb, var(--accent) 24%, transparent); }
-/* Variable colors (the code pane's palette button): one color per variable, VAR_COLORS of them taking turns. Six hues
-   far apart, deep on light and bright on dark, so each reads on the code's background; no red or orange, which code
-   palettes keep for keywords and types. */
+/* Variable colors (the code pane's palette button): one color per variable, VAR_COLORS of them taking turns. While they
+   are on the rest of the code goes gray (below), so the whole hue circle is theirs: eight per theme, picked so the closest
+   two stay as far apart as possible (OKLab), each colorful enough to stand off the grays and at 4.5:1 or more on the
+   code's background. The two themes are picked apart, so a variable's hue may differ between them. */
 :root {
-  --var-0: #1d4ed8; --var-1: #15803d; --var-2: #7c3aed;
-  --var-3: #a16207; --var-4: #0e7490; --var-5: #a21caf;
+  --var-0: #c24173; --var-1: #005e15; --var-2: #373ba7; --var-3: #803100;
+  --var-4: #801571; --var-5: #885acb; --var-6: #9b6e00; --var-7: #007399;
 }
 :root[data-theme='dark'] {
-  --var-0: #60a5fa; --var-1: #4ade80; --var-2: #a78bfa;
-  --var-3: #facc15; --var-4: #22d3ee; --var-5: #e879f9;
+  --var-0: #00b8d6; --var-1: #facf4e; --var-2: #ec79a9; --var-3: #50f4c5;
+  --var-4: #85b749; --var-5: #f3beff; --var-6: #e48e26; --var-7: #a492fb;
 }
+/* The rest of the code keeps its theme's lightness and loses its hue: keywords, types and strings stay apart by shade. */
+.code-pane-body.vars-on .hl span { color: oklch(from var(--shiki-light) l 0 h); }
+:root[data-theme='dark'] .code-pane-body.vars-on .hl span { color: oklch(from var(--shiki-dark) l 0 h); }
 ::highlight(duet-var-0) { color: var(--var-0); }
 ::highlight(duet-var-1) { color: var(--var-1); }
 ::highlight(duet-var-2) { color: var(--var-2); }
 ::highlight(duet-var-3) { color: var(--var-3); }
 ::highlight(duet-var-4) { color: var(--var-4); }
 ::highlight(duet-var-5) { color: var(--var-5); }
+::highlight(duet-var-6) { color: var(--var-6); }
+::highlight(duet-var-7) { color: var(--var-7); }
+/* A class's property or field: its color with a faint dotted underline, apart from a local of the same color. */
+::highlight(duet-var-0-f) { color: var(--var-0); text-decoration: underline dotted color-mix(in srgb, var(--var-0) 60%, transparent); }
+::highlight(duet-var-1-f) { color: var(--var-1); text-decoration: underline dotted color-mix(in srgb, var(--var-1) 60%, transparent); }
+::highlight(duet-var-2-f) { color: var(--var-2); text-decoration: underline dotted color-mix(in srgb, var(--var-2) 60%, transparent); }
+::highlight(duet-var-3-f) { color: var(--var-3); text-decoration: underline dotted color-mix(in srgb, var(--var-3) 60%, transparent); }
+::highlight(duet-var-4-f) { color: var(--var-4); text-decoration: underline dotted color-mix(in srgb, var(--var-4) 60%, transparent); }
+::highlight(duet-var-5-f) { color: var(--var-5); text-decoration: underline dotted color-mix(in srgb, var(--var-5) 60%, transparent); }
+::highlight(duet-var-6-f) { color: var(--var-6); text-decoration: underline dotted color-mix(in srgb, var(--var-6) 60%, transparent); }
+::highlight(duet-var-7-f) { color: var(--var-7); text-decoration: underline dotted color-mix(in srgb, var(--var-7) 60%, transparent); }
 .code-pane-path code { font-size: 11.5px; color: var(--ink-2); }
 .code-pane table.diff tr.cursor-line td { background: var(--hover); }
 /* The part's declaration (or the lines its reference names), and the lines the map's code changed. */

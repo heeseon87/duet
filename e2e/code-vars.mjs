@@ -1,5 +1,6 @@
 // Variable colors in the code pane: the palette button (Kotlin, Java, TypeScript files only) paints each variable one
-// color from its declaration to every use, scope by scope, leaving members after a dot alone; it is remembered, follows
+// color from its declaration to every use, scope by scope, leaving members after a dot alone, a class's properties
+// underlined apart from locals, and the rest of the code (keywords, types, strings) goes gray; it is remembered, follows
 // the file the pane shows, and turning it off clears the colors. The grammars load on first use, as wasm.
 //   DUET_PORT=7981 DUET_TOKEN=... [DUET_SCRATCH=<folder>] DUET_SHOTS=/dir node e2e/code-vars.mjs
 //   (makes a repo under DUET_SCRATCH, else the temp folder, opens it as a workspace and leaves it there.)
@@ -77,8 +78,18 @@ const button = () => page.$('.code-pane-head button[title^="변수 색"]')
 /** Every painted identifier: its text, line and color. */
 const painted = () => page.evaluate(() => {
   const out = []
-  for (let i = 0; i < 6; i++) for (const r of CSS.highlights.get(`duet-var-${i}`) ?? []) out.push({ text: r.toString(), line: Number(r.startContainer.parentElement?.closest('tr')?.dataset.line), color: i })
+  for (let i = 0; i < 8; i++) for (const field of [false, true]) for (const r of CSS.highlights.get(`duet-var-${i}${field ? '-f' : ''}`) ?? []) out.push({ text: r.toString(), line: Number(r.startContainer.parentElement?.closest('tr')?.dataset.line), color: i, field })
   return out
+})
+/** Whether the `fun` keyword on line 4 is gray (the rest of the code muted while variables are colored). */
+const keywordGray = () => page.evaluate(() => {
+  const span = [...document.querySelectorAll('.code-pane tr[data-line="4"] td.code span')].find(s => s.textContent === 'fun')
+  // The color may come back as oklch(…): paint it to read it as pixels.
+  const ctx = document.createElement('canvas').getContext('2d')
+  ctx.fillStyle = getComputedStyle(span).color
+  ctx.fillRect(0, 0, 1, 1)
+  const [r, g, b] = ctx.getImageData(0, 0, 1, 1).data
+  return Math.max(r, g, b) - Math.min(r, g, b) <= 3
 })
 const colorsOf = (marks, text) => new Set(marks.filter(m => m.text === text).map(m => m.color))
 const linesOf = (marks, text) => marks.filter(m => m.text === text).map(m => m.line)
@@ -89,12 +100,14 @@ await (await button()).click()
 let kt = await until(async () => { const m = await painted(); return m.length ? m : undefined })
 check('turning it on paints the variables once the grammar loads', Boolean(kt?.length), JSON.stringify(kt?.slice(0, 4)))
 kt ??= []
+check('the rest of the code goes gray, keeping its shade', await keywordGray())
 check('a parameter keeps one color from its declaration to every use', JSON.stringify(linesOf(kt, 'order')) === '[4,5,8]' && colorsOf(kt, 'order').size === 1, JSON.stringify(linesOf(kt, 'order')))
 check('…so do a local and a class property', JSON.stringify(linesOf(kt, 'lines')) === '[5,7]' && colorsOf(kt, 'lines').size === 1 && JSON.stringify(linesOf(kt, 'repo')) === '[3,8]' && colorsOf(kt, 'repo').size === 1)
 check('variables in sight of each other differ', new Set(['order', 'n', 'lines', 'sum', 'repo'].map(v => [...colorsOf(kt, v)][0])).size === 5)
+check('a class property is underlined at its declaration and its uses; parameters and locals are not', kt.filter(m => m.text === 'repo').every(m => m.field) && !kt.some(m => ['order', 'n', 'lines', 'sum', 'line'].includes(m.text) && m.field))
 check('members after a dot and functions are left alone', !kt.some(m => ['price', 'save', 'run', 'Order'].includes(m.text)) && linesOf(kt, 'lines').filter(l => l === 5).length === 1)
 const shown = await page.evaluate(() => {
-  const r = CSS.highlights.get('duet-var-0') ? [...CSS.highlights.get('duet-var-0')][0] : undefined
+  const h = CSS.highlights.get('duet-var-0') ?? CSS.highlights.get('duet-var-0-f'), r = h ? [...h][0] : undefined
   const probe = document.createElement('span'); probe.style.color = 'var(--var-0)'; document.body.appendChild(probe); const want = getComputedStyle(probe).color; probe.remove()
   return { has: Boolean(r), want }
 })
@@ -119,7 +132,7 @@ check('a language without colors has no button and nothing painted', !(await but
 await pick('Kt', 'src/Svc.kt')
 await until(async () => (await painted()).length)
 await (await button()).click(); await sleep(300)
-check('turning it off clears the colors', !(await painted()).length && (await (await button()).getAttribute('aria-pressed')) === 'false')
+check('turning it off clears the colors and brings the theme back', !(await painted()).length && (await (await button()).getAttribute('aria-pressed')) === 'false' && !(await keywordGray()))
 
 check('no page errors', !errors.length, errors.join(' | '))
 await browser.close()

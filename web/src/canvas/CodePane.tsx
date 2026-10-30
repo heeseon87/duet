@@ -136,7 +136,7 @@ export function CodePane({ map, target, want, slide, onClose }: { map: CanvasMap
   const toggleOutline = () => setOutlineOpen(o => { local.set('canvas.codeOutline', o ? '0' : '1'); return !o })
   const [varsOn, setVarsOn] = useState(() => local.get('canvas.codeVars') === '1')
   const toggleVars = () => setVarsOn(o => { local.set('canvas.codeVars', o ? '0' : '1'); return !o })
-  useVariableColors(body, text, source?.path, tokens, varsOn)
+  const varsPainted = useVariableColors(body, text, source?.path, tokens, varsOn)
   const outline = useMemo(() => (outlineOpen && text !== undefined && source ? outlineOf(lines, source.path) : undefined), [outlineOpen, text, lines, source?.path]) // eslint-disable-line react-hooks/exhaustive-deps
   const active = outline && marks.caret !== undefined ? activeAt(outline, marks.caret) : undefined
 
@@ -194,7 +194,7 @@ export function CodePane({ map, target, want, slide, onClose }: { map: CanvasMap
             {outlineOpen && text !== undefined && (
               <div className="code-outline-split" style={{ left: outlineWidth.hiding ? 0 : outlineWidth.value }} onPointerDown={outlineWidth.drag} title="끌어서 구조 폭 조절, 왼쪽 끝까지 끌면 닫기" />
             )}
-            <div className="code-pane-body" ref={body}>
+            <div className={`code-pane-body${varsPainted ? ' vars-on' : ''}`} ref={body}>
               {file?.key !== key || (text === undefined && !file.missing) ? <div className="code-pane-empty"><Loader2 className="spin" size={16} /></div>
                 : file.missing ? <div className="code-pane-empty muted">{source.ref === 'WORKTREE' ? '작업 트리' : source.ref.slice(0, 7)}에 이 파일이 없어. 아직 구현 전일 수 있어.</div>
                 : (
@@ -290,6 +290,7 @@ function useWordMarks(body: React.RefObject<HTMLDivElement | null>, key: string,
 /**
  * Variable colors: each variable keeps one color from its declaration to every use, scope by scope (variables.ts).
  * Painted with the CSS highlight API like the word marks, and found again when the colors replace the rows' text nodes.
+ * True once painted: the rest of the code then goes gray (`vars-on`), so the variables' colors stand alone.
  */
 function useVariableColors(body: React.RefObject<HTMLDivElement | null>, text: string | undefined, path: string | undefined, tokens: unknown, on: boolean) {
   const [marks, setMarks] = useState<VarMark[]>()
@@ -303,11 +304,11 @@ function useVariableColors(body: React.RefObject<HTMLDivElement | null>, text: s
   useEffect(() => {
     const reg = registry(), b = body.current
     if (!reg) return
-    for (let i = 0; i < VAR_COLORS; i++) reg.highlights.delete(`duet-var-${i}`)
+    clearVars()
     if (!marks?.length || !b) return
     const byLine = new Map<number, VarMark[]>()
     for (const m of marks) byLine.set(m.line, [...(byLine.get(m.line) ?? []), m])
-    const ranges: Range[][] = Array.from({ length: VAR_COLORS }, () => [])
+    const ranges = new Map<string, Range[]>()
     for (const [line, ms] of byLine) {
       const cell = b.querySelector(`tr[data-line="${line + 1}"] > td.code`)
       if (!cell) continue
@@ -326,12 +327,21 @@ function useVariableColors(body: React.RefObject<HTMLDivElement | null>, text: s
         const r = document.createRange()
         r.setStart(...s)
         r.setEnd(...e)
-        ranges[m.color].push(r)
+        const name = varHighlight(m.color, m.field)
+        ranges.set(name, [...(ranges.get(name) ?? []), r])
       }
     }
-    ranges.forEach((rs, i) => { if (rs.length) reg.highlights.set(`duet-var-${i}`, new reg.Highlight(...rs)) })
+    for (const [name, rs] of ranges) reg.highlights.set(name, new reg.Highlight(...rs))
   }, [marks, tokens, body])
-  useEffect(() => () => { const reg = registry(); for (let i = 0; i < VAR_COLORS; i++) reg?.highlights.delete(`duet-var-${i}`) }, [])
+  useEffect(() => clearVars, [])
+  return Boolean(on && marks?.length)
+}
+
+/** A color's highlight; a class's property or field has its own, underlined, so it stands apart from a local of that color. */
+const varHighlight = (color: number, field: boolean) => `duet-var-${color}${field ? '-f' : ''}`
+function clearVars() {
+  const reg = registry()
+  for (let i = 0; i < VAR_COLORS; i++) for (const field of [false, true]) reg?.highlights.delete(varHighlight(i, field))
 }
 
 /** The word around a caret in a code cell. */
