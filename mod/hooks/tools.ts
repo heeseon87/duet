@@ -276,6 +276,7 @@ export const TOOLS: { relays: string; spec: ToolSpec }[] = [
                   "type": "string"
                 },
                 "kind": {
+                  "description": "association (the default) or dependency: from uses to; inheritance or realization: from extends or implements to; composition or aggregation: from is the whole and to its part (the diamond is drawn at from)",
                   "type": "string",
                   "enum": [
                     "association",

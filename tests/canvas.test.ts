@@ -200,6 +200,13 @@ describe('Mermaid text', () => {
     expect(collapsed.text).toContain('grp ..> C : reads')
     expect(collapsed.edgeOrder.find(k => k.includes('B->C'))).toContain('A->C')
   })
+
+  it('draws the diamond of a composition or aggregation at from, the whole', () => {
+    const m = applyPatch(base(), { relations: [{ from: 'A', to: 'B', kind: 'composition', label: 'owns' }, { from: 'A', to: 'C', kind: 'aggregation' }] }, 'agent').map
+    const plan = toMermaid(m)
+    expect(plan.text).toContain('A *-- B : owns')
+    expect(plan.text).toContain('A o-- C')
+  })
 })
 
 describe('normalizeDecisions', () => {

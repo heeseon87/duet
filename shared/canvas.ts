@@ -37,6 +37,7 @@ export type CanvasElement = {
 export type CanvasRelation = {
   from: string
   to: string
+  /** composition and aggregation: `from` is the whole and `to` the part (the diamond is drawn at `from`). */
   kind?: RelationKind
   label?: string
   /** A step number: drawn as ①②③ in front of the label, to show the order of a flow. */
@@ -571,13 +572,14 @@ export function stepMark(n: number): string {
 
 const MEMBER_MARK = { add: '＋ ', modify: '✎ ', delete: '－ ' } as const
 
+// UML draws the diamond at the whole, which is `from`: `A *-- B` puts it at A.
 const ARROWS: Record<RelationKind, string> = {
   association: '-->',
   dependency: '..>',
   inheritance: '--|>',
   realization: '..|>',
-  composition: '--*',
-  aggregation: '--o',
+  composition: '*--',
+  aggregation: 'o--',
 }
 
 export type RenderPlan = {

@@ -26,7 +26,7 @@ const element = z.object({
 const relation = z.object({
   from: z.string(),
   to: z.string(),
-  kind: z.enum(['association', 'dependency', 'inheritance', 'realization', 'composition', 'aggregation']).optional(),
+  kind: z.enum(['association', 'dependency', 'inheritance', 'realization', 'composition', 'aggregation']).optional().describe('association (the default) or dependency: from uses to; inheritance or realization: from extends or implements to; composition or aggregation: from is the whole and to its part (the diamond is drawn at from)'),
   label: z.string().optional().describe('what passes along this line, e.g. "upload(location, files)"'),
   step: z.number().int().positive().optional().describe('order in a flow; drawn as ①②③'),
   change: z.enum(['add', 'delete']).optional(),

@@ -526,6 +526,7 @@ function annotate(svg: SVGSVGElement, id: string, map: CanvasMap, p: ReturnType<
       hit.setAttribute('class', 'cv-edge-hit')
       hit.setAttribute('data-target', key)
       path.parentNode?.insertBefore(hit, path.nextSibling)
+      addFlowTwin(path)
     }
     for (const label of svg.querySelectorAll<SVGGElement>('.edgeLabel g.label[data-id]')) {
       const m = /_(\d+)$/.exec(label.getAttribute('data-id') ?? '')
@@ -558,6 +559,7 @@ function annotate(svg: SVGSVGElement, id: string, map: CanvasMap, p: ReturnType<
       hit.setAttribute('class', 'cv-edge-hit')
       hit.removeAttribute('marker-end')
       l.parentNode?.insertBefore(hit, l.nextSibling)
+      addFlowTwin(l)
     })
     const notes = [...svg.querySelectorAll('[data-et="note"]')]
     notes.forEach((n, i) => {
@@ -567,16 +569,28 @@ function annotate(svg: SVGSVGElement, id: string, map: CanvasMap, p: ReturnType<
   }
 }
 
+/**
+ * A lit line keeps its own pattern (solid or dashed: what its kind says); the focus flows on a twin drawn over it.
+ * The twin goes right after the line, where the CSS finds it (`.cv-sel + .cv-edge-flow`); it has no target, so nothing picks it.
+ */
+function addFlowTwin(line: Element) {
+  const flow = line.cloneNode() as Element
+  for (const a of ['id', 'marker-start', 'marker-end', 'data-target', 'data-keys']) flow.removeAttribute(a)
+  flow.setAttribute('class', 'cv-edge-flow')
+  line.after(flow)
+}
+
 const CHANGE_CLASS = ['cv-add', 'cv-modify', 'cv-delete', 'cv-result', 'cv-keep', 'cv-ghost', 'cv-open', 'cv-sel', 'cv-in', 'cv-rel', 'cv-ctx', 'cv-dim', 'cv-glow', 'cv-glow-mod', 'cv-new', 'cv-changed']
 
-/** The zoom, on the few lines that flow, so their width and dashes stay the same on screen, and on the decision pins. Set nowhere else: on an ancestor it would restyle the whole drawing at every zoom step. */
+const LIT = ':is(.cv-edge, .cv-msg):is(.cv-sel, .cv-rel)'
+
+/** The zoom, on the few lit lines and the twins they flow on, so their width and dashes stay the same on screen, and on the decision pins. Set nowhere else: on an ancestor it would restyle the whole drawing at every zoom step. */
 function flowZoom(svg: SVGSVGElement, k: number) {
   if (svg.getAttribute('data-k') !== String(k)) svg.setAttribute('data-k', String(k))
   for (const g of svg.querySelectorAll<SVGGElement>('.cv-pins')) pinZoom(g, k)
-  for (const el of svg.querySelectorAll<SVGElement>('.cv-edge.cv-sel, .cv-edge.cv-rel, .cv-msg.cv-sel, .cv-msg.cv-rel')) {
-    if (el.style.getPropertyValue('--k') !== String(k)) el.style.setProperty('--k', String(k))
-  }
-  for (const el of svg.querySelectorAll<SVGElement>('[style*="--k"]:not(.cv-sel):not(.cv-rel)')) el.style.removeProperty('--k')
+  const lit = new Set(svg.querySelectorAll<SVGElement>(`${LIT}, ${LIT} + .cv-edge-flow`))
+  for (const el of lit) if (el.style.getPropertyValue('--k') !== String(k)) el.style.setProperty('--k', String(k))
+  for (const el of svg.querySelectorAll<SVGElement>('[style*="--k"]')) if (!lit.has(el)) el.style.removeProperty('--k')
 }
 
 type Inside = { added: number; changed: number; removed: number }

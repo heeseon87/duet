@@ -123,6 +123,8 @@
 /* Only moves the app makes (fit, reveal) glide; wheel and drag follow the hand. */
 .stage-canvas.gliding .stage-inner { transition: transform .3s var(--ease); }
 .stage-inner svg { display: block; overflow: visible; }
+/* While an export reads the colors: no easing, so they are where they land. */
+.stage-inner svg.cv-still, .stage-inner svg.cv-still * { transition: none !important; }
 .stage-error { position: absolute; left: 16px; top: 16px; right: 16px; background: var(--del-bg); color: var(--del); border-radius: var(--r-2); padding: 10px 14px; font-size: 12px; }
 .stage-error pre { margin: 4px 0 0; white-space: pre-wrap; }
 .zoom-readout { position: absolute; left: 12px; bottom: 10px; font-size: 11px; color: var(--ink-4); font-variant-numeric: tabular-nums; pointer-events: none; }
@@ -186,19 +188,33 @@
 .stage-inner .cv-cluster.cv-sel .cluster-label, .stage-inner .cv-cluster.cv-sel .nodeLabel { color: var(--accent-ink) !important; fill: var(--accent-ink) !important; }
 .stage-inner .cv-cluster.cv-in rect { stroke: color-mix(in srgb, var(--accent) 55%, var(--cv-group-line)) !important; }
 .stage-inner .cv-label.cv-sel p { background: var(--accent) !important; color: var(--cv-sel-ink) !important; }
-/* Mermaid writes each line's dash pattern into its style attribute and its width into an id rule, so these must win outright.
-   `--k` is the zoom: whatever the zoom, the lines are 1.6px on screen (design-map's width) and the dashes 6/4px. */
+/* A lit line keeps its pattern, solid or dashed as its kind says, and only takes the accent and a set width; the flow runs
+   on its twin drawn over it (.cv-edge-flow, right after it): beads moving from → to.
+   Mermaid writes each line's dash pattern into its style attribute and its width into an id rule, so these must win outright.
+   `--k` is the zoom: whatever the zoom, the lines are 1.6px on screen (design-map's width), the dashes 4/3px, the beads 4px. */
 .stage-inner .cv-edge.cv-sel, .stage-inner .cv-edge.cv-rel, .stage-inner .cv-msg.cv-sel, .stage-inner .cv-msg.cv-rel {
   stroke: var(--accent) !important;
   stroke-width: calc(1.6px / var(--k, 1)) !important;
-  stroke-dasharray: calc(6px / var(--k, 1)) calc(4px / var(--k, 1)) !important;
-  --flow: calc(-20px / var(--k, 1));
+}
+.stage-inner .cv-edge.cv-sel { stroke-width: calc(2.2px / var(--k, 1)) !important; }
+.stage-inner :is(.cv-edge.edge-pattern-dashed, .cv-msg.messageLine1):is(.cv-sel, .cv-rel) { stroke-dasharray: calc(4px / var(--k, 1)) calc(3px / var(--k, 1)) !important; }
+.stage-inner .cv-edge-flow { display: none; fill: none !important; pointer-events: none; }
+.stage-inner :is(.cv-edge, .cv-msg):is(.cv-sel, .cv-rel) + .cv-edge-flow {
+  display: inline;
+  stroke: var(--accent) !important;
+  stroke-width: calc(4px / var(--k, 1)) !important;
+  stroke-linecap: round;
+  stroke-dasharray: 0 calc(16px / var(--k, 1)) !important;
+  --flow: calc(-16px / var(--k, 1));
   /* 12 steps per cycle: still reads as flowing, but repaints ~13 times a second instead of every frame. */
   animation: cv-flow .9s steps(12) infinite;
 }
-.stage-inner .cv-edge.cv-sel { stroke-width: calc(2.2px / var(--k, 1)) !important; }
-@keyframes cv-flow { from { stroke-dashoffset: 0; } to { stroke-dashoffset: var(--flow, -20px); } }
-@media (prefers-reduced-motion: reduce) { .stage-inner .cv-edge.cv-sel, .stage-inner .cv-edge.cv-rel, .stage-inner .cv-msg.cv-sel, .stage-inner .cv-msg.cv-rel { animation: none; } }
+@keyframes cv-flow { from { stroke-dashoffset: 0; } to { stroke-dashoffset: var(--flow, -16px); } }
+@media (prefers-reduced-motion: reduce) { .stage-inner .cv-edge-flow { display: none !important; } }
+/* Arrowheads, triangles and diamonds take their line's color, so a lit line's head is lit too. Mermaid colors the marker
+   element itself; its shapes only inherit that, so a rule on them wins. Hollow heads keep their transparent fill. */
+.stage-inner marker > * { stroke: context-stroke !important; }
+.stage-inner marker:not(.extension, .aggregation) > * { fill: context-stroke !important; }
 /* Mermaid sizes a label's box to its text at drawing time, so emphasis never touches the weight (a bolder label overflows
    and is cut): color and background only. */
 .stage-inner .cv-label.cv-rel p { color: var(--ink) !important; background: color-mix(in srgb, var(--accent) 12%, var(--cv-label-bg)) !important; }
