@@ -12,6 +12,8 @@ import { Popover, isTypingTarget, relTime, shortcutKey } from '../lib/ui.tsx'
 import { Markdown } from '../lib/Markdown.tsx'
 import { MermaidStage, partIds, type StageHandle } from './MermaidStage.tsx'
 import { CodePane } from './CodePane.tsx'
+import { FlowList } from './FlowList.tsx'
+import { flowSteps, stepFrom } from './flow.ts'
 import { ContextMenu, FloatAt, type MenuEntry, type Point } from './ContextMenu.tsx'
 import { confirmDialog } from '../lib/confirm.tsx'
 import { download, standaloneSvg } from './exportSvg.ts'
@@ -557,6 +559,8 @@ export function CanvasView() {
   const s = useCanvas()
   const stage = useRef<StageHandle>(null)
   const [menu, setMenu] = useState<{ target?: string; at: Point }>()
+  // The flow list's row under the pointer: its line is lit on the map.
+  const [peek, setPeek] = useState<string>()
   const [asking, setAsking] = useState<{ target: string; at: Point }>()
   // Explore mode starts (and stays) with the card away: clicking only highlights. So does the code pane, which stands in for the card.
   const [inspector, setInspector] = useState(() => !useCanvas.getState().explore && local.get('canvas.code') === '0')
@@ -613,6 +617,17 @@ export function CanvasView() {
     setCodePart({ map: mapKey, id: s.selected! })
   }, [s.selected]) // eslint-disable-line react-hooks/exhaustive-deps
 
+  // A step of the flow (from its list or its keys) is picked like a click on its line, and brought to the middle at the
+  // zoom the map is at.
+  const pickStep = (key: string) => {
+    s.select(key)
+    if (!useCanvas.getState().explore && !codeOpenRef.current) setInspector(true)
+    const m = useCanvas.getState().preview?.map ?? useCanvas.getState().map
+    if (m) requestAnimationFrame(() => stage.current?.center(partIds(m, key)))
+  }
+  const pickStepRef = useRef(pickStep)
+  pickStepRef.current = pickStep
+
   useEffect(() => {
     const key = (e: KeyboardEvent) => {
       if (useApp.getState().tab !== 'canvas') return
@@ -627,6 +642,15 @@ export function CanvasView() {
       else if (k === 'i' && !e.metaKey) setInspector(v => !v)
       else if (k === 'e' && !e.metaKey) s.setExplore(!useCanvas.getState().explore)
       else if (k === 'c' && !e.metaKey && !e.ctrlKey) showCode(!codeOpenRef.current)
+      else if ((k === ']' || k === 'n' || k === '[' || k === 'p') && !e.metaKey && !e.ctrlKey) {
+        // The reader (a long answer open over the canvas) takes the brackets first.
+        if (e.defaultPrevented) return
+        const st = useCanvas.getState()
+        const m = st.preview?.map ?? st.map
+        const to = m && stepFrom(flowSteps(m), st.selected, k === ']' || k === 'n' ? 1 : -1)
+        if (!to) return
+        pickStepRef.current(to)
+      }
       else return
       e.preventDefault()
     }
@@ -845,6 +869,7 @@ export function CanvasView() {
           ghostsFrom={ghosts}
           glow={s.glow}
           selected={s.selected}
+          peek={peek}
           threads={s.threads}
           code={code?.marks}
           onSelect={t => { s.select(t); if (!useCanvas.getState().explore && !codeOpen) setInspector(Boolean(t)) }}
@@ -860,6 +885,7 @@ export function CanvasView() {
         {inspector
           ? <Inspector map={shownMap} readOnly={Boolean(s.preview)} onHide={() => setInspector(false)} wide={wideInsp} onToggleWide={toggleWide} onFrame={frameSoon} onCode={f => showCode(true, f)} />
           : <button className="btn sm insp-open" onClick={() => setInspector(true)}><Eye size={13} /> 정보 <kbd>i</kbd></button>}
+        <FlowList map={shownMap} selected={s.selected} onPeek={setPeek} onPick={pickStep} />
         {s.explore && <div className="stage-hint muted">탐색 모드 · e로 끄기</div>}
         {menu && <ContextMenu at={menu.at} entries={menuEntries(menu.target, menu.at)} onClose={() => setMenu(undefined)} />}
         {asking && (

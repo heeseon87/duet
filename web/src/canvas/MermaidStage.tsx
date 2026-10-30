@@ -61,6 +61,8 @@ export type StageHandle = {
   svg: () => SVGSVGElement | null
   /** Bring these parts (map ids or relation keys) to the middle of the screen; `afterRender` waits for the next drawing (a fold) to settle. */
   frame: (ids: string[], afterRender?: boolean) => void
+  /** Like `frame`, but at the zoom it is at, unless the parts would not fit: then as far out as they need. */
+  center: (ids: string[]) => void
 }
 
 type Props = {
@@ -69,6 +71,8 @@ type Props = {
   ghostsFrom?: MapDiff
   glow?: MapDiff
   selected?: string
+  /** A relation key lit for a moment (the flow list's row under the pointer); nothing else changes. */
+  peek?: string
   threads: CanvasThread[]
   /** How each part stands against the map's code (the review shows the same files). */
   code?: Map<string, CodeMark>
@@ -103,7 +107,7 @@ export function partIds(map: CanvasMap, target: string): string[] {
 }
 
 export const MermaidStage = forwardRef<StageHandle, Props & { viewKey: string }>(function MermaidStage(props, ref) {
-  const { map, collapsed, ghostsFrom, glow, selected, threads, code, onSelect, onToggleGroup, onContext, viewKey } = props
+  const { map, collapsed, ghostsFrom, glow, selected, peek, threads, code, onSelect, onToggleGroup, onContext, viewKey } = props
   const inset = useRef(props.rightInset ?? 0)
   inset.current = props.rightInset ?? 0
   const outer = useRef<HTMLDivElement>(null)
@@ -121,8 +125,8 @@ export const MermaidStage = forwardRef<StageHandle, Props & { viewKey: string }>
   const fitted = useRef(lastView?.key === viewKey)
   const plan = useRef<ReturnType<typeof toMermaid> | null>(null)
   /** The latest selection/glow/threads, for decorating a drawing that finishes rendering later. */
-  const latest = useRef({ selected, glow, threads, compare: ghostsFrom, code })
-  latest.current = { selected, glow, threads, compare: ghostsFrom, code }
+  const latest = useRef({ selected, peek, glow, threads, compare: ghostsFrom, code })
+  latest.current = { selected, peek, glow, threads, compare: ghostsFrom, code }
   const mapRef = useRef(map)
   mapRef.current = map
   /** Parts to frame once the drawing that is on its way has settled. */
@@ -179,7 +183,7 @@ export const MermaidStage = forwardRef<StageHandle, Props & { viewKey: string }>
     })
   }, [glide])
 
-  const frameNow = useCallback((ids: string[]) => {
+  const frameNow = useCallback((ids: string[], keepZoom = false) => {
     const host = outer.current
     const svg = inner.current?.querySelector<SVGSVGElement>(':scope > svg')
     if (!host || !svg) return
@@ -210,7 +214,8 @@ export const MermaidStage = forwardRef<StageHandle, Props & { viewKey: string }>
     const box = host.getBoundingClientRect()
     const aw = Math.max(320, box.width - inset.current), ah = box.height
     const w = Math.max(r - l, 40), h = Math.max(b - t, 30)
-    const k = Math.min(1.25, Math.max(0.15, Math.min((aw - 120) / w, (ah - 120) / h)))
+    const fits = Math.min(1.25, Math.max(0.15, Math.min((aw - 120) / w, (ah - 120) / h)))
+    const k = keepZoom ? Math.min(viewRef.current.k, fits) : fits
     glide()
     setView({ k, x: (aw - w * k) / 2 - l * k, y: (ah - h * k) / 2 - t * k })
   }, [glide])
@@ -219,7 +224,7 @@ export const MermaidStage = forwardRef<StageHandle, Props & { viewKey: string }>
     else frameNow(ids)
   }, [frameNow])
 
-  useImperativeHandle(ref, () => ({ fit: () => fit(), zoom: f => zoom(f), svg: () => inner.current?.querySelector('svg') ?? null, frame }), [fit, zoom, frame])
+  useImperativeHandle(ref, () => ({ fit: () => fit(), zoom: f => zoom(f), svg: () => inner.current?.querySelector('svg') ?? null, frame, center: ids => frameNow(ids, true) }), [fit, zoom, frame, frameNow])
 
   // Render the diagram, then wire its parts to the map's ids.
   useEffect(() => {
@@ -386,9 +391,9 @@ export const MermaidStage = forwardRef<StageHandle, Props & { viewKey: string }>
   useLayoutEffect(() => {
     const svg = inner.current?.querySelector('svg')
     if (!svg) return
-    decorate(svg, map, { selected, glow, threads, compare: ghostsFrom, code })
+    decorate(svg, map, { selected, peek, glow, threads, compare: ghostsFrom, code })
     flowZoom(svg, kStep)
-  }, [map, selected, glow, threads, ghostsFrom, code, kStep])
+  }, [map, selected, peek, glow, threads, ghostsFrom, code, kStep])
 
   // Wheel: zoom at the cursor. Shift + wheel, or a sideways swipe, pans; dragging pans too.
   useEffect(() => {
@@ -580,7 +585,7 @@ function addFlowTwin(line: Element) {
   line.after(flow)
 }
 
-const CHANGE_CLASS = ['cv-add', 'cv-modify', 'cv-delete', 'cv-result', 'cv-keep', 'cv-ghost', 'cv-open', 'cv-sel', 'cv-in', 'cv-rel', 'cv-ctx', 'cv-dim', 'cv-glow', 'cv-glow-mod', 'cv-new', 'cv-changed']
+const CHANGE_CLASS = ['cv-add', 'cv-modify', 'cv-delete', 'cv-result', 'cv-keep', 'cv-ghost', 'cv-open', 'cv-sel', 'cv-in', 'cv-rel', 'cv-ctx', 'cv-dim', 'cv-glow', 'cv-glow-mod', 'cv-new', 'cv-changed', 'cv-peek']
 
 const LIT = ':is(.cv-edge, .cv-msg):is(.cv-sel, .cv-rel)'
 
@@ -700,6 +705,12 @@ function neighborhood(map: CanvasMap, sel: string | undefined) {
     if (picked.has(m.id)) { related.add(m.from); if (m.to) related.add(m.to) }
   }
   for (const id of picked) for (const p of ancestors(id)) holding.add(p)
+  // A picked line with both ends in one package: folded, that package stands for it (the line went with the fold).
+  for (const r of map.relations) {
+    if (!picked.has(relationKey(r))) continue
+    const to = new Set(ancestors(r.to))
+    for (const p of ancestors(r.from)) if (to.has(p)) holding.add(p)
+  }
   // The packages that hold a lit box stay as the frame of the picture.
   for (const id of [...picked, ...related, ...inside]) for (const p of ancestors(id)) context.add(p)
   return { picked, inside, related, holding, context }
@@ -781,7 +792,7 @@ function plainBox(node: SVGGraphicsElement): DOMRect | undefined {
   return b
 }
 
-function decorate(svg: SVGSVGElement, map: CanvasMap, o: { selected?: string; glow?: MapDiff; compare?: MapDiff; threads: CanvasThread[]; code?: Map<string, CodeMark> }) {
+function decorate(svg: SVGSVGElement, map: CanvasMap, o: { selected?: string; peek?: string; glow?: MapDiff; compare?: MapDiff; threads: CanvasThread[]; code?: Map<string, CodeMark> }) {
   const comparedInside = insideChanges(map, o.compare)
   const glowInside = insideChanges(map, o.glow)
   const byId = new Map(map.elements.map(e => [e.id, e]))
@@ -819,6 +830,7 @@ function decorate(svg: SVGSVGElement, map: CanvasMap, o: { selected?: string; gl
       else if (keys.some(k => context.has(k))) add('cv-ctx')
       else add('cv-dim')
     }
+    if (o.peek && keys.includes(o.peek)) add('cv-peek')
     if (o.compare) {
       const c = o.compare
       if (c.addedElements.has(target) || keys.some(k => c.addedRelations.has(k)) || c.addedMessages.has(target)) add('cv-new')

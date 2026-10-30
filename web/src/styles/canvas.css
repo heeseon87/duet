@@ -226,7 +226,7 @@
 .stage-inner .cv-node.cv-ghost .nodeLabel { text-decoration: line-through; color: var(--del) !important; }
 .stage-inner .cv-edge.cv-ghost { stroke: var(--cv-delete-line) !important; stroke-dasharray: 4 4; }
 .stage-inner .cv-label.cv-ghost p { text-decoration: line-through; }
-.stage-inner .cv-label.cv-ghost:not(.cv-sel) p { color: var(--del) !important; }
+.stage-inner .cv-label.cv-ghost:not(.cv-sel, .cv-peek) p { color: var(--del) !important; }
 .stage-inner .cv-msg.cv-ghost { stroke: var(--cv-delete-line) !important; stroke-dasharray: 4 4; }
 
 /* Just changed by the agent */
@@ -252,16 +252,20 @@
 .stage-inner .cv-actor.cv-modify rect { fill: var(--cv-modify-fill) !important; stroke: var(--cv-modify-line) !important; }
 .stage-inner .cv-actor.cv-delete rect { fill: var(--cv-delete-fill) !important; stroke: var(--cv-delete-line) !important; }
 /* While comparing, what is new or changed since the older revision keeps a steady ring. A picked part skips these
-   (:not(.cv-sel)), so the selection's colors win whatever the order of the rules. */
+   (:not(.cv-sel)), so the selection's colors win whatever the order of the rules; so does a line the flow list lights. */
 .stage-inner .cv-node.cv-new:not(.cv-sel) .label-container path:last-child, .stage-inner .cv-actor.cv-new:not(.cv-sel) rect { stroke: var(--add) !important; stroke-width: 2.6 !important; }
 .stage-inner .cv-node.cv-changed:not(.cv-sel) .label-container path:last-child, .stage-inner .cv-actor.cv-changed:not(.cv-sel) rect { stroke: var(--agent) !important; stroke-width: 2.6 !important; }
-.stage-inner .cv-edge.cv-new:not(.cv-sel), .stage-inner .cv-msg.cv-new:not(.cv-sel) { stroke: var(--add) !important; stroke-width: 2.4px; }
-.stage-inner .cv-edge.cv-changed:not(.cv-sel), .stage-inner .cv-msg.cv-changed:not(.cv-sel) { stroke: var(--agent) !important; stroke-width: 2.4px; }
+.stage-inner .cv-edge.cv-new:not(.cv-sel, .cv-peek), .stage-inner .cv-msg.cv-new:not(.cv-sel) { stroke: var(--add) !important; stroke-width: 2.4px; }
+.stage-inner .cv-edge.cv-changed:not(.cv-sel, .cv-peek), .stage-inner .cv-msg.cv-changed:not(.cv-sel) { stroke: var(--agent) !important; stroke-width: 2.4px; }
 /* Without the bold they once had, the texts lean a little toward the ink (darker on light, lighter on dark) to stay readable. */
-.stage-inner .cv-label.cv-new:not(.cv-sel) p { color: color-mix(in srgb, var(--add) 80%, var(--ink)) !important; background: color-mix(in srgb, var(--add) 12%, var(--cv-label-bg)) !important; }
-.stage-inner .cv-label.cv-changed:not(.cv-sel) p { color: color-mix(in srgb, var(--agent) 70%, var(--ink)) !important; background: color-mix(in srgb, var(--agent) 12%, var(--cv-label-bg)) !important; }
+.stage-inner .cv-label.cv-new:not(.cv-sel, .cv-peek) p { color: color-mix(in srgb, var(--add) 80%, var(--ink)) !important; background: color-mix(in srgb, var(--add) 12%, var(--cv-label-bg)) !important; }
+.stage-inner .cv-label.cv-changed:not(.cv-sel, .cv-peek) p { color: color-mix(in srgb, var(--agent) 70%, var(--ink)) !important; background: color-mix(in srgb, var(--agent) 12%, var(--cv-label-bg)) !important; }
 .stage-inner .cv-msg-text.cv-new:not(.cv-sel) { fill: color-mix(in srgb, var(--add) 80%, var(--ink)) !important; }
 .stage-inner .cv-msg-text.cv-changed:not(.cv-sel) { fill: color-mix(in srgb, var(--agent) 70%, var(--ink)) !important; }
+/* The flow list's row under the pointer lights its line and label over any other look (dimmed, compared, a ghost). */
+.stage-inner .cv-edge.cv-peek { stroke: var(--accent) !important; stroke-width: 2.6px !important; opacity: 1 !important; }
+.stage-inner .cv-label.cv-peek { opacity: 1 !important; }
+.stage-inner .cv-label.cv-peek p { background: var(--accent) !important; color: var(--cv-sel-ink) !important; }
 
 .stage-inner .cv-badge circle { fill: var(--accent); stroke: var(--panel); stroke-width: 2; }
 .stage-inner .cv-badge text { fill: var(--cv-sel-ink); font-size: 10px; font-weight: 700; font-family: var(--font-ui); }
@@ -288,6 +292,27 @@
 .inspector.compact { bottom: auto; max-height: calc(100% - 24px); }
 .inspector.wide { width: 560px; max-width: calc(100% - 24px); }
 .insp-open { position: absolute; top: 12px; right: 12px; z-index: 4; box-shadow: var(--shadow-1); }
+
+/* The flow list: a class map's numbered steps, top left over the stage, see-through until the pointer comes. */
+.flow-list {
+  position: absolute; top: 12px; left: 12px; z-index: 4; display: flex; flex-direction: column;
+  min-width: 180px; max-width: min(320px, calc(100% - 140px)); max-height: calc(100% - 64px);
+  border: 1px solid var(--line); border-radius: 10px; box-shadow: var(--shadow-1);
+  background: color-mix(in srgb, var(--panel) 70%, transparent); backdrop-filter: blur(6px);
+  opacity: .82; transition: opacity .15s, background-color .15s;
+}
+.flow-list:hover, .flow-list:focus-within { opacity: 1; background: color-mix(in srgb, var(--panel) 94%, transparent); }
+.flow-head { flex: none; display: flex; align-items: center; gap: 6px; padding: 6px 10px; border: 0; background: none; cursor: pointer; font-size: 12px; font-weight: 600; color: var(--ink-2); }
+.flow-head kbd { font-size: 10.5px; font-weight: 500; }
+.flow-list ol { list-style: none; margin: 0; padding: 0 4px 4px; overflow: auto; min-height: 0; }
+.flow-step { display: flex; align-items: baseline; gap: 7px; width: 100%; padding: 4px 6px; border: 0; border-radius: 6px; background: none; cursor: pointer; text-align: left; font-size: 12.5px; line-height: 1.45; color: var(--ink); }
+.flow-step:hover { background: var(--accent-soft); }
+.flow-step.active { background: var(--accent); color: var(--cv-sel-ink); }
+.flow-no { flex: none; color: var(--accent-ink); }
+.flow-step.active .flow-no, .flow-step.active .flow-label { color: inherit; }
+.flow-text { display: grid; min-width: 0; }
+.flow-ends, .flow-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.flow-label { font-size: 11.5px; color: var(--ink-2); }
 .insp-head { display: flex; margin: -6px -6px -4px; }
 .insp-title { font-size: 16px; font-weight: 700; letter-spacing: -0.01em; line-height: 1.35; word-break: break-word; }
 .rel-title { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; font-size: 14px; }
