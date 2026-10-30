@@ -10,6 +10,9 @@
   /* Packages: the design-map plugin's own colors (its Mermaid init: clusterBkg #faf6ef, clusterBorder #dcd3c4). */
   --cv-group-fill: #faf6ef; --cv-group-line: #dcd3c4;
   --cv-edge: #858b95; --cv-label-bg: #ffffff;
+  /* Text on the accent (a picked line's label, an open decision's pin, a comment count): white on the deep light-theme
+     accent, dark on the pale dark-theme one. */
+  --cv-sel-ink: #ffffff;
   --cv-bg: #ffffff; --cv-group-ink: #8a7a50;
   --cv-note-fill: #fff8e3; --cv-note-line: #e5d391;
   --cv-dot: rgba(31, 35, 40, 0.08);
@@ -22,6 +25,7 @@
   --cv-result-fill: #2b2412; --cv-result-line: #d8ab3a;
   --cv-group-fill: rgba(222, 196, 128, 0.06); --cv-group-line: #4a4331;
   --cv-edge: #7b818c; --cv-label-bg: #0f1012;
+  --cv-sel-ink: #0f1012;
   --cv-bg: var(--bg); --cv-group-ink: #b6a57a;
   --cv-note-fill: #2a2614; --cv-note-line: #6b5d2a;
   --cv-dot: rgba(255, 255, 255, 0.06);
@@ -181,7 +185,7 @@
 .stage-inner .cv-cluster.cv-sel rect { stroke: var(--accent) !important; stroke-width: 2.4px; fill: color-mix(in srgb, var(--accent) 7%, var(--cv-group-fill)) !important; }
 .stage-inner .cv-cluster.cv-sel .cluster-label, .stage-inner .cv-cluster.cv-sel .nodeLabel { color: var(--accent-ink) !important; fill: var(--accent-ink) !important; }
 .stage-inner .cv-cluster.cv-in rect { stroke: color-mix(in srgb, var(--accent) 55%, var(--cv-group-line)) !important; }
-.stage-inner .cv-label.cv-sel p { background: var(--accent) !important; color: #fff !important; }
+.stage-inner .cv-label.cv-sel p { background: var(--accent) !important; color: var(--cv-sel-ink) !important; }
 /* Mermaid writes each line's dash pattern into its style attribute and its width into an id rule, so these must win outright.
    `--k` is the zoom: whatever the zoom, the lines are 1.6px on screen (design-map's width) and the dashes 6/4px. */
 .stage-inner .cv-edge.cv-sel, .stage-inner .cv-edge.cv-rel, .stage-inner .cv-msg.cv-sel, .stage-inner .cv-msg.cv-rel {
@@ -195,7 +199,9 @@
 .stage-inner .cv-edge.cv-sel { stroke-width: calc(2.2px / var(--k, 1)) !important; }
 @keyframes cv-flow { from { stroke-dashoffset: 0; } to { stroke-dashoffset: var(--flow, -20px); } }
 @media (prefers-reduced-motion: reduce) { .stage-inner .cv-edge.cv-sel, .stage-inner .cv-edge.cv-rel, .stage-inner .cv-msg.cv-sel, .stage-inner .cv-msg.cv-rel { animation: none; } }
-.stage-inner .cv-label.cv-rel p { color: var(--ink) !important; font-weight: 600; }
+/* Mermaid sizes a label's box to its text at drawing time, so emphasis never touches the weight (a bolder label overflows
+   and is cut): color and background only. */
+.stage-inner .cv-label.cv-rel p { color: var(--ink) !important; background: color-mix(in srgb, var(--accent) 12%, var(--cv-label-bg)) !important; }
 
 /* Ghosts: what the compared revision had and this one lost. */
 .stage-inner .cv-ghost { opacity: 0.55; }
@@ -203,7 +209,8 @@
 .stage-inner .cv-node.cv-ghost .label-container path:last-child { stroke: var(--cv-delete-line) !important; stroke-dasharray: 4 4 !important; }
 .stage-inner .cv-node.cv-ghost .nodeLabel { text-decoration: line-through; color: var(--del) !important; }
 .stage-inner .cv-edge.cv-ghost { stroke: var(--cv-delete-line) !important; stroke-dasharray: 4 4; }
-.stage-inner .cv-label.cv-ghost p { color: var(--del) !important; text-decoration: line-through; }
+.stage-inner .cv-label.cv-ghost p { text-decoration: line-through; }
+.stage-inner .cv-label.cv-ghost:not(.cv-sel) p { color: var(--del) !important; }
 .stage-inner .cv-msg.cv-ghost { stroke: var(--cv-delete-line) !important; stroke-dasharray: 4 4; }
 
 /* Just changed by the agent */
@@ -215,34 +222,40 @@
 /* Sequence parts */
 .stage-inner .cv-msg { transition: stroke .2s, opacity .2s; }
 .stage-inner .cv-msg.cv-sel { stroke: var(--accent) !important; stroke-width: 2.4px !important; }
-.stage-inner .cv-msg-text.cv-sel { fill: var(--accent-ink) !important; font-weight: 700; }
-.stage-inner .cv-msg.cv-add { stroke: var(--cv-add-line) !important; }
-.stage-inner .cv-msg-text.cv-add { fill: var(--add) !important; }
-.stage-inner .cv-msg.cv-modify { stroke: var(--cv-modify-line) !important; }
-.stage-inner .cv-msg-text.cv-modify { fill: var(--mod) !important; }
-.stage-inner .cv-msg.cv-delete { stroke: var(--cv-delete-line) !important; stroke-dasharray: 4 3; }
-.stage-inner .cv-msg-text.cv-delete { fill: var(--del) !important; text-decoration: line-through; }
+.stage-inner .cv-msg-text.cv-sel { fill: var(--accent-ink) !important; }
+.stage-inner .cv-msg.cv-add:not(.cv-sel) { stroke: var(--cv-add-line) !important; }
+.stage-inner .cv-msg-text.cv-add:not(.cv-sel) { fill: var(--add) !important; }
+.stage-inner .cv-msg.cv-modify:not(.cv-sel) { stroke: var(--cv-modify-line) !important; }
+.stage-inner .cv-msg-text.cv-modify:not(.cv-sel) { fill: var(--mod) !important; }
+.stage-inner .cv-msg.cv-delete { stroke-dasharray: 4 3; }
+.stage-inner .cv-msg.cv-delete:not(.cv-sel) { stroke: var(--cv-delete-line) !important; }
+.stage-inner .cv-msg-text.cv-delete { text-decoration: line-through; }
+.stage-inner .cv-msg-text.cv-delete:not(.cv-sel) { fill: var(--del) !important; }
 .stage-inner .cv-actor.cv-sel rect { stroke: var(--accent) !important; stroke-width: 2.4px; }
 .stage-inner .cv-actor.cv-add rect { fill: var(--cv-add-fill) !important; stroke: var(--cv-add-line) !important; }
 .stage-inner .cv-actor.cv-modify rect { fill: var(--cv-modify-fill) !important; stroke: var(--cv-modify-line) !important; }
 .stage-inner .cv-actor.cv-delete rect { fill: var(--cv-delete-fill) !important; stroke: var(--cv-delete-line) !important; }
-/* While comparing, what is new or changed since the older revision keeps a steady ring. */
-.stage-inner .cv-node.cv-new .label-container path:last-child, .stage-inner .cv-actor.cv-new rect { stroke: var(--add) !important; stroke-width: 2.6 !important; }
-.stage-inner .cv-node.cv-changed .label-container path:last-child, .stage-inner .cv-actor.cv-changed rect { stroke: var(--agent) !important; stroke-width: 2.6 !important; }
-.stage-inner .cv-edge.cv-new, .stage-inner .cv-msg.cv-new { stroke: var(--add) !important; stroke-width: 2.4px; }
-.stage-inner .cv-edge.cv-changed, .stage-inner .cv-msg.cv-changed { stroke: var(--agent) !important; stroke-width: 2.4px; }
-.stage-inner .cv-label.cv-new p, .stage-inner .cv-msg-text.cv-new { color: var(--add) !important; fill: var(--add) !important; font-weight: 600; }
-.stage-inner .cv-label.cv-changed p, .stage-inner .cv-msg-text.cv-changed { color: var(--agent) !important; fill: var(--agent) !important; font-weight: 600; }
+/* While comparing, what is new or changed since the older revision keeps a steady ring. A picked part skips these
+   (:not(.cv-sel)), so the selection's colors win whatever the order of the rules. */
+.stage-inner .cv-node.cv-new:not(.cv-sel) .label-container path:last-child, .stage-inner .cv-actor.cv-new:not(.cv-sel) rect { stroke: var(--add) !important; stroke-width: 2.6 !important; }
+.stage-inner .cv-node.cv-changed:not(.cv-sel) .label-container path:last-child, .stage-inner .cv-actor.cv-changed:not(.cv-sel) rect { stroke: var(--agent) !important; stroke-width: 2.6 !important; }
+.stage-inner .cv-edge.cv-new:not(.cv-sel), .stage-inner .cv-msg.cv-new:not(.cv-sel) { stroke: var(--add) !important; stroke-width: 2.4px; }
+.stage-inner .cv-edge.cv-changed:not(.cv-sel), .stage-inner .cv-msg.cv-changed:not(.cv-sel) { stroke: var(--agent) !important; stroke-width: 2.4px; }
+/* Without the bold they once had, the texts lean a little toward the ink (darker on light, lighter on dark) to stay readable. */
+.stage-inner .cv-label.cv-new:not(.cv-sel) p { color: color-mix(in srgb, var(--add) 80%, var(--ink)) !important; background: color-mix(in srgb, var(--add) 12%, var(--cv-label-bg)) !important; }
+.stage-inner .cv-label.cv-changed:not(.cv-sel) p { color: color-mix(in srgb, var(--agent) 70%, var(--ink)) !important; background: color-mix(in srgb, var(--agent) 12%, var(--cv-label-bg)) !important; }
+.stage-inner .cv-msg-text.cv-new:not(.cv-sel) { fill: color-mix(in srgb, var(--add) 80%, var(--ink)) !important; }
+.stage-inner .cv-msg-text.cv-changed:not(.cv-sel) { fill: color-mix(in srgb, var(--agent) 70%, var(--ink)) !important; }
 
 .stage-inner .cv-badge circle { fill: var(--accent); stroke: var(--panel); stroke-width: 2; }
-.stage-inner .cv-badge text { fill: #fff; font-size: 10px; font-weight: 700; font-family: var(--font-ui); }
+.stage-inner .cv-badge text { fill: var(--cv-sel-ink); font-size: 10px; font-weight: 700; font-family: var(--font-ui); }
 /* Decision pins: tags, not counts, along a box's top edge from the left; accent while the decision is open, green once made.
    Mermaid styles every rect under its own id, so the colors must win outright. */
 .stage-inner [data-pin] { cursor: pointer; }
 .stage-inner .cv-pin rect { stroke-width: 1.3 !important; transition: stroke-width .15s; }
 .stage-inner .cv-pin text { font-size: 11px; font-weight: 700; font-family: var(--font-mono); }
 .stage-inner .cv-pin.open rect { fill: var(--accent) !important; stroke: var(--panel) !important; }
-.stage-inner .cv-pin.open text { fill: #fff !important; }
+.stage-inner .cv-pin.open text { fill: var(--cv-sel-ink) !important; }
 .stage-inner .cv-pin.made rect { fill: color-mix(in srgb, var(--add) 16%, var(--panel)) !important; stroke: var(--add) !important; }
 .stage-inner .cv-pin.made text { fill: var(--add) !important; }
 .stage-inner .cv-pin.more rect { fill: var(--panel) !important; stroke: var(--line-strong) !important; }
