@@ -104,8 +104,8 @@ check('they flow from → to, the way the relation reads', op.forward > 0 && op.
 await shot('class-selected')
 await page.keyboard.press('Escape'); await sleep(300)
 
-// 3. Folding animates, keeps the package in place, and cleans up after itself.
-const wasBox = await page.$eval(`.stage-inner > svg .cv-cluster[data-target="${nested}"] rect`, r => { const b = r.getBoundingClientRect(); return { x: b.left, y: b.top } })
+// 3. Folding animates, keeps the package's top-right corner (its fold button) in place, and cleans up after itself.
+const wasBox = await page.$eval(`.stage-inner > svg .cv-cluster[data-target="${nested}"] rect`, r => { const b = r.getBoundingClientRect(); return { x: b.right, y: b.top } })
 await toggleFold(page, nested)
 await page.waitForSelector('.morph-overlay', { timeout: 3000 }).catch(() => {})
 const during = await page.evaluate(() => ({ anims: document.getAnimations().filter(a => a instanceof CSSTransition === false).length, overlays: document.querySelectorAll('.morph-overlay').length }))
@@ -120,11 +120,11 @@ const done = await page.evaluate(id => {
     anims: document.getAnimations().filter(a => a.playState === 'running' && !(a instanceof CSSAnimation) && !(a instanceof CSSTransition)).length,
     overlays: document.querySelectorAll('.morph-overlay').length,
     inline: [...svg.querySelectorAll('[data-target]')].filter(e => e.style.transform || e.style.opacity).length,
-    folded: Boolean(box), x: box?.left, y: box?.top,
+    folded: Boolean(box), x: box?.right, y: box?.top,
   }
 }, nested)
 check('after folding: no animation, overlay or inline style left', done.anims === 0 && done.overlays === 0 && done.inline === 0 && done.folded, JSON.stringify(done))
-check('the folded package stayed in place', Math.abs(done.x - wasBox.x) < 6 && Math.abs(done.y - wasBox.y) < 6, JSON.stringify({ was: wasBox, now: { x: done.x, y: done.y } }))
+check('the folded package kept its top-right corner', Math.abs(done.x - wasBox.x) < 6 && Math.abs(done.y - wasBox.y) < 6, JSON.stringify({ was: wasBox, now: { x: done.x, y: done.y } }))
 await shot('folded')
 // Quick double toggles must not leave two drawings behind.
 await toggleFold(page, nested); await sleep(90)

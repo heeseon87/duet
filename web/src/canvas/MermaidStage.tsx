@@ -302,11 +302,25 @@ export const MermaidStage = forwardRef<StageHandle, Props & { viewKey: string }>
           try {
             let offset: { x: number; y: number } | undefined
             if (toggled.length === 1) {
-              // The package that was folded or unfolded keeps its place on screen; the rest moves around it.
+              // The package that was folded or unfolded keeps its top right corner, where its fold button and the
+              // pointer are, so a second click undoes the first; the rest moves around it. Then, if that leaves the
+              // package partly out of view, the least move that brings it in. Along an axis it can't fit, any place
+              // cuts some of it off, so it stays where the button is.
               const was = before.get(toggled[0])
               const now = el.querySelector(`[data-target="${CSS.escape(toggled[0])}"]:is(.cv-node, .cv-cluster)`)?.getBoundingClientRect()
-              if (was && now) {
-                offset = { x: was.left - now.left, y: was.top - now.top }
+              const room = outer.current?.getBoundingClientRect()
+              if (was && now && room) {
+                let x = was.right - now.right, y = was.top - now.top
+                const M = 16
+                if (now.width <= room.width - 2 * M) {
+                  if (now.right + x > room.right - M) x -= now.right + x - (room.right - M)
+                  if (now.left + x < room.left + M) x += room.left + M - (now.left + x)
+                }
+                if (now.height <= room.height - 2 * M) {
+                  if (now.bottom + y > room.bottom - M) y -= now.bottom + y - (room.bottom - M)
+                  if (now.top + y < room.top + M) y += room.top + M - (now.top + y)
+                }
+                offset = { x, y }
                 const v = viewRef.current
                 const next = { ...v, x: v.x + offset.x, y: v.y + offset.y }
                 inner.current.style.transition = 'none'
