@@ -447,7 +447,7 @@ export const MermaidStage = forwardRef<StageHandle, Props & { viewKey: string }>
   /**
    * Where each package's fold button stands, in stage pixels, at the right: an open package's inside its frame, at the
    * end of its title's row; a folded one's on its box's top edge, across from the decision pins at the left, so it stays
-   * off the name in the box. Off screen ones stay too (the stage clips them, the card covers them), so a glide that
+   * off the name in the box. Off screen ones stay too (the stage clips them), so a glide that
    * brings a corner in carries its button along. Zoomed out, the buttons shrink with the drawing and go once too small
    * to read; a package too small to hold one has none.
    */

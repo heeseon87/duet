@@ -147,7 +147,7 @@ function DecideSlot() {
   const reading = useApp(s => Boolean(s.reader))
   const all = useCanvas(s => s.map?.decisions?.length ?? 0)
   const open = useCanvas(s => (s.map?.decisions ?? []).filter(d => !d.chosen).length)
-  const { deciding, setDeciding } = useCanvas()
+  const deciding = useCanvas(s => s.deciding), setDeciding = useCanvas(s => s.setDeciding)
   const preview = useCanvas(s => s.preview?.revision)
   const on = deciding && !reading && tab === 'canvas'
   const title = !all ? '결정 · 이 지도에는 정할 결정이 없어'
@@ -155,7 +155,7 @@ function DecideSlot() {
     : on ? '결정 모드 닫기 (esc)'
     : open ? `결정 ${open}개가 너를 기다려 · 하나씩 정하기` : '결정을 모두 정했어 · 다시 보기'
   return (
-    <button className="rail-btn decide" aria-pressed={on} disabled={!all || Boolean(preview)} title={title} onClick={() => {
+    <button className="rail-btn rail-decide" aria-pressed={on} disabled={!all || Boolean(preview)} title={title} onClick={() => {
       if (on) { setDeciding(false); return }
       useApp.getState().closeReader()
       useApp.getState().setTab('canvas')

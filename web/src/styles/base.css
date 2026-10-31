@@ -134,9 +134,9 @@ a:hover { text-decoration: underline; }
 .rail .count { font-variant-numeric: tabular-nums; }
 .rail-btn .badge { position: absolute; top: 2px; right: 2px; }
 .rail-sep { width: 24px; height: 1px; margin: 6px 0; background: var(--line); flex: none; }
-.rail-btn.decide { margin-top: 4px; }
-.rail-btn.decide[aria-pressed='true'] { background: var(--accent-soft); color: var(--accent-ink); }
-.rail-btn.decide:disabled { opacity: .4; background: transparent; color: var(--ink-2); cursor: default; }
+.rail-btn.rail-decide { margin-top: 4px; }
+.rail-btn.rail-decide[aria-pressed='true'] { background: var(--accent-soft); color: var(--accent-ink); }
+.rail-btn.rail-decide:disabled { opacity: .4; background: transparent; color: var(--ink-2); cursor: default; }
 .rail-btn.claude { min-height: 58px; color: var(--agent); }
 .claude-ring { width: 28px; height: 28px; display: grid; place-items: center; border: 1.5px solid currentColor; border-radius: 50%; }
 .rail-btn.claude[aria-pressed='true'] .claude-ring { background: var(--agent-soft); }
