@@ -1,9 +1,10 @@
 import { create } from 'zustand'
 import { diffMaps, type CanvasMap, type Delivery, type MapDiff } from '../../../shared/canvas.ts'
 import type { CanvasSummary, CanvasThread, MapCode, SessionInfo } from '../../../shared/protocol.ts'
-import { api, q, subscribe } from '../api.ts'
+import { ApiError, api, q, subscribe } from '../api.ts'
 import { local, useApp } from '../state.ts'
 import { lastAgentRevision, revisedBoxes } from './revised.ts'
+import { withDecision } from './decisionQueue.ts'
 
 export type HistoryItem = { revision: number; by: 'agent' | 'person'; note?: string; ts: number }
 
@@ -55,6 +56,18 @@ type CanvasState = {
   comment: (target: string, text: string, threadId?: string) => Promise<boolean>
   setThread: (threadId: string, state: 'open' | 'resolved') => Promise<void>
   choose: (decision: string, option: string | null, rationale?: string, notify?: boolean) => Promise<void>
+  /** Decision mode is open over the canvas: its keys win over the map's, the approval card's and esc's. */
+  deciding: boolean
+  setDeciding: (on: boolean) => void
+  /**
+   * A choice in decision mode: on the map at once; with `send`, kept for Claude until `flushDecisions` tells it all the
+   * choices together. The revision it made, to undo it with, or undefined when it failed.
+   */
+  decide: (decision: string, option: string, rationale: string | undefined, send: boolean) => Promise<number | undefined>
+  /** Takes back a choice just made (restores the revision before it), unless the map moved on since. */
+  undoDecide: (decision: string, revision: number) => Promise<boolean>
+  /** Tells Claude the choices kept for it on this map (or `map`), in one prompt. `quiet` leaves the agent panel as it is. */
+  flushDecisions: (quiet?: boolean, map?: string) => Promise<void>
   restore: (rev: number) => Promise<void>
   /** The person's own edit, recorded as a revision like the agent's. */
   patch: (patch: import('../../../shared/canvas.ts').CanvasPatch, note: string) => Promise<string[] | undefined>
@@ -70,15 +83,26 @@ const target = () => {
   return currentTerminal ? { terminalId: currentTerminal } : { sessionId: currentSession }
 }
 
-/** What the canvas sent to a conversation shows up in the agent panel: that conversation, opened. */
-async function showConversation(w: string, sessionId: string) {
+/** What the canvas sent to a conversation shows up in the agent panel: that conversation, opened (`quiet`: picked only). */
+async function showConversation(w: string, sessionId: string, quiet = false) {
   const app = useApp.getState()
   if (sessionId !== app.currentSession) {
     useApp.setState({ sessions: await api.get<SessionInfo[]>(`/api/sessions${q({ ws: w })}`) })
     await app.selectSession(sessionId)
   }
-  useApp.setState({ sideOpen: true })
+  if (!quiet) useApp.setState({ sideOpen: true })
 }
+
+/**
+ * Choices made in decision mode that Claude has not heard of yet, per map, and where they were made to go (the
+ * conversation or terminal the agent panel showed then): they outlive a reload or a closed tab.
+ */
+type Pending = { ids: string[]; to?: ReturnType<typeof target> }
+const pendingKey = (w: string, name: string) => `canvas.pendingDecisions:${w}:${name}`
+export const pendingOf = (w: string, name: string): Pending => {
+  try { return { ids: [], ...JSON.parse(local.get(pendingKey(w, name)) ?? '{}') } } catch { return { ids: [] } }
+}
+const setPending = (w: string, name: string, p: Pending) => local.set(pendingKey(w, name), JSON.stringify(p))
 
 /** The two sides of a revision the agent wrote, by workspace, map and revision: fetched once, as they never change. */
 const agentRevs = new Map<string, Promise<[CanvasMap, CanvasMap]>>()
@@ -269,6 +293,59 @@ export const useCanvas = create<CanvasState>((set, get) => ({
     if (!sent.sessionId) return
     await showConversation(w, sent.sessionId)
     useApp.getState().toast('결정을 보냈어')
+  },
+
+  deciding: false,
+  setDeciding: on => set({ deciding: on }),
+
+  decide: async (decision, option, rationale, send) => {
+    const w = ws(), name = get().name
+    if (!w || !name) return undefined
+    const cur = await api.post<{ revision: number }>(`/api/canvas/${name}/choose`, { ws: w, decision, option, rationale })
+      .catch((e: Error) => { useApp.getState().toast(e.message, 'error') })
+    if (!cur) return undefined
+    const p = pendingOf(w, name)
+    setPending(w, name, { ids: withDecision(p.ids, decision, send), to: send ? target() : p.to })
+    get().acknowledge()
+    return cur.revision
+  },
+
+  undoDecide: async (decision, revision) => {
+    const w = ws(), name = get().name
+    // Another revision since (the agent's, or another edit): taking this one back would take that with it.
+    if (!w || !name || get().revision > revision) return false
+    await api.post(`/api/canvas/${name}/restore`, { ws: w, revision: revision - 1 })
+    const p = pendingOf(w, name)
+    setPending(w, name, { ...p, ids: withDecision(p.ids, decision, false) })
+    return true
+  },
+
+  flushDecisions: async (quiet, map) => {
+    const w = ws(), name = map ?? get().name
+    if (!w || !name) return
+    const { ids, to } = pendingOf(w, name)
+    if (!ids.length) return
+    // Taken off before the request, so a second flush (the mode closing as the map reopens) does not send them twice.
+    setPending(w, name, { ids: [] })
+    type Sent = { sent: string[]; sessionId?: string; terminalId?: string }
+    const post = (t: ReturnType<typeof target>) => api.post<Sent>(`/api/canvas/${name}/decided`, { ws: w, decisions: ids, ...t }).catch((e: Error) => e)
+    let sent = await post(to ?? target())
+    // The conversation or terminal they were made for is gone: the one the panel shows now gets them.
+    if (sent instanceof ApiError && sent.status < 500 && to) sent = await post(target())
+    if (sent instanceof Error) {
+      // Refused for good (4xx): the map keeps the choices, and saying so beats failing on every open of this map.
+      if (sent instanceof ApiError && sent.status < 500) useApp.getState().toast(`결정을 Claude에게 보내지 못했어: ${sent.message}. 지도에는 남아 있어`, 'error')
+      else {
+        setPending(w, name, { ids: [...new Set([...pendingOf(w, name).ids, ...ids])], to })
+        useApp.getState().toast(`결정을 보내지 못했어: ${sent.message}. 다음에 이 지도를 열 때 다시 보낼게`, 'error')
+      }
+      return
+    }
+    if (!sent.sent.length) return
+    const app = useApp.getState()
+    if (sent.sessionId) await showConversation(w, sent.sessionId, quiet)
+    if (!quiet) app.toast(sent.terminalId ? `결정 ${sent.sent.length}개를 터미널에 보냈어` : `결정 ${sent.sent.length}개를 Claude에게 보냈어`)
+    if (get().name === name) await get().refreshThreads()
   },
 
   patch: async (patch, note) => {

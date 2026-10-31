@@ -2,6 +2,7 @@ import { useCallback, useEffect, useImperativeHandle, useLayoutEffect, useRef, u
 import { Minus, Plus } from 'lucide-react'
 import { flushSync } from 'react-dom'
 import { relationKey, shapedBy, toMermaid, type CanvasMap, type MapDiff } from '../../../shared/canvas.ts'
+import { optionShare } from './decisionQueue.ts'
 import type { CodeMark } from '../../../shared/mapFiles.ts'
 import type { CanvasThread } from '../../../shared/protocol.ts'
 import { DURATION, measure, morph, reducedMotion, type Morph } from './morph.ts'
@@ -86,6 +87,8 @@ type Props = {
   readOnly?: boolean
   /** Width covered on the right (the floating inspector): fitting centers in what is left. */
   rightInset?: number
+  /** A second look at the map (decision mode's): it neither takes nor leaves the view the canvas comes back to. */
+  aside?: boolean
 }
 
 type View = { x: number; y: number; k: number }
@@ -118,7 +121,7 @@ export const MermaidStage = forwardRef<StageHandle, Props & { viewKey: string }>
   inset.current = props.rightInset ?? 0
   const outer = useRef<HTMLDivElement>(null)
   const inner = useRef<HTMLDivElement>(null)
-  const [view, setView] = useState<View>(() => (lastView?.key === viewKey ? lastView.view : { x: 40, y: 40, k: 1 }))
+  const [view, setView] = useState<View>(() => (!props.aside && lastView?.key === viewKey ? lastView.view : { x: 40, y: 40, k: 1 }))
   const [error, setError] = useState<string | null>(null)
   const [themeTick, setThemeTick] = useState(0)
   const [gliding, setGliding] = useState(false)
@@ -128,7 +131,7 @@ export const MermaidStage = forwardRef<StageHandle, Props & { viewKey: string }>
     clearTimeout(glideTimer.current)
     glideTimer.current = setTimeout(() => setGliding(false), 320)
   }, [])
-  const fitted = useRef(lastView?.key === viewKey)
+  const fitted = useRef(!props.aside && lastView?.key === viewKey)
   const plan = useRef<ReturnType<typeof toMermaid> | null>(null)
   /** The latest selection/glow/threads, for decorating a drawing that finishes rendering later. */
   const latest = useRef({ selected, peek, glow, threads, compare: ghostsFrom, code, revised })
@@ -144,7 +147,7 @@ export const MermaidStage = forwardRef<StageHandle, Props & { viewKey: string }>
   useEffect(() => () => clearTimeout(settleTimer.current), [])
   const foldable = (id: string) => map.diagram === 'class' && map.elements.find(e => e.id === id)?.kind === 'group' && map.elements.some(e => e.parent === id)
 
-  useEffect(() => { lastView = { key: viewKey, view } }, [view, viewKey])
+  useEffect(() => { if (!props.aside) lastView = { key: viewKey, view } }, [view, viewKey, props.aside])
   const viewRef = useRef(view)
   viewRef.current = view
   /** What the last drawing showed, to tell a fold or unfold (animated) from any other redraw. */
@@ -295,7 +298,8 @@ export const MermaidStage = forwardRef<StageHandle, Props & { viewKey: string }>
         decorate(el, map, latest.current)
         flowZoom(el, Math.round(viewRef.current.k * 20) / 20)
         setError(null)
-        if (!fitted.current) { fitted.current = true; requestAnimationFrame(() => fit(true)) }
+        // First view: fitted, unless parts already asked to be framed (they would be fitted over).
+        if (!fitted.current) { fitted.current = true; if (!pendingFrame.current) requestAnimationFrame(() => fit(true)) }
         if (before && oldSvg) {
           try {
             let offset: { x: number; y: number } | undefined
@@ -816,7 +820,10 @@ function codeBadge(node: SVGGraphicsElement, mark: CodeMark | undefined, b: DOMR
  */
 function neighborhood(map: CanvasMap, sel: string | undefined) {
   const byId = new Map(map.elements.map(e => [e.id, e]))
-  const shaped = sel && map.decisions?.some(d => d.id === sel) ? shapedBy(map, sel) : undefined
+  // A decision lights all it shaped; one of its options (D1-a, in decision mode), that option's share and what the
+  // decision touches whichever way it goes.
+  const dec = sel ? map.decisions?.find(d => d.id === sel || d.options.some(o => o.id === sel)) : undefined
+  const shaped = dec && (sel === dec.id ? shapedBy(map, dec.id) : optionShare(map, dec.id, sel!))
   const picked = new Set<string>(shaped ? [...shaped.elements.map(e => e.id), ...shaped.relations.map(relationKey), ...shaped.messages.map(m => m.id)] : sel ? [sel] : [])
   const inside = new Set<string>()
   const related = new Set<string>()

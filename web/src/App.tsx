@@ -223,6 +223,8 @@ export function App() {
       else if (e.key === '?' && !isTypingTarget(e.target)) { e.preventDefault(); setHelp(h => !h) }
       else if (e.key === 'Escape' && !isTypingTarget(e.target)) {
         const s = useApp.getState()
+        // Esc closes decision mode; the conversation goes on.
+        if (useCanvas.getState().deciding && s.tab === 'canvas') return
         const cur = s.sessions.find(x => x.id === s.currentSession)
         if (cur && (cur.status === 'running' || cur.status === 'waiting')) void s.interrupt()
       }

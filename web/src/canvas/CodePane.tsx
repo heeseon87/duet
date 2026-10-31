@@ -40,13 +40,13 @@ export function codeRefsOf(map: CanvasMap, target: string): string[] {
 }
 
 /** `path:12` or `path:12-30`: the lines a reference points at. */
-function linesOf(ref: string): [number, number] | undefined {
+export function linesOf(ref: string): [number, number] | undefined {
   const m = /:(\d+)(?:-(\d+))?$/.exec(ref)
   return m ? [Number(m[1]), Number(m[2] ?? m[1])] : undefined
 }
 
 /** The line declaring the part (`class Store`, `interface Store`, `CREATE TABLE store`…), by its id or a label that is a name. */
-function declarationOf(lines: string[], names: string[]): number | undefined {
+export function declarationOf(lines: string[], names: string[]): number | undefined {
   const ok = names.filter(n => /^[A-Za-z_$][\w$]*$/.test(n))
   if (!ok.length) return undefined
   const re = new RegExp(`\\b(?:class|interface|protocol|actor|enum|object|record|struct|trait|type|table)\\s+[\`"']?(?:${ok.join('|')})\\b`, 'i')
@@ -54,13 +54,13 @@ function declarationOf(lines: string[], names: string[]): number | undefined {
   return i >= 0 ? i + 1 : undefined
 }
 
-type Source = { root: string; path: string; ref: string; marks: boolean }
+export type Source = { root: string; path: string; ref: string; marks: boolean }
 
 /**
  * Where to read a file: in the code the review shows for this map (at that version, its changed lines marked) when the
  * map is bound and the file is in it, else as it is on disk in the review's tree or the workspace.
  */
-function sourceOf(abs: string, workspace: string, mapName: string | undefined, review: { root?: string; diff?: DiffResult; bound?: { map: string }; editing: boolean }, codeRoot?: string): Source | undefined {
+export function sourceOf(abs: string, workspace: string, mapName: string | undefined, review: { root?: string; diff?: DiffResult; bound?: { map: string }; editing: boolean }, codeRoot?: string): Source | undefined {
   const { root, diff, bound, editing } = review
   const mine = Boolean(bound && bound.map === mapName && !editing && diff && root)
   // The map's own repository too: its files open from there while the review shows another tree.

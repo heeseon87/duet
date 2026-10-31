@@ -12,6 +12,7 @@ import type { DiffLine } from '../../../shared/protocol.ts'
 import { Markdown } from '../lib/Markdown.tsx'
 import { duration, relPath, useNow } from '../lib/ui.tsx'
 import { useApp } from '../state.ts'
+import { useCanvas } from '../canvas/store.ts'
 import { Blocks } from './Blocks.tsx'
 import { modeLabel } from './Composer.tsx'
 
@@ -151,6 +152,8 @@ export function PermissionCard({ p, tool, children }: { p: PermissionState; tool
       const el = e.target as HTMLElement
       if (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA') return
       if (e.metaKey || e.ctrlKey || e.altKey) return
+      // Decision mode over the canvas has its own 1, 2, 3 (its options).
+      if (useCanvas.getState().deciding && useApp.getState().tab === 'canvas') return
       // With several requests open, the keys answer the first one on screen.
       if (document.querySelector('.perm-card')?.getAttribute('data-waiting') !== p.request.id) return
       if (e.key === '1') { e.preventDefault(); void act({ behavior: 'allow' }) }

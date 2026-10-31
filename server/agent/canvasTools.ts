@@ -51,6 +51,7 @@ const decision = z.object({
     text: z.string().describe('one or two sentences on what keeps you from settling it yourself, with the facts you found (the two conventions, the other maps it reaches)'),
     tags: z.array(z.enum(DECISION_WHY_TAGS)).min(1).describe('convention: the code or the maps follow more than one convention and nothing says which. scope: it reaches past this task (an API others call, another map, shared code). irreversible: costly to undo once it ships. context: it turns on what only the person knows (plans, priorities). tie: the options weigh the same on everything you can check'),
   }).optional().describe('why you ask instead of going on; give it with every decision'),
+  recommended: z.string().nullable().optional().describe('the option you lean to (D1-a), when one fits better on what you found; leave it out on a tie. The person still chooses'),
 })
 
 export const INSTRUCTIONS = `Duet canvas: design maps the person reviews with you in the browser, beside this chat.
@@ -59,6 +60,7 @@ export const INSTRUCTIONS = `Duet canvas: design maps the person reviews with yo
 - Mark how each element touches the code with "change": add (new), modify, delete, result (data that comes out), keep.
 - When a design fork needs the person's choice, add a decision (D1 with options D1-a, D1-b) and tag the elements and relations of each option with decision/option. Never choose for them; they choose in the browser.
 - Give every decision a why: what keeps you from settling it from the code and the request, with its tags (convention, scope, irreversible, context, tie). If no tag fits, it is not the person's decision: pick yourself and say in chat what you picked and why.
+- When one option fits better on what you found, name it in recommended (and say why in its impact); leave it out on a tie. The person sees it as your pick and still decides.
 - Tag everything a decision shapes: the parts each option adds or changes get decision + option, and a part the decision touches whichever way it goes gets decision alone. The person sees these tags as pins on the map.
 - When the person chooses, the other options' parts are removed and the chosen ones keep their tags. Keep those tags in every later update; never clear them because the decision is made.
 - When asked to tag existing decisions, read the map, find the parts each decision shaped, and add decision (and, for a made decision, its chosen option) to them.

@@ -7,7 +7,7 @@ import { extname, join, resolve, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { z } from 'zod'
 import type { CanvasThread, ContextItem, DiffSource, PermissionDecision, PermissionMode, ReviewComment, ReviewRepo, ServerEvent, SessionEvent, TerminalInfo, Workspace } from '../shared/protocol.ts'
-import { deliveryOf, fileOfRef, type CanvasPatch, type CanvasRevision, type Delivery } from '../shared/canvas.ts'
+import { deliveryOf, fileOfRef, type CanvasDecision, type CanvasPatch, type CanvasRevision, type Delivery } from '../shared/canvas.ts'
 import { refBase } from '../shared/mapFiles.ts'
 import { DUET_HOME, HttpError, readJson, writeJson, ensureDir, newId } from './util.ts'
 import { codeHere, gitInfo, grep, headAt, listFiles, log as gitLog, readAt, toplevel, workspaceName, currentBranch, mainRoot } from './git/repo.ts'
@@ -541,6 +541,17 @@ route('POST', '/api/canvas/:name/patch', async ({ req, params }) => {
   const b = await body<{ ws: string; patch: CanvasPatch; note?: string; baseRevision?: number }>(req)
   return canvas.update(knownWorkspace(b.ws), params.name, b.patch, 'person', b.note, b.baseRevision)
 })
+/** A made decision as its thread keeps it (`said`) and as the prompt lists it. */
+function madeOf(d: CanvasDecision) {
+  const opt = d.options.find(o => o.id === d.chosen)
+  const letter = (d.chosen ?? '').replace(`${d.id}-`, '')
+  return {
+    letter,
+    said: `${letter}로 정함${d.rationale ? ` · 이유 ${d.rationale}` : ''}`,
+    lines: [`- 질문: ${d.id} ${d.question}`, `- 고른 선택지: ${d.chosen} ${opt?.text ?? ''}`, ...(d.rationale ? [`- 이유: ${d.rationale}`] : [])],
+  }
+}
+const AFTER_CHOICE = '다른 선택지에 딸린 요소는 지도에서 정리했고, 고른 쪽 요소에는 결정 표시가 남아 있어.'
 /** The person's choice. With `notify` it also goes to a conversation, kept like a comment as a thread on the decision. */
 route('POST', '/api/canvas/:name/choose', async ({ req, params }) => {
   const b = await body<{ ws: string; decision: string; option: string | null; rationale?: string; notify?: boolean; sessionId?: string; terminalId?: string }>(req)
@@ -548,30 +559,57 @@ route('POST', '/api/canvas/:name/choose', async ({ req, params }) => {
   const asked = b.notify && b.option && (b.sessionId || b.terminalId) ? targetOf(ws, b) : undefined
   const cur = canvas.choose(ws, params.name, b.decision, b.option, b.rationale)
   if (!b.notify || !b.option) return cur
-  const d = cur.map.decisions?.find(x => x.id === b.decision)
-  const opt = d?.options.find(o => o.id === b.option)
-  const letter = b.option.replace(`${b.decision}-`, '')
-  const said = `${letter}로 정함${b.rationale ? ` · 이유 ${b.rationale}` : ''}`
+  const d = cur.map.decisions!.find(x => x.id === b.decision)!
+  const made = madeOf(d)
   const to = asked ?? targetOf(ws, {})
   const messageId = newId('m-')
   const last = canvas.threads(ws, params.name).filter(t => t.target === b.decision).pop()
-  const thread = canvas.addThreadItem(ws, params.name, { threadId: last?.id, target: b.decision, who: 'person', text: said, ...sender(to), messageId })
+  const thread = canvas.addThreadItem(ws, params.name, { threadId: last?.id, target: b.decision, who: 'person', text: made.said, ...sender(to), messageId })
   const sent = await deliver(
     to,
     [
       `[캔버스 결정] 지도 "${cur.map.title}" (${params.name}, rev ${cur.revision})에서 결정 하나를 정했어.`,
-      `- 질문: ${b.decision} ${d?.question ?? ''}`,
-      `- 고른 선택지: ${b.option} ${opt?.text ?? ''}`,
-      ...(b.rationale ? [`- 이유: ${b.rationale}`] : []),
+      ...made.lines,
       '',
-      '다른 선택지에 딸린 요소는 지도에서 정리했고, 고른 쪽 요소에는 결정 표시가 남아 있어. 이 결정에 맞게 다음 작업을 이어 가 줘.',
+      `${AFTER_CHOICE} 이 결정에 맞게 다음 작업을 이어 가 줘.`,
       `(thread ${thread.id}: 답은 채팅으로 하고, 설계가 바뀌면 canvas_update로 지도도 고쳐 줘.)`,
     ].join('\n'),
-    [{ kind: 'canvas', map: params.name, target: b.decision, label: `${b.decision} → ${letter}` }],
+    [{ kind: 'canvas', map: params.name, target: b.decision, label: `${b.decision} → ${made.letter}` }],
     messageId,
-    `${b.decision} ${said}`,
+    `${b.decision} ${made.said}`,
   )
   return { ...cur, ...sent, thread }
+})
+/**
+ * Choices made one after another in decision mode (already on the map), told in one prompt once the person is done,
+ * with an item on each decision's thread. One reopened since is left out.
+ */
+route('POST', '/api/canvas/:name/decided', async ({ req, params }) => {
+  const b = await body<{ ws: string; decisions: string[]; sessionId?: string; terminalId?: string }>(req)
+  const ws = knownWorkspace(b.ws)
+  const cur = canvas.get(ws, params.name)
+  const made = [...new Set(b.decisions)].map(id => cur.map.decisions?.find(d => d.id === id)).filter((d): d is CanvasDecision => Boolean(d?.chosen))
+  if (!made.length) return { sent: [] }
+  const to = targetOf(ws, b)
+  const messageId = newId('m-')
+  const threads = made.map(d => {
+    const last = canvas.threads(ws, params.name).filter(t => t.target === d.id).pop()
+    return canvas.addThreadItem(ws, params.name, { threadId: last?.id, target: d.id, who: 'person', text: madeOf(d).said, ...sender(to), messageId })
+  })
+  const sent = await deliver(
+    to,
+    [
+      `[캔버스 결정] 지도 "${cur.map.title}" (${params.name}, rev ${cur.revision})에서 결정 ${made.length === 1 ? '하나' : `${made.length}개`}를 정했어.`,
+      ...made.flatMap((d, i) => [...(i ? [''] : []), ...madeOf(d).lines]),
+      '',
+      `${AFTER_CHOICE} ${made.length === 1 ? '이 결정에' : '이 결정들에'} 맞게 다음 작업을 이어 가 줘.`,
+      `(thread ${threads.map(t => t.id).join(', ')}: 답은 채팅으로 하고, 설계가 바뀌면 canvas_update로 지도도 고쳐 줘.)`,
+    ].join('\n'),
+    made.map(d => ({ kind: 'canvas' as const, map: params.name, target: d.id, label: `${d.id} → ${madeOf(d).letter}` })),
+    messageId,
+    made.map(d => `${d.id} ${madeOf(d).said}`).join(' · '),
+  )
+  return { sent: made.map(d => d.id), ...sent }
 })
 route('POST', '/api/canvas/:name/restore', async ({ req, params }) => {
   const b = await body<{ ws: string; revision: number }>(req)

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { applyPatch, chooseOption, deliveryLabel, deliveryOf, describeDiff, diffMaps, emptyMap, normalizeDecisions, relationKey, reopenDecision, reorderedGroups, safeText, toMermaid, validate, type CanvasMap } from '../shared/canvas.ts'
+import { applyPatch, chooseOption, deliveryLabel, deliveryOf, describeDiff, diffMaps, emptyMap, labelOf, normalizeDecisions, relationKey, reopenDecision, reorderedGroups, safeText, toMermaid, validate, type CanvasMap } from '../shared/canvas.ts'
 
 function base(): CanvasMap {
   const m = emptyMap('class', 'test')
@@ -74,6 +74,17 @@ describe('applyPatch', () => {
     expect(bad).toEqual(['D1: why needs a text', 'D1: why needs at least one tag'])
     // @ts-expect-error a tag outside the list, as an agent might send it
     expect(applyPatch(base(), { decisions: [{ id: 'D1', why: { text: 'x', tags: ['taste'] } }] }, 'agent').errors).toEqual(['D1: why tag "taste" must be one of convention, scope, irreversible, context, tie'])
+  })
+
+  it('keeps the option the agent leans to only when it is one of the options', () => {
+    expect(applyPatch(base(), { decisions: [{ id: 'D1', recommended: 'D1-b' }] }, 'agent').map.decisions![0].recommended).toBe('D1-b')
+    expect(applyPatch(base(), { decisions: [{ id: 'D1', recommended: 'D1-z' }] }, 'agent').errors).toEqual(['D1: recommended "D1-z" is not an option'])
+    expect(applyPatch(applyPatch(base(), { decisions: [{ id: 'D1', recommended: 'D1-b' }] }, 'agent').map, { decisions: [{ id: 'D1', recommended: null }] }, 'agent').map.decisions![0].recommended).toBeUndefined()
+  })
+
+  it('names one option of a decision, so a question about it reads on its thread', () => {
+    expect(labelOf(base(), 'D1-b')).toBe('D1-b split')
+    expect(labelOf(base(), 'D1')).toBe('D1 which?')
   })
 
   it('reports invalid references instead of writing them', () => {

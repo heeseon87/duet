@@ -94,6 +94,8 @@ export type CanvasDecision = {
   options: CanvasDecisionOption[]
   /** Why the agent asks instead of going on: a sentence or two, and the tags it fits. */
   why?: { text: string; tags: DecisionWhyTag[] }
+  /** The option the agent leans to on what it found, if one stands out; the person still chooses. */
+  recommended?: string
   /** Set only by the person, never by the agent. */
   chosen?: string
   rationale?: string
@@ -177,6 +179,9 @@ export function labelOf(map: CanvasMap, target: string): string {
   if (msg) return msg.label ?? msg.id
   const dec = map.decisions?.find(d => d.id === target)
   if (dec) return `${dec.id} ${dec.question}`
+  // One option of a decision (D1-b): asked about before choosing.
+  const opt = map.decisions?.flatMap(d => d.options).find(o => o.id === target)
+  if (opt) return `${opt.id} ${opt.text}`
   const rel = map.relations.find(r => relationKey(r) === target)
   if (rel) return `${rel.from} → ${rel.to}${rel.label ? ` (${rel.label})` : ''}`
   return target
@@ -235,6 +240,7 @@ export function validate(map: CanvasMap): string[] {
     if (!d.options?.length) errors.push(`${d.id}: give at least one option`)
     for (const o of d.options ?? []) if (!o.id?.startsWith(`${d.id}-`)) errors.push(`${d.id}: option id "${o.id}" must start with ${d.id}-`)
     if (d.chosen && !d.options?.some(o => o.id === d.chosen)) errors.push(`${d.id}: chosen "${d.chosen}" is not an option`)
+    if (d.recommended && !d.options?.some(o => o.id === d.recommended)) errors.push(`${d.id}: recommended "${d.recommended}" is not an option`)
     if (d.why) {
       if (!d.why.text?.trim()) errors.push(`${d.id}: why needs a text`)
       if (!d.why.tags?.length) errors.push(`${d.id}: why needs at least one tag`)

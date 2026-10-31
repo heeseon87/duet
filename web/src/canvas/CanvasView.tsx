@@ -1,11 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   ChevronDown, ChevronUp, ChevronsDownUp, ChevronsLeft, ChevronsRight, ChevronsUpDown, Clock3, Compass, Copy, Eye, ListCollapse, ZoomIn, GitCompareArrows, Maximize2, MessageSquare, Minus, Plus, Shapes, Sparkles, Undo2, Workflow,
-  Check, CircleDot, FileCode2, FileDiff, ArrowLeft, ArrowRight, ArrowUp, ArrowDown, X, Bot, User, Trash2, Send, Pencil, Share, ImageDown, FolderGit2,
+  Check, CircleDot, FileCode2, FileDiff, ArrowLeft, ArrowRight, ArrowUp, ArrowDown, X, Bot, User, Trash2, Pencil, Share, ImageDown, FolderGit2,
 } from 'lucide-react'
-import { deliveryLabel, describeDiff, diffMaps, exportMermaid, filesUnder, labelOf, relationKey, shapedBy, stepMark, type CanvasDecision, type CanvasElement, type CanvasMap, type CanvasRelation, type DecisionWhyTag } from '../../../shared/canvas.ts'
+import { describeDiff, diffMaps, exportMermaid, filesUnder, labelOf, relationKey, stepMark, type CanvasDecision, type CanvasElement, type CanvasMap, type CanvasRelation } from '../../../shared/canvas.ts'
 import { codeMarks, refBase } from '../../../shared/mapFiles.ts'
-import type { CanvasThread } from '../../../shared/protocol.ts'
 import { api } from '../api.ts'
 import { local, useApp } from '../state.ts'
 import { Popover, isTypingTarget, relTime, shortcutKey } from '../lib/ui.tsx'
@@ -20,8 +19,9 @@ import { download, standaloneSvg } from './exportSvg.ts'
 import { useCanvas } from './store.ts'
 import { CHANGE_LABEL } from './words.ts'
 import { useReview } from '../review/store.ts'
+import { Ask, DeliveryLine, OptionBody, ThreadView, WhyAsk, letterOf, partsOf } from './DecisionParts.tsx'
+import { DecisionMode } from './DecisionMode.tsx'
 
-const WHY_TAG_LABEL: Record<DecisionWhyTag, string> = { convention: '관례가 둘', scope: '이 일 밖에 미침', irreversible: '되돌리기 어려움', context: '네가 아는 것', tie: '무게가 비슷' }
 const kindLabel = (kind = 'class') => (kind === 'group' ? 'package' : kind)
 
 function MapPicker() {
@@ -117,52 +117,6 @@ function Timeline() {
   )
 }
 
-function ThreadView({ t }: { t: CanvasThread }) {
-  const { comment, setThread, deliveries } = useCanvas()
-  const [reply, setReply] = useState('')
-  return (
-    <div className={`thread ${t.state}`}>
-      {t.items.map(i => (
-        <div key={i.id} className={`thread-item ${i.who}`}>
-          <span className="who">{i.who === 'agent' ? <Bot size={12} /> : <User size={12} />}</span>
-          <div className="grow">
-            <Markdown text={i.text} /><span className="meta">{relTime(i.ts)}{i.terminal ? ' · 터미널' : ''}</span>
-            {deliveries[i.id] && <div className="delivery">{deliveryLabel(deliveries[i.id])}</div>}
-          </div>
-        </div>
-      ))}
-      <div className="thread-actions">
-        <input className="input grow" placeholder="답글" value={reply} onChange={e => setReply(e.target.value)}
-          onKeyDown={e => { if (e.key === 'Enter' && !e.nativeEvent.isComposing && reply.trim()) void comment(t.target, reply, t.id).then(ok => { if (ok) setReply('') }) }} />
-        {t.state === 'open'
-          ? <button className="iconbtn" title="Resolve" onClick={() => void setThread(t.id, 'resolved')}><Check size={13} /></button>
-          : <button className="iconbtn" title="Reopen" onClick={() => void setThread(t.id, 'open')}><Undo2 size={13} /></button>}
-      </div>
-    </div>
-  )
-}
-
-function Ask({ target, placeholder, autoFocus, onSent }: { target: string; placeholder: string; autoFocus?: boolean; onSent?: () => void }) {
-  const comment = useCanvas(s => s.comment)
-  const [text, setText] = useState('')
-  const [busy, setBusy] = useState(false)
-  const go = async () => {
-    if (!text.trim()) return
-    setBusy(true)
-    try { if (await comment(target, text)) { setText(''); onSent?.() } } finally { setBusy(false) }
-  }
-  return (
-    <div className="cv-ask">
-      <textarea className="input" rows={3} autoFocus={autoFocus} placeholder={placeholder} value={text} onChange={e => setText(e.target.value)}
-        onKeyDown={e => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey) && !e.nativeEvent.isComposing) { e.preventDefault(); void go() } }} />
-      <div className="row">
-        <span className="grow" />
-        <button className="btn sm agent" disabled={!text.trim() || busy} onClick={() => void go()}><Send size={12} /> 에이전트에게 <kbd>⌘⏎</kbd></button>
-      </div>
-    </div>
-  )
-}
-
 function MapAsk() {
   const [open, setOpen] = useState(false)
   if (!open) return <button className="btn sm ghost ask-open" onClick={() => setOpen(true)}><MessageSquare size={13} /> 지도 전체에 대해 묻기</button>
@@ -190,44 +144,8 @@ function RelationEditor({ rel }: { rel: CanvasRelation }) {
   )
 }
 
-const letterOf = (d: CanvasDecision, optionId: string) => optionId.replace(`${d.id}-`, '')
-
 /** Select a decision and bring these parts of the map into view. */
 type Show = (decision: string, ids: string[]) => void
-
-/** How many parts a decision (or one option) shaped, and what to frame to show them: a merged line is found by its ends. */
-function partsOf(map: CanvasMap, d: string, option?: string) {
-  const s = shapedBy(map, d, option)
-  return { n: s.elements.length + s.relations.length + s.messages.length, ids: [...s.elements.map(e => e.id), ...s.relations.flatMap(r => [r.from, r.to]), ...s.messages.map(m => m.id)] }
-}
-
-function OptionBody({ d, o }: { d: CanvasDecision; o: CanvasDecision['options'][number] }) {
-  return (
-    <>
-      <div className="option-text"><span className="opt-letter">{letterOf(d, o.id)}</span>{o.text}</div>
-      {o.impact && <div className="option-impact">{o.impact}</div>}
-    </>
-  )
-}
-
-/** Why the agent asks instead of going on: its tags, then its sentence. */
-function WhyAsk({ why }: { why: NonNullable<CanvasDecision['why']> }) {
-  return (
-    <div className="decision-ask">
-      <div className="decision-ask-head">왜 Claude가 혼자 정하지 않았나</div>
-      <div className="ask-tags">{why.tags.map(t => <span key={t} className="ask-tag">{WHY_TAG_LABEL[t]}</span>)}</div>
-      <div className="decision-ask-text">{why.text}</div>
-    </div>
-  )
-}
-
-/** Where the latest thing sent about this target stands with the agent. */
-function DeliveryLine({ target }: { target: string }) {
-  const threads = useCanvas(s => s.threads)
-  const deliveries = useCanvas(s => s.deliveries)
-  const last = threads.filter(t => t.target === target).flatMap(t => t.items).filter(i => deliveries[i.id]).sort((a, b) => a.ts - b.ts).pop()
-  return last ? <div className="delivery">{deliveryLabel(deliveries[last.id])}</div> : null
-}
 
 /**
  * One decision in full. Open: the question, then each option, to pick from. Made: the question,
@@ -607,6 +525,10 @@ export function CanvasView() {
   }
 
   useEffect(() => { if (workspace) void s.loadList() }, [workspace?.path]) // eslint-disable-line react-hooks/exhaustive-deps
+  // Choices decision mode kept for Claude and could not tell (the tab closed first): told when their map opens again.
+  useEffect(() => { if (s.mapName && !s.deciding) void s.flushDecisions(true) }, [s.mapName]) // eslint-disable-line react-hooks/exhaustive-deps
+  // Another map, or an old revision shown: decision mode is about the map that was open.
+  useEffect(() => { if (s.deciding) s.setDeciding(false) }, [s.mapName, Boolean(s.preview)]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const shownMap = s.preview?.map ?? s.map
   // The same files the review lists, matched to the parts the same way: what is built, what is not yet.
@@ -651,7 +573,7 @@ export function CanvasView() {
 
   useEffect(() => {
     const key = (e: KeyboardEvent) => {
-      if (useApp.getState().tab !== 'canvas') return
+      if (useApp.getState().tab !== 'canvas' || useCanvas.getState().deciding) return
       // A checkbox (the code pane's Viewed) keeps the keys.
       if (isTypingTarget(e.target)) return
       const k = shortcutKey(e)
@@ -816,8 +738,8 @@ export function CanvasView() {
         <MapPicker />
         <Timeline />
         {decisions.length > 0 && (
-          <button className={`chip dec-chip ${made < decisions.length ? 'accent' : 'quiet'}`} onClick={showDecisions}
-            title={made < decisions.length ? `결정할 것 ${decisions.length - made}개 · 정한 결정 ${made}개` : '결정을 모두 정했어'}>
+          <button className={`chip dec-chip ${made < decisions.length ? 'accent' : 'quiet'}`} onClick={() => (s.preview ? showDecisions() : s.setDeciding(true))}
+            title={made < decisions.length ? `결정할 것 ${decisions.length - made}개 · 정한 결정 ${made}개 · 눌러서 하나씩 정하기` : '결정을 모두 정했어 · 눌러서 다시 보기'}>
             결정 {made}/{decisions.length}
           </button>
         )}
@@ -922,6 +844,7 @@ export function CanvasView() {
         </div>
         {codeOpen && codeTarget && <CodePane key={stageKey} map={shownMap} target={codeTarget} want={codeWant} slide={codeSlide.current} onClose={() => showCode(false)} />}
       </div>
+      {s.deciding && s.map && !s.preview && <DecisionMode key={stageKey} map={s.map} stageKey={stageKey} onClose={() => s.setDeciding(false)} />}
     </div>
   )
 }

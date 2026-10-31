@@ -464,6 +464,13 @@ export const TOOLS: { relays: string; spec: ToolSpec }[] = [
                     "tags"
                   ],
                   "additionalProperties": false
+                },
+                "recommended": {
+                  "description": "the option you lean to (D1-a), when one fits better on what you found; leave it out on a tie. The person still chooses",
+                  "type": [
+                    "string",
+                    "null"
+                  ]
                 }
               },
               "required": [

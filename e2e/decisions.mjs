@@ -127,9 +127,10 @@ check('an option\'s part count frames that option\'s parts', (await inView(['Res
 await page.keyboard.press('Escape'); await sleep(200)
 
 // Made decisions: one line each, opening in full.
-await page.click('.canvas-bar .dec-chip'); await sleep(700)
+// The chip opens decision mode now (e2e/decision-mode.mjs); the info card's overview lists them all.
+await page.keyboard.press('i'); await sleep(700)
 const rows = await page.$$eval('.inspector .made-list .made', ms => ms.map(m => { const r = m.querySelector('.made-row'); const t = r.querySelector('.made-text'); return { id: m.getAttribute('data-decision'), h: Math.round(r.getBoundingClientRect().height), oneLine: t.scrollHeight <= t.clientHeight + 1, text: r.textContent } }))
-check('the chip opens the info card on the decisions; a made one is one line', rows.length === 1 && rows[0].id === 'D2' && rows[0].h <= 32 && rows[0].oneLine && rows[0].text.includes('→'), JSON.stringify(rows))
+check('the info card lists the decisions; a made one is one line', rows.length === 1 && rows[0].id === 'D2' && rows[0].h <= 32 && rows[0].oneLine && rows[0].text.includes('→'), JSON.stringify(rows))
 await page.click('.inspector .made[data-decision="D2"] .made-row'); await sleep(300)
 const full = await page.$eval('.inspector .made[data-decision="D2"]', m => ({ q: Boolean(m.querySelector('.decision-q')), why: m.querySelector('.decision-why')?.textContent ?? '', lost: m.querySelector('.option-rejected')?.textContent ?? '', reopen: Boolean(m.querySelector('.reopen')) }))
 check('opened: question, pick, reason, the lost option and why, reopen', full.q && full.why.includes('단계가 적어서') && full.lost.includes('묶는 단계가 느리다') && full.reopen, JSON.stringify(full))
