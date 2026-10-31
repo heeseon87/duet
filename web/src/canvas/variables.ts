@@ -6,7 +6,7 @@
 import type { Node, Query } from 'web-tree-sitter'
 import { langOf } from '../lib/highlight.ts'
 
-/** How many colors take turns: variables in sight of each other get different ones, up to this many. */
+/** How many colors there are for variables: those read close together differ (colorApart), others may share. */
 export const VAR_COLORS = 8
 
 export type VarLang = 'kotlin' | 'java' | 'typescript' | 'tsx'
@@ -95,8 +95,8 @@ function templateRefs(str: Node, textType: string): Ref[] {
 
 /**
  * The identifiers to paint: every definition, and every reference that resolves to one in its own or an enclosing
- * scope. A reference to nothing local (a function, a type, an import) stays as the theme colors it. A definition's color
- * counts the definitions in sight where it is made, so variables seen together differ.
+ * scope. A reference to nothing local (a function, a type, an import) stays as the theme colors it. Variables read
+ * close together get different colors (colorApart).
  */
 export function localMarks(root: Node, query: Query, rules: Rules = {}): VarMark[] {
   const scopes = new Set<number>([root.id])
@@ -121,14 +121,10 @@ export function localMarks(root: Node, query: Query, rules: Rules = {}): VarMark
     return root
   }
 
-  // Every scope's definitions, and the same by name for looking a reference up.
-  const byScope = new Map<number, Def[]>()
+  // Every scope's definitions by name, for looking a reference up.
   const byName = new Map<string, Def[]>()
   const all: Def[] = []
   const define = (d: Def) => {
-    const s = byScope.get(d.scope.id)
-    if (s) s.push(d)
-    else byScope.set(d.scope.id, [d])
     const key = `${d.scope.id}\0${d.name}`
     const n = byName.get(key)
     if (n) n.push(d)
@@ -173,23 +169,41 @@ export function localMarks(root: Node, query: Query, rules: Rules = {}): VarMark
     if (d) uses.push([ref, d])
   }
 
-  // In its own scope a definition sees the hoisted ones and those before it; in the scopes around, the hoisted ones and
-  // those made before it.
-  const color = new Map<Def, number>()
-  const rank = (d: Def) => (d.hoisted ? 0 : 1)
-  for (const d of all) {
-    let seen = 0
-    for (let s: Node | undefined = d.scope; s; s = scopeOf(s)) {
-      for (const e of byScope.get(s.id) ?? []) {
-        if (e === d) continue
-        if (s.id === d.scope.id ? rank(e) < rank(d) || (rank(e) === rank(d) && e.at < d.at) : e.hoisted || e.at < d.at) seen++
-      }
-    }
-    color.set(d, seen % VAR_COLORS)
-  }
+  const hits: (Span & { d: Def })[] = []
+  for (const d of all) if (d.node) hits.push({ d, line: d.node.startPosition.row, start: d.node.startPosition.column, end: d.node.startPosition.column + d.node.endIndex - d.node.startIndex })
+  for (const [ref, d] of uses) hits.push({ d, line: ref.line, start: ref.col, end: ref.col + ref.name.length })
+  const color = colorApart(hits)
+  return hits.map(({ d, ...at }) => ({ ...at, color: color.get(d)!, field: d.hoisted }))
+}
 
-  const marks: VarMark[] = []
-  for (const d of all) if (d.node) marks.push({ line: d.node.startPosition.row, start: d.node.startPosition.column, end: d.node.startPosition.column + d.node.endIndex - d.node.startIndex, color: color.get(d)!, field: d.hoisted })
-  for (const [ref, d] of uses) marks.push({ line: ref.line, start: ref.col, end: ref.col + ref.name.length, color: color.get(d)!, field: d.hoisted })
-  return marks
+/** Lines within which two variables count as read together. */
+const NEAR = 3
+
+/**
+ * Each variable's color: those read together (a use or a declaration of each within NEAR lines) must differ, those far
+ * apart may share. A greedy graph coloring, the most entangled variable first, each taking the color the fewest of its
+ * colored neighbors have (the lowest such). Far fewer close pairs share a color than handing colors out by count.
+ */
+function colorApart<T>(hits: { d: T; line: number }[]): Map<T, number> {
+  const byLine = new Map<number, T[]>()
+  for (const h of hits) {
+    const at = byLine.get(h.line)
+    if (at) at.push(h.d)
+    else byLine.set(h.line, [h.d])
+  }
+  const near = new Map<T, Set<T>>()
+  for (const h of hits) if (!near.has(h.d)) near.set(h.d, new Set())
+  for (const [line, ds] of byLine) {
+    for (let l = line; l <= line + NEAR; l++) {
+      for (const b of byLine.get(l) ?? []) for (const a of ds) if (a !== b) { near.get(a)!.add(b); near.get(b)!.add(a) }
+    }
+  }
+  const color = new Map<T, number>()
+  // Stable on ties: the variables in the order they first come.
+  for (const d of [...near.keys()].sort((x, y) => near.get(y)!.size - near.get(x)!.size)) {
+    const taken = new Array<number>(VAR_COLORS).fill(0)
+    for (const n of near.get(d)!) { const c = color.get(n); if (c !== undefined) taken[c]++ }
+    color.set(d, taken.indexOf(Math.min(...taken)))
+  }
+  return color
 }

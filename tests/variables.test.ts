@@ -107,11 +107,13 @@ describe('localMarks: Kotlin', () => {
     expect([field(2, 'order'), field(3, 'order'), field(3, 'lines'), field(4, 'sum')]).toEqual([false, false, false, false])
   })
 
-  it('tells apart variables in sight of each other', async () => {
+  it('tells apart variables read close together', async () => {
     const { at } = await paint('kotlin', src)
-    // The class's repo, name and total, then the function's order, n, lines and sum: all in sight, all apart.
-    const inSight = [at(1, 'repo'), at(1, 'name'), at(13, 'total'), at(2, 'order'), at(2, 'n'), at(3, 'lines'), at(4, 'sum')]
-    expect(new Set(inSight).size).toBe(inSight.length)
+    // order, n, lines and sum on lines 2 to 5; repo, order and e on line 8.
+    const top = [at(2, 'order'), at(2, 'n'), at(3, 'lines'), at(4, 'sum')]
+    expect(new Set(top).size).toBe(top.length)
+    const tryLine = [at(8, 'repo'), at(8, 'order'), at(8, 'e')]
+    expect(new Set(tryLine).size).toBe(tryLine.length)
   })
 
   it('follows scopes: loop and lambda parameters, a catch parameter, shadowing, the implicit it', async () => {
@@ -309,9 +311,18 @@ describe('localMarks: TypeScript', () => {
 })
 
 describe('localMarks: colors', () => {
-  it('takes turns among VAR_COLORS colors', async () => {
-    const names = Array.from({ length: VAR_COLORS + 2 }, (_, i) => `v${i}`)
+  it('gives variables read within three lines different colors, and reuses colors farther apart', async () => {
+    const names = Array.from({ length: 20 }, (_, i) => `v${i}`)
     const { at } = await paint('typescript', `function f() {\n${names.map(v => `  const ${v} = 0`).join('\n')}\n}`)
-    expect(names.map((v, i) => at(i + 2, v))).toEqual(names.map((_, i) => i % VAR_COLORS))
+    const colors = names.map((v, i) => at(i + 2, v)!)
+    for (let i = 0; i < names.length; i++) for (let j = i + 1; j <= i + 3 && j < names.length; j++) expect(colors[i], `v${i} and v${j}`).not.toBe(colors[j])
+    expect(colors.every(c => c >= 0 && c < VAR_COLORS)).toBe(true)
+    expect(new Set(colors).size).toBeLessThan(names.length)
+  })
+
+  it('may give variables far apart the same color', async () => {
+    const lines = ['function f() {', '  const a = 0', '  log(a)', ...Array.from({ length: 6 }, () => '  // …'), '  const b = 0', '  log(b)', '}']
+    const { at } = await paint('typescript', lines.join('\n'))
+    expect(at(2, 'a')).toBe(at(10, 'b'))
   })
 })
