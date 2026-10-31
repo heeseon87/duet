@@ -124,6 +124,16 @@ describe('localMarks: Kotlin', () => {
     expect(at(4, 'order', 3)).toBeUndefined()
   })
 
+  it('reads a setter\'s value and a property through this', async () => {
+    const { at, field } = await paint('kotlin', ['class A {', '  var n = 0', '    set(value) { field = value }', '  fun f(n: Int) = this.n + n', '}'].join('\n'))
+    expect(at(3, 'value')).toBeDefined()
+    expect(at(3, 'value', 1)).toBe(at(3, 'value'))
+    // this.n is the property, the bare n the parameter.
+    expect([at(4, 'n', 1), field(4, 'n', 1)]).toEqual([at(2, 'n'), true])
+    expect(at(4, 'n', 2)).toBe(at(4, 'n'))
+    expect(at(4, 'n')).not.toBe(at(2, 'n'))
+  })
+
   it('leaves members, named arguments, types and names of declarations alone', async () => {
     const { at } = await paint('kotlin', src)
     expect(at(3, 'lines', 1)).toBeUndefined() // order.lines
@@ -176,9 +186,34 @@ describe('localMarks: Java', () => {
     expect([field(3, 'repo'), field(3, 'repo', 2), field(4, 'order'), field(6, 'sum')]).toEqual([false, false, false, false])
   })
 
+  it('reads this.field as the field, apart from the parameter of that name', async () => {
+    const { at, field } = await paint('java', src)
+    expect([at(3, 'repo', 1), field(3, 'repo', 1)]).toEqual([at(2, 'repo'), true])
+    expect(at(3, 'repo', 2)).toBe(at(3, 'repo'))
+  })
+
+  it('reads switch patterns: a type pattern and a record pattern\'s components', async () => {
+    const { at } = await paint('java', [
+      /* 1 */ 'class A {',
+      /* 2 */ '  int f(Object o) {',
+      /* 3 */ '    switch (o) {',
+      /* 4 */ '      case String s -> s.length();',
+      /* 5 */ '      case Point(int x, int y) -> x + y;',
+      /* 6 */ '      default -> 0;',
+      /* 7 */ '    }',
+      /* 8 */ '    return 0;',
+      /* 9 */ '  }',
+      /* 10 */ '}',
+    ].join('\n'))
+    expect(at(4, 's')).toBeDefined()
+    expect(at(4, 's', 1)).toBe(at(4, 's'))
+    expect([at(5, 'x', 1), at(5, 'y', 1)]).toEqual([at(5, 'x'), at(5, 'y')])
+    expect(at(5, 'x')).not.toBe(at(5, 'y'))
+    expect(at(5, 'Point')).toBeUndefined()
+  })
+
   it('leaves fields after a dot and method names alone', async () => {
     const { at } = await paint('java', src)
-    expect(at(3, 'repo', 1)).toBeUndefined() // this.repo
     expect(at(5, 'lines', 1)).toBeUndefined() // order.lines
     expect(at(9, 'save')).toBeUndefined()
     expect(at(4, 'run')).toBeUndefined()
@@ -218,6 +253,30 @@ describe('localMarks: TypeScript', () => {
     expect(at(2, 'lines', 1)).toBeUndefined()
     expect(at(6, 'b')).toBeUndefined()
     expect(at(1, 'total')).toBeUndefined()
+  })
+
+  it('reads class fields through this, constructor parameter properties, and var before its declaration', async () => {
+    const { at, field } = await paint('typescript', [
+      /* 1 */ 'class A {',
+      /* 2 */ '  private total = 0',
+      /* 3 */ '  constructor(private repo: Repo, plain: number) {',
+      /* 4 */ '    this.total = plain + repo.size',
+      /* 5 */ '  }',
+      /* 6 */ '  f() {',
+      /* 7 */ '    g(x)',
+      /* 8 */ '    if (ok) { var x = 1 }',
+      /* 9 */ '    return this.total + this.repo.size + x',
+      /* 10 */ '  }',
+      /* 11 */ '}',
+    ].join('\n'))
+    expect([at(2, 'total') !== undefined, field(2, 'total')]).toEqual([true, true])
+    expect([at(4, 'total'), at(9, 'total'), field(9, 'total')]).toEqual([at(2, 'total'), at(2, 'total'), true])
+    // A parameter property is a field: its own constructor's bare uses and this.repo elsewhere.
+    expect([field(3, 'repo'), at(4, 'repo'), at(9, 'repo')]).toEqual([true, at(3, 'repo'), at(3, 'repo')])
+    expect([field(3, 'plain'), at(4, 'plain')]).toEqual([false, at(3, 'plain')])
+    // var belongs to its function, seen before its declaration and after its block.
+    expect(at(8, 'x')).toBeDefined()
+    expect([at(7, 'x'), at(9, 'x')]).toEqual([at(8, 'x'), at(8, 'x')])
   })
 
   it('reads TSX with the same query', async () => {

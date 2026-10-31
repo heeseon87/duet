@@ -26,20 +26,28 @@ export function varLangOf(path: string | undefined): VarLang | undefined {
 /** A name a language gives a block without declaring it, as Kotlin's `it` in a lambda that names no parameter. */
 export type Implicit = { name: string; scope: string; unless: string }
 /**
- * What a query cannot say for a language: an implicit name, and the node type of a string's literal text where `$name`
- * refers to a variable (a Kotlin template; the grammar leaves `"$order"` as text, unlike `${order}`).
+ * What a query cannot say for a language: an implicit name, the node type of a string's literal text where `$name`
+ * refers to a variable (a Kotlin template; the grammar leaves `"$order"` as text, unlike `${order}`), and definitions
+ * that belong further out than where they stand (`lift`: a capture name to the scope types it goes up to, hoisted
+ * there), as TypeScript's `var` (its function) and a constructor's `private repo` (its class).
  */
-export type Rules = { implicit?: Implicit; templateText?: string }
+export type Rules = { implicit?: Implicit; templateText?: string; lift?: Record<string, string[]> }
+const TS_LIFT = {
+  'local.definition.var': ['function_declaration', 'function_expression', 'arrow_function', 'method_definition', 'generator_function_declaration', 'generator_function'],
+  'local.definition.member': ['class_body'],
+}
 export const RULES: Partial<Record<VarLang, Rules>> = {
   kotlin: { implicit: { name: 'it', scope: 'lambda_literal', unless: 'lambda_parameters' }, templateText: 'string_content' },
+  typescript: { lift: TS_LIFT },
+  tsx: { lift: TS_LIFT },
 }
 
 /** A definition seen from `at` on in its scope, or everywhere in it when hoisted (a class's properties). */
 type Def = { name: string; scope: Node; at: number; hoisted: boolean; node?: Node }
-/** A name used: where it stands, and the node whose scopes it is looked up in. */
-type Ref = { name: string; at: number; from: Node; line: number; col: number }
+/** A name used: where it stands, the node whose scopes it is looked up in, and whether it is a member (`this.x`). */
+type Ref = { name: string; at: number; from: Node; line: number; col: number; member?: boolean }
 
-const refOf = (n: Node): Ref => ({ name: n.text, at: n.startIndex, from: n, line: n.startPosition.row, col: n.startPosition.column })
+const refOf = (n: Node, member = false): Ref => ({ name: n.text, at: n.startIndex, from: n, line: n.startPosition.row, col: n.startPosition.column, member })
 
 /** The `$name`s in a string's literal text; the grammar may cut the text in pieces, so touching pieces are read as one. */
 function templateRefs(str: Node, textType: string): Ref[] {
@@ -70,13 +78,18 @@ function templateRefs(str: Node, textType: string): Ref[] {
  */
 export function localMarks(root: Node, query: Query, rules: Rules = {}): VarMark[] {
   const scopes = new Set<number>([root.id])
-  const defNodes = new Map<number, { node: Node; hoisted: boolean }>()
+  const defNodes = new Map<number, { node: Node; hoisted: boolean; lift?: string[] }>()
   const refs: Ref[] = []
   const ignored = new Set<number>()
   for (const { name, node } of query.captures(root)) {
     if (name === 'local.scope') scopes.add(node.id)
-    else if (name === 'local.definition' || name === 'local.definition.hoisted') defNodes.set(node.id, { node, hoisted: name.endsWith('hoisted') || Boolean(defNodes.get(node.id)?.hoisted) })
+    else if (name === 'local.definition' || name === 'local.definition.hoisted' || rules.lift?.[name]) {
+      const was = defNodes.get(node.id), lift = was?.lift ?? rules.lift?.[name]
+      defNodes.set(node.id, { node, hoisted: Boolean(lift) || name.endsWith('hoisted') || Boolean(was?.hoisted), lift })
+    }
     else if (name === 'local.reference') refs.push(refOf(node))
+    // A member through `this`: it refers to a class's property or field, whatever a local of that name.
+    else if (name === 'local.reference.member') refs.push(refOf(node, true))
     else if (name === 'local.template') { if (rules.templateText) refs.push(...templateRefs(node, rules.templateText)) }
     else if (name === 'ignore') ignored.add(node.id)
   }
@@ -100,8 +113,12 @@ export function localMarks(root: Node, query: Query, rules: Rules = {}): VarMark
     else byName.set(key, [d])
     all.push(d)
   }
-  for (const { node, hoisted } of [...defNodes.values()].sort((a, b) => a.node.startIndex - b.node.startIndex)) {
-    define({ name: node.text, scope: scopeOf(node) ?? root, at: node.startIndex, hoisted, node })
+  const liftedTo = (n: Node, types: string[]): Node => {
+    for (let p = n.parent; p; p = p.parent) if (scopes.has(p.id) && types.includes(p.type)) return p
+    return root
+  }
+  for (const { node, hoisted, lift } of [...defNodes.values()].sort((a, b) => a.node.startIndex - b.node.startIndex)) {
+    define({ name: node.text, scope: lift ? liftedTo(node, lift) : scopeOf(node) ?? root, at: node.startIndex, hoisted, node })
   }
 
   // The implicit name belongs to the nearest block that gives it, made the first time something uses it.
@@ -118,16 +135,18 @@ export function localMarks(root: Node, query: Query, rules: Rules = {}): VarMark
     return undefined
   }
   const resolve = (ref: Ref): Def | undefined => {
+    // A member sees only class properties and fields (hoisted); a name, those and what was defined before it.
+    const sees = (d: Def) => (ref.member ? d.hoisted : d.hoisted || d.at < ref.at)
     for (let s = scopeOf(ref.from); s; s = scopeOf(s)) {
       let found: Def | undefined
-      for (const d of byName.get(`${s.id}\0${ref.name}`) ?? []) if ((d.hoisted || d.at < ref.at) && (!found || d.at > found.at)) found = d
+      for (const d of byName.get(`${s.id}\0${ref.name}`) ?? []) if (sees(d) && (!found || d.at > found.at)) found = d
       if (found) return found
     }
-    return implied(ref)
+    return ref.member ? undefined : implied(ref)
   }
   const uses: [Ref, Def][] = []
   for (const ref of refs) {
-    if (ignored.has(ref.from.id) || (ref.from.text === ref.name && defNodes.has(ref.from.id))) continue
+    if ((ignored.has(ref.from.id) && !ref.member) || (ref.from.text === ref.name && defNodes.has(ref.from.id))) continue
     const d = resolve(ref)
     if (d) uses.push([ref, d])
   }

@@ -15,6 +15,7 @@
   (for_statement)
   (catch_block)
   (when_expression)
+  (setter)
 ] @local.scope
 
 (parameter (identifier) @local.definition)
@@ -28,9 +29,12 @@
 (lambda_parameters (multi_variable_declaration (variable_declaration (identifier) @local.definition)))
 (catch_block (identifier) @local.definition)
 (when_subject (variable_declaration (identifier) @local.definition))
+(setter (identifier) @local.definition)
 
 (identifier) @local.reference
 (string_literal) @local.template
+; `this.repo`: the class's property, whatever a local of that name.
+(navigation_expression (this_expression) (identifier) @local.reference.member)
 
 ; A member after `.`, `?.` or `::`; a named argument's name; a type; a declaration's own name.
 (navigation_expression (identifier) @ignore .)

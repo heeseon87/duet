@@ -15,6 +15,8 @@
   (enhanced_for_statement)
   (catch_clause)
   (try_with_resources_statement)
+  (switch_rule)
+  (switch_block_statement_group)
 ] @local.scope
 
 (formal_parameter name: (identifier) @local.definition)
@@ -26,10 +28,14 @@
 (catch_formal_parameter name: (identifier) @local.definition)
 (resource name: (identifier) @local.definition)
 (instanceof_expression name: (identifier) @local.definition)
+(type_pattern (identifier) @local.definition)
+(record_pattern_component (identifier) @local.definition)
 (field_declaration declarator: (variable_declarator name: (identifier) @local.definition.hoisted))
 (record_declaration parameters: (formal_parameters (formal_parameter name: (identifier) @local.definition.hoisted)))
 
 (identifier) @local.reference
+; `this.repo`: the class's field, whatever a local of that name.
+(field_access object: (this) field: (identifier) @local.reference.member)
 
 ; A field after `.`, a method's name, a declaration's own name.
 (field_access field: (identifier) @ignore)
@@ -40,3 +46,4 @@
 (interface_declaration name: (identifier) @ignore)
 (enum_declaration name: (identifier) @ignore)
 (record_declaration name: (identifier) @ignore)
+(record_pattern (identifier) @ignore)
