@@ -21,6 +21,42 @@ const iga = (id: string) => `${id}${closed(id) ? '이' : '가'}`
 /** How long a choice can be taken back from its bar; once it is gone, what was kept for Claude goes. */
 const UNDO_MS = 8000
 
+/** The decision itself keeps at least this much room between the list and the side. */
+const MAIN_MIN = 360
+
+/**
+ * A column's width, dragged by its edge (the list's right one, the side's left one) and remembered; a double click
+ * gives the layout back its own width. Unset, the CSS decides, and CSS also keeps the decision its room as the window
+ * narrows.
+ */
+function useColumn(key: string, edge: 'right' | 'left', min: number, max: (box: DOMRect, own: HTMLElement) => number) {
+  const [width, setWidth] = useState(() => Number(local.get(key)) || undefined)
+  const drag = (e: React.PointerEvent<HTMLElement>) => {
+    const handle = e.currentTarget, own = handle.parentElement, box = handle.closest('.decide')?.getBoundingClientRect()
+    if (!own || !box) return
+    e.preventDefault()
+    handle.setPointerCapture(e.pointerId)
+    handle.classList.add('dragging')
+    const ownBox = own.getBoundingClientRect()
+    let last: number | undefined
+    const move = (m: PointerEvent) => {
+      const raw = edge === 'right' ? m.clientX - ownBox.left : ownBox.right - m.clientX
+      last = Math.round(Math.max(min, Math.min(raw, max(box, own))))
+      setWidth(last)
+    }
+    const up = () => {
+      handle.classList.remove('dragging')
+      handle.removeEventListener('pointermove', move)
+      handle.removeEventListener('pointerup', up)
+      if (last !== undefined) local.set(key, String(last))
+    }
+    handle.addEventListener('pointermove', move)
+    handle.addEventListener('pointerup', up)
+  }
+  const reset = () => { local.set(key, ''); setWidth(undefined) }
+  return { width, handle: <div className={`dm-split ${edge}`} onPointerDown={drag} onDoubleClick={reset} title="끌어서 폭 조절, 더블클릭하면 처음 폭으로" /> }
+}
+
 /**
  * Decision mode: the open decisions one after another over the canvas. Each choice lands on the map at once; what
  * Claude should hear is kept and told together when the last is made or the mode closes (`flushDecisions`).
@@ -41,6 +77,9 @@ export function DecisionMode({ map, start, stageKey, onClose }: { map: CanvasMap
   const [undo, setUndo] = useState<{ decision: string; option: string; revision: number; moved?: boolean }>()
   const [busy, setBusy] = useState(false)
   const whyInput = useRef<HTMLInputElement>(null)
+  const listCol = useColumn('canvas.decideList', 'right', 180, () => 400)
+  // The list, when shown, sits beside the side too; hidden, its width is 0.
+  const sideCol = useColumn('canvas.decideSide', 'left', 280, (box, own) => box.width - (own.parentElement?.querySelector('.dm-list')?.getBoundingClientRect().width ?? 0) - MAIN_MIN)
 
   const d = decisions.find(x => x.id === current && !x.chosen)
   const pick = d ? (picks[d.id] ?? d.recommended) : undefined
@@ -126,8 +165,10 @@ export function DecisionMode({ map, start, stageKey, onClose }: { map: CanvasMap
   const index = d ? decisions.findIndex(x => x.id === d.id) : -1
   const asked = d ? threads.filter(t => t.target === d.id || d.options.some(o => o.id === t.target)) : []
   return (
-    <div className="decide" role="dialog" aria-label="결정 모드">
+    <div className="decide" role="dialog" aria-label="결정 모드"
+      style={{ ...(listCol.width ? { '--dm-list': `${listCol.width}px` } : {}), ...(sideCol.width ? { '--dm-side': `${sideCol.width}px` } : {}) } as React.CSSProperties}>
       <aside className="dm-list">
+        {listCol.handle}
         <div className="dm-head"><b>결정 {decisions.length}개</b><span className="dm-count">{made} 정함 · {decisions.length - made} 남음</span></div>
         <div className="dm-bar"><i style={{ width: `${decisions.length ? (made / decisions.length) * 100 : 0}%` }} /></div>
         <div className="dm-items">
@@ -209,7 +250,7 @@ export function DecisionMode({ map, start, stageKey, onClose }: { map: CanvasMap
         )}
       </main>
 
-      <Aside map={map} d={d} pick={pick} onPick={setPick} stageKey={stageKey} />
+      <Aside map={map} d={d} pick={pick} onPick={setPick} stageKey={stageKey} split={sideCol.handle} />
     </div>
   )
 }
@@ -255,11 +296,12 @@ function Summary({ decisions, waiting, onReopen, onClose }: { decisions: CanvasD
 }
 
 /** Beside the decision: the map with the option's share lit, or the code it touches. */
-function Aside({ map, d, pick, onPick, stageKey }: { map: CanvasMap; d?: CanvasDecision; pick?: string; onPick: (o: string) => void; stageKey: string }) {
+function Aside({ map, d, pick, onPick, stageKey, split }: { map: CanvasMap; d?: CanvasDecision; pick?: string; onPick: (o: string) => void; stageKey: string; split: React.ReactNode }) {
   const [tab, setTabRaw] = useState(() => (local.get('canvas.decideTab') === 'code' ? 'code' : 'map'))
   const setTab = (t: 'map' | 'code') => { local.set('canvas.decideTab', t); setTabRaw(t) }
   return (
     <section className="dm-side">
+      {split}
       <div className="dm-tabs" role="tablist">
         <button role="tab" aria-selected={tab === 'map'} onClick={() => setTab('map')}><MapIcon size={13} /> 지도</button>
         <button role="tab" aria-selected={tab === 'code'} onClick={() => setTab('code')}><FileCode2 size={13} /> 코드</button>
