@@ -1,11 +1,12 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
-import { FileDiff, ListTree, Loader2, Minus, Palette, Plus, X } from 'lucide-react'
+import { Copy, Ellipsis, FileDiff, ListTree, Loader2, Minus, Palette, Plus, X } from 'lucide-react'
 import { fileOfRef, filesUnder, labelOf, relationKey, type CanvasMap } from '../../../shared/canvas.ts'
 import { absoluteRef, refBase } from '../../../shared/mapFiles.ts'
 import type { DiffResult } from '../../../shared/protocol.ts'
 import { api, q } from '../api.ts'
 import { Line, useTokens } from '../lib/Code.tsx'
 import { local, useApp } from '../state.ts'
+import { Popover, useAnchor } from '../lib/ui.tsx'
 import { useReview } from '../review/store.ts'
 import { PathLabel } from '../review/DiffView.tsx'
 import { escapeRe, matchRanges, registry } from '../review/FindBar.tsx'
@@ -80,6 +81,8 @@ export function sourceOf(abs: string, workspace: string, mapName: string | undef
 export function CodePane({ map, target, want, slide, onClose }: { map: CanvasMap; target: string; want?: { file: string; nonce: number }; slide?: boolean; onClose: () => void }) {
   const workspace = useApp(s => s.workspace?.path ?? '')
   const setTab = useApp(s => s.setTab)
+  const toast = useApp(s => s.toast)
+  const more = useAnchor()
   const [slideIn] = useState(slide)
   const mapName = useCanvas(s => s.mapName), codeRoot = useCanvas(s => s.code?.root)
   const diff = useReview(s => s.diff), root = useReview(s => s.root), bound = useReview(s => s.bound), editing = useReview(s => s.editing)
@@ -156,21 +159,34 @@ export function CodePane({ map, target, want, slide, onClose }: { map: CanvasMap
     <aside className={`code-pane ${slideIn ? 'slide' : ''}`} ref={width.pane} style={{ width: width.value, '--code-scale': zoom.scale } as React.CSSProperties}>
       <div className="code-split" onPointerDown={width.drag} title="끌어서 폭 조절" />
       <div className="code-pane-head">
-        <b className="grow ellipsis">{head}</b>
+        <b className="ellipsis">{head}</b>
+        {changed.size > 0 && <span className="code-added" title={`더해지거나 바뀐 줄 ${changed.size}개`}>+{changed.size}</span>}
+        {changedFile && <label className="toggle" title="리뷰의 Viewed"><input type="checkbox" checked={viewed} onChange={() => toggleViewed(changedFile)} /> Viewed</label>}
+        <span className="grow" />
         <button className="iconbtn" aria-pressed={outlineOpen} title={outlineOpen ? '구조 닫기' : '구조: 이 파일의 클래스·함수 목록'} onClick={toggleOutline}><ListTree size={14} /></button>
         {varLangOf(source?.path) && (
           <button className="iconbtn" aria-pressed={varsOn} title={varsOn ? '변수 색 끄기' : '변수 색: 변수마다 선언부터 쓰는 곳까지 한 색으로, 스코프별로'} onClick={toggleVars}><Palette size={14} /></button>
         )}
-        <div className="seg code-zoom">
-          <button onClick={() => zoom.step(-1)} disabled={zoom.scale <= MIN_SCALE} title="코드 축소 (⌘ + 휠)"><Minus size={12} /></button>
-          <button onClick={() => zoom.set(1)} title="100%로">{Math.round(zoom.scale * 100)}%</button>
-          <button onClick={() => zoom.step(1)} disabled={zoom.scale >= MAX_SCALE} title="코드 확대 (⌘ + 휠)"><Plus size={12} /></button>
-        </div>
-        {source && (
-          <button className="iconbtn" title="리뷰에서 보기" onClick={() => { setTab('review'); void openFile(fileOfRef(ref!), from > 0 ? from : undefined) }}><FileDiff size={14} /></button>
-        )}
+        <button ref={more.ref} className="iconbtn" aria-pressed={more.open} aria-label="더 보기: 글자 크기, 경로 복사, 리뷰에서 보기" title="더 보기: 글자 크기, 경로 복사, 리뷰에서 보기" onClick={more.toggle}><Ellipsis size={14} /></button>
         <button className="iconbtn" title="닫기 (c)" onClick={onClose}><X size={14} /></button>
       </div>
+      {more.open && (
+        <Popover anchor={more.ref.current} onClose={more.close} align="end" width={230} className="code-more">
+          <div className="code-more-row">
+            <span className="grow">글자 크기</span>
+            <div className="seg code-zoom">
+              <button onClick={() => zoom.step(-1)} disabled={zoom.scale <= MIN_SCALE} title="코드 축소 (⌘ + 휠)"><Minus size={12} /></button>
+              <button onClick={() => zoom.set(1)} title="100%로">{Math.round(zoom.scale * 100)}%</button>
+              <button onClick={() => zoom.step(1)} disabled={zoom.scale >= MAX_SCALE} title="코드 확대 (⌘ + 휠)"><Plus size={12} /></button>
+            </div>
+          </div>
+          {source && <>
+            <div className="menu-sep" />
+            <button className="menu-item" onClick={() => { void navigator.clipboard.writeText(source.path); toast('경로를 복사했어'); more.close() }}><Copy size={14} /> 경로 복사</button>
+            <button className="menu-item" title="리뷰에서 보기" onClick={() => { more.close(); setTab('review'); void openFile(fileOfRef(ref!), from > 0 ? from : undefined) }}><FileDiff size={14} /> 리뷰에서 보기</button>
+          </>}
+        </Popover>
+      )}
       {refs.length > 1 && (
         <div className="code-tabs">
           {refs.map(r => (
@@ -184,10 +200,9 @@ export function CodePane({ map, target, want, slide, onClose }: { map: CanvasMap
           <>
             <div className="code-pane-path">
               <PathLabel path={source.path} />
-              <span className="muted">{source.ref === 'WORKTREE' ? 'Working tree' : source.ref.slice(0, 7)}{text !== undefined && ` · ${lines.length}줄`}{changed.size > 0 && ` · 바뀐 줄 ${changed.size}`}
+              <span className="muted">{source.ref === 'WORKTREE' ? 'Working tree' : source.ref.slice(0, 7)}{text !== undefined && ` · ${lines.length}줄`}
                 {marks.word && marks.hits > 0 && <> · <code>{marks.word.text.length > 24 ? `${marks.word.text.slice(0, 23)}…` : marks.word.text}</code> {marks.hits > 2000 ? '2000+' : marks.hits}곳</>}
               </span>
-              {changedFile && <label className="toggle" title="리뷰의 Viewed"><input type="checkbox" checked={viewed} onChange={() => toggleViewed(changedFile)} /> Viewed</label>}
             </div>
             <div className="code-pane-view">
             {outlineOpen && text !== undefined && !outlineWidth.hiding && <Outline items={outline} active={active} floating={floating} width={outlineWidth.value} onPick={goTo} />}
