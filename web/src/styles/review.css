@@ -1,9 +1,34 @@
 /* ---------------------------------------------------------------- review */
 .review { display: flex; flex-direction: column; height: 100%; min-height: 0; }
 .source-bar {
-  display: flex; align-items: center; gap: 8px; padding: 7px 12px; border-bottom: 1px solid var(--line); background: var(--panel); flex-wrap: nowrap; flex: none; min-width: 0;
+  display: flex; align-items: center; gap: 8px; padding: 0 24px; min-height: 40px; border-bottom: 1px solid var(--line); background: var(--panel); flex-wrap: nowrap; flex: none; min-width: 0;
 }
-.source-bar > .iconbtn, .source-bar > .summary { flex: none; }
+/* The review's head (R1): what is reviewed as a title, its size on the line under it; the modes are tabs below. */
+.review-head { flex: none; display: flex; flex-direction: column; gap: 2px; padding: 0 24px 6px; background: var(--panel); min-width: 0; }
+.review-title { margin: 0; font-size: 22px; font-weight: 700; letter-spacing: -0.01em; line-height: 36px; }
+.review-meta { display: flex; align-items: center; flex-wrap: wrap; gap: 2px 0; font-size: 12px; color: var(--ink-3); font-variant-numeric: tabular-nums; min-width: 0; }
+.review-meta > * + *::before { content: '·'; margin: 0 8px; color: var(--ink-4); }
+.review-meta b { font-weight: 500; color: var(--ink-2); }
+.review-meta b.add { color: var(--add); }
+.review-meta b.del { color: var(--del); }
+.review-meta b.agent { color: var(--agent); }
+.review-meta .link-btn { border: 0; background: transparent; padding: 0; color: var(--ink-3); display: inline-flex; align-items: center; }
+.review-meta .link-btn:hover { color: var(--ink); }
+.source-bar .seg.kinds { align-self: stretch; border: 0; border-radius: 0; background: transparent; gap: 2px; margin-left: -10px; }
+.source-bar .seg.kinds button { height: auto; padding: 0 10px; border: 0; border-bottom: 2px solid transparent; color: var(--ink-3); }
+.source-bar .seg.kinds button:hover { color: var(--ink); }
+.source-bar .seg.kinds button[aria-pressed='true'] { background: transparent; color: var(--ink); border-bottom-color: var(--ink); }
+.source-bar .seg.kinds button > svg { display: none; }
+/* Crowded (two pickers or more, or the map's code being changed) or narrow: the tabs give way to their icons. */
+@container (max-width: 1180px) {
+  .source-bar:is(.editing, :has(.ref-pick ~ .ref-pick)) .kind-label { display: none; }
+  .source-bar:is(.editing, :has(.ref-pick ~ .ref-pick)) .seg.kinds button > svg { display: block; }
+}
+@container (max-width: 760px) {
+  .source-bar .kind-label { display: none; }
+  .source-bar .seg.kinds button > svg { display: block; }
+}
+.source-bar > .iconbtn { flex: none; }
 .bound-chip { display: inline-flex; align-items: center; gap: 6px; height: 26px; padding: 0 9px; border-radius: var(--r-1); background: var(--accent-soft); color: var(--accent-ink); font-size: 12px; min-width: 0; flex: 0 1 auto; max-width: 280px; }
 .bound-chip svg { flex: none; }
 .bound-source { font-size: 12px; color: var(--ink-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
@@ -12,7 +37,6 @@
 .ref-pick.static:hover { background: var(--panel); }
 .source-bar.editing { box-shadow: inset 0 -2px 0 var(--accent); }
 .source-bar .kinds button { font-size: 12px; }
-.source-bar .summary { font-size: 12px; color: var(--ink-2); font-variant-numeric: tabular-nums; }
 .ref-pick {
   display: inline-flex; align-items: center; gap: 6px; height: 26px; border: 1px solid var(--line-strong); border-radius: var(--r-1); background: var(--panel);
   padding: 0 8px; font-size: 12px; max-width: 320px; min-width: 64px; flex: 0 1 auto; overflow: hidden; white-space: nowrap;
@@ -32,7 +56,6 @@
 .nav-search input { border: 0; outline: none; background: transparent; flex: 1; min-width: 0; font-size: 12.5px; }
 .nav-progress { display: flex; align-items: center; gap: 8px; padding: 6px 12px; font-size: 11px; border-bottom: 1px solid var(--line); }
 .nav-progress .bar { flex: 1; width: auto; }
-.nav-foot { padding: 6px 12px; font-size: 11px; border-top: 1px solid var(--line); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .tree { flex: 1; overflow: auto; padding: 4px 0 12px; }
 .tree-row { display: flex; align-items: center; gap: 6px; width: 100%; border: 0; background: transparent; text-align: left; height: 26px; padding-right: 10px; font-size: 12.5px; color: var(--ink); }
 .tree-row:hover { background: var(--hover); }
@@ -155,9 +178,6 @@ table.diff.split td.no { position: relative; }
 .empty.small { height: auto; padding: 24px 12px; }
 .empty.small p { font-size: 12px; }
 
-.review-keys { display: flex; align-items: center; gap: 14px; padding: 4px 14px; border-top: 1px solid var(--line); background: var(--panel); font-size: 11px; flex: none; overflow: hidden; white-space: nowrap; }
-.review-keys kbd { margin-right: 2px; }
-.review-keys .link-btn { color: var(--ink-3); font-family: var(--font-mono); font-size: 10.5px; }
 
 .ws-pick { display: flex; align-items: center; gap: 8px; border: 0; background: transparent; padding: 3px 6px; margin-left: -6px; border-radius: var(--r-1); max-width: 520px; min-width: 0; font-family: var(--font-mono); font-size: 11.5px; color: var(--ink-3); }
 .ws-pick b { font-weight: 500; color: var(--ink-2); }
@@ -190,8 +210,6 @@ select.opt { border-color: var(--line); padding: 0 4px; }
 .comment-meta .muted { white-space: nowrap; }
 .comment-excerpt { overflow: hidden; text-overflow: ellipsis; }
 .source-bar { container-type: inline-size; }
-@container (max-width: 1180px) { .source-bar .kind-label { display: none; } }
-@container (max-width: 860px) { .source-bar .summary { display: none; } }
 .kind-label { white-space: nowrap; }
 
 /* Pull request */
@@ -233,7 +251,10 @@ select.opt { border-color: var(--line); padding: 0 4px; }
 .ref-pick.other-root { background: var(--accent-soft); color: var(--accent-ink); border-color: transparent; }
 .ref-pick.other-root .muted { color: inherit; opacity: .75; }
 .menu-item.quiet { color: var(--ink-3); }
-.repo-hint { display: flex; align-items: center; gap: 8px; padding: 6px 12px; border-bottom: 1px solid var(--line); background: var(--accent-soft); color: var(--accent-ink); font-size: 12.5px; flex: none; }
+/* Above the review's title: the repos the conversation changed outside the workspace, as chips. */
+.repo-hint { display: flex; align-items: center; gap: 8px; padding: 0; min-height: 26px; color: var(--agent); font-family: var(--font-mono); font-size: 11.5px; flex: none; min-width: 0; }
+.repo-hint .btn { height: 22px; padding: 0 8px; border-color: var(--line); background: transparent; color: var(--agent); font-weight: 500; }
+.repo-hint .btn:hover { background: var(--agent-soft); border-color: transparent; }
 .repo-hint .btn { gap: 6px; }
 .repo-hint .btn .muted { font-weight: 400; }
 

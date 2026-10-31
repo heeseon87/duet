@@ -228,7 +228,7 @@ function RepoHint() {
   return (
     <div className="repo-hint">
       <FolderGit2 size={13} />
-      <span>대화가 작업 공간 밖 저장소에서 코드를 고쳤어</span>
+      <span>대화가 고친 저장소</span>
       {repos.slice(0, 3).map(r => (
         <button key={r.path} className="btn sm" onClick={() => void setRoot(r.path)}>
           <b>{r.label}</b>{r.branch && <span className="muted">{r.branch}</span>}
@@ -276,11 +276,9 @@ function ViewMenu() {
 
 /** A bound map holds the review on its code: what it shows, and the way to change it (on the map, not here). */
 function BoundBar() {
-  const { bound, root, source, diff, loading, refresh, editCode, setSource, showMapCode, showLastTurn } = useReview()
+  const { bound, root, source, loading, refresh, editCode, setSource, showMapCode, showLastTurn } = useReview()
   const currentSession = useApp(s => s.currentSession)
   if (!bound) return null
-  const adds = diff?.files.reduce((n, f) => n + f.additions, 0) ?? 0
-  const dels = diff?.files.reduce((n, f) => n + f.deletions, 0) ?? 0
   return (
     <div className="source-bar bound">
       <span className="bound-chip" title="캔버스에 연 지도가 이 코드를 가리켜. 지도와 리뷰는 같은 코드를 보여 줘">
@@ -303,15 +301,40 @@ function BoundBar() {
       )}
       <button className="btn sm" onClick={editCode}>코드 기준 바꾸기</button>
       <span className="grow" />
-      {diff && <span className="summary">파일 <b>{diff.files.length}</b>개 <b className="add">+{adds}</b> <b className="del">−{dels}</b></span>}
       <ViewMenu />
       <button className="iconbtn" title="Refresh (r)" onClick={() => void refresh()}><RefreshCw size={14} className={loading ? 'spin' : ''} /></button>
     </div>
   )
 }
 
+/** What the review shows, as a title, and how big it is, on the line under it (R1). */
+function ReviewHead() {
+  const { bound, root, diff, viewed, comments, repos } = useReview()
+  const toast = useApp(s => s.toast)
+  const name = bound ? `${bound.title}의 코드` : `${repos.find(r => r.path === root)?.label ?? root?.split('/').pop() ?? '저장소'}의 변경`
+  const adds = diff?.files.reduce((n, f) => n + f.additions, 0) ?? 0
+  const dels = diff?.files.reduce((n, f) => n + f.deletions, 0) ?? 0
+  const seen = diff?.files.filter(f => viewed[f.path]).length ?? 0
+  const open = comments.filter(c => c.state !== 'resolved').length
+  const drafts = comments.filter(c => c.state === 'draft').length
+  return (
+    <div className="review-head">
+      <RepoHint />
+      <h1 className="review-title ellipsis" title={root}>{name}</h1>
+      <div className="review-meta">
+        {diff && <span title={`${diff.oldRef} → ${diff.newRef}`}><b>{diff.oldLabel} → {diff.newLabel}</b></span>}
+        {diff && <span>파일 {diff.files.length}</span>}
+        {diff && <span><b className="add">+{adds}</b> <b className="del">−{dels}</b></span>}
+        {diff && diff.files.length > 0 && <span>{seen}/{diff.files.length} viewed</span>}
+        {open > 0 && <span>코멘트 {open}{drafts > 0 && <b className="agent"> · 보내기 전 {drafts}</b>}</span>}
+        {root && <button className="link-btn" title={`${root}\n경로 복사`} onClick={() => { void navigator.clipboard.writeText(root); toast('경로를 복사했어') }}><Copy size={11} /></button>}
+      </div>
+    </div>
+  )
+}
+
 function SourceBar() {
-  const { source, setSource, info, root, diff, loading, refresh, showLastTurn, bound, editing, saveCode, cancelCode } = useReview()
+  const { source, setSource, info, root, loading, refresh, showLastTurn, bound, editing, saveCode, cancelCode } = useReview()
   const currentSession = useApp(s => s.currentSession)
   const turns = useTurns(currentSession, root, source.kind === 'branch')
   const pick = (kind: DiffSource['kind']) => {
@@ -323,8 +346,6 @@ function SourceBar() {
     else if (currentSession) void showLastTurn(currentSession)
     else useApp.getState().toast('먼저 에이전트와 대화를 시작해 줘', 'error')
   }
-  const adds = diff?.files.reduce((n, f) => n + f.additions, 0) ?? 0
-  const dels = diff?.files.reduce((n, f) => n + f.deletions, 0) ?? 0
   if (bound && !editing) return <BoundBar />
   return (
     <div className={`source-bar ${editing ? 'editing' : ''}`}>
@@ -352,7 +373,6 @@ function SourceBar() {
           <button className="btn sm" onClick={() => void cancelCode()}>취소</button>
         </>
       )}
-      {diff && <span className="summary">파일 <b>{diff.files.length}</b>개 <b className="add">+{adds}</b> <b className="del">−{dels}</b></span>}
       <ViewMenu />
       <button className="iconbtn" title="Refresh (r)" onClick={() => void refresh()}><RefreshCw size={14} className={loading ? 'spin' : ''} /></button>
     </div>
@@ -590,8 +610,8 @@ export function ReviewView() {
 
   return (
     <div className="review">
+      <ReviewHead />
       <SourceBar />
-      <RepoHint />
       <div className="review-body">
         <nav className="review-nav">
           <div className="nav-tabs">
@@ -627,7 +647,6 @@ export function ReviewView() {
             </div>
           )}
           {model ? <MapTree model={model} /> : <FileTree files={files} />}
-          {diff && <div className="nav-foot muted" title={`${diff.oldRef} → ${diff.newRef}`}>{diff.oldLabel} → {diff.newLabel}</div>}
           </>}
         </nav>
         <main className="review-main">
@@ -658,12 +677,6 @@ export function ReviewView() {
           ) : null}
           {loading && diff && <div className="refreshing"><Loader2 size={12} className="spin" /></div>}
         </main>
-      </div>
-      <div className="review-keys muted">
-        <span><kbd>j</kbd><kbd>k</kbd> 파일</span><span><kbd>n</kbd><kbd>p</kbd> hunk</span><span><kbd>v</kbd> Viewed</span>
-        <span><kbd>u</kbd><kbd>s</kbd> Unified·Split</span><span><kbd>/</kbd> 찾기</span><span><kbd>m</kbd> 코멘트</span><span>줄 번호 드래그 → 코멘트</span>
-        <span className="grow" />
-        {root && <button className="link-btn" onClick={() => void navigator.clipboard.writeText(root)}><Copy size={11} /> {root}</button>}
       </div>
     </div>
   )
