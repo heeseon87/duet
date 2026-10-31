@@ -528,7 +528,14 @@ export function CanvasView() {
   // Choices decision mode kept for Claude and could not tell (the tab closed first): told when their map opens again.
   useEffect(() => { if (s.mapName && !s.deciding) void s.flushDecisions(true) }, [s.mapName]) // eslint-disable-line react-hooks/exhaustive-deps
   // Another map, or an old revision shown: decision mode is about the map that was open.
-  useEffect(() => { if (s.deciding) s.setDeciding(false) }, [s.mapName, Boolean(s.preview)]) // eslint-disable-line react-hooks/exhaustive-deps
+  // Another map or an old revision closes decision mode; mounting does not (the rail's badge opens it from the review).
+  const shownKey = `${s.mapName}:${Boolean(s.preview)}`
+  const lastShown = useRef(shownKey)
+  useEffect(() => {
+    if (lastShown.current === shownKey) return
+    lastShown.current = shownKey
+    if (useCanvas.getState().deciding) s.setDeciding(false)
+  }, [shownKey]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const shownMap = s.preview?.map ?? s.map
   // The same files the review lists, matched to the parts the same way: what is built, what is not yet.

@@ -6,7 +6,8 @@ export function Popover({ anchor, onClose, children, align = 'start', width, cla
   anchor: HTMLElement | null
   onClose: () => void
   children: ReactNode
-  align?: 'start' | 'end'
+  /** `side` opens beside the anchor (to its right), for the rail. */
+  align?: 'start' | 'end' | 'side'
   width?: number
   className?: string
 }) {
@@ -17,6 +18,10 @@ export function Popover({ anchor, onClose, children, align = 'start', width, cla
     const r = anchor.getBoundingClientRect()
     const w = width ?? ref.current?.offsetWidth ?? 240
     const h = ref.current?.offsetHeight ?? 200
+    if (align === 'side') {
+      setPos({ top: Math.max(8, Math.min(r.top, window.innerHeight - h - 8)), left: r.right + 8 })
+      return
+    }
     let left = align === 'end' ? r.right - w : r.left
     left = Math.max(8, Math.min(left, window.innerWidth - w - 8))
     let top = r.bottom + 6

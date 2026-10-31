@@ -92,7 +92,7 @@ await page.click('.seg.kinds button:has-text("Changes")'); await sleep(1500)
 check('back on Changes the chip is there too', (await chip()).includes('Changes'), await chip())
 
 // 3. The canvas: the chip names the open map and what is selected; the agent is told to read it with canvas_read.
-await page.click('.tabs [role=tab]:has-text("캔버스")')
+await page.click('.tabs [role=tab]:has-text("지도")')
 await page.waitForSelector('.stage-inner > svg .cv-node[data-target="Worker"]', { timeout: 20000 }).catch(() => {})
 await sleep(800)
 check('on the canvas the chip names the map', (await chip()) === `지도: ${title}`, await chip())
@@ -103,7 +103,7 @@ if (shots) await (await page.$('.composer')).screenshot({ path: `${shots}/view-c
 await page.click('.composer .chip.view button'); await sleep(200)
 check('× removes the map chip', !(await page.$('.composer .chip.view')))
 await page.click('.tabs [role=tab]:has-text("리뷰")'); await sleep(800)
-await page.click('.tabs [role=tab]:has-text("캔버스")'); await sleep(1200)
+await page.click('.tabs [role=tab]:has-text("지도")'); await sleep(1200)
 check('another tab and back brings it back', (await chip()).startsWith(`지도: ${title}`), await chip())
 const before = (await info()).turns
 await say('In one sentence, what is this map about? Use no tools.')

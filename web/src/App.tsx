@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { ChevronDown, FileDiff, FolderGit2, GitBranch, Keyboard, Monitor, Moon, PanelRightClose, PanelRightOpen, RotateCw, Shapes, Sun, Command, WifiOff } from 'lucide-react'
+import { ChevronDown, FileDiff, FolderGit2, GitBranch, Keyboard, MessageSquare, Monitor, Moon, RotateCw, Search, Shapes, Sun, WifiOff } from 'lucide-react'
 import { connection, subscribe } from './api.ts'
 import { local, useApp } from './state.ts'
 import { Popover, isTypingTarget, shortcutKey } from './lib/ui.tsx'
@@ -85,11 +85,11 @@ function ThemeButton() {
   const [open, setOpen] = useState(false)
   return (
     <>
-      <button ref={ref} className="iconbtn" title="테마" onClick={() => setOpen(o => !o)}>
-        {theme === 'system' ? <Monitor size={15} /> : theme === 'light' ? <Sun size={15} /> : <Moon size={15} />}
+      <button ref={ref} className="rail-btn" title="테마" onClick={() => setOpen(o => !o)}>
+        {theme === 'system' ? <Monitor size={16} /> : theme === 'light' ? <Sun size={16} /> : <Moon size={16} />}
       </button>
       {open && (
-        <Popover anchor={ref.current} onClose={() => setOpen(false)} align="end" width={300}>
+        <Popover anchor={ref.current} onClose={() => setOpen(false)} align="side" width={300}>
           <div className="menu-label">테마</div>
           <div className="seg" style={{ margin: '2px 6px 8px', display: 'flex' }}>
             {(['system', 'light', 'dark'] as const).map(t => (
@@ -159,7 +159,7 @@ function Offline() {
     return () => { connection.listeners.delete(l) }
   }, [])
   if (online) return null
-  return <span className="chip warn"><WifiOff size={11} /> 연결 끊김 · 재연결 중</span>
+  return <span className="rail-warn" title="연결 끊김 · 재연결 중"><WifiOff size={15} />끊김</span>
 }
 
 /** The server runs older code than the page; until `duet` restarts it, new features can reach it half-understood. */
@@ -167,15 +167,67 @@ function Stale() {
   const [stale, setStale] = useState(connection.stale)
   useEffect(() => subscribe(ev => { if (ev.topic === 'stale' || ev.topic === 'hello') setStale(connection.stale) }), [])
   if (!stale) return null
-  return <span className="chip warn" title="서버 코드가 바뀌었는데 서버는 예전 코드로 떠 있어. 터미널에서 duet을 실행하면 다시 떠."><RotateCw size={11} /> 서버 재시작 필요</span>
+  return <span className="rail-warn" title="서버 재시작 필요: 서버 코드가 바뀌었는데 서버는 예전 코드로 떠 있어. 터미널에서 duet을 실행하면 다시 떠."><RotateCw size={15} />재시작</span>
+}
+
+/** The conversation's place on the rail: what it is doing, and what waits for you. A click shows or hides the panel. */
+function ClaudeSlot() {
+  const { sideOpen, sideWidth, setSide, setTab } = useApp()
+  const status = useApp(s => s.sessions.find(x => x.id === s.currentSession)?.status)
+  const decisions = useCanvas(s => (s.map?.decisions ?? []).filter(d => !d.chosen).length)
+  const busy = status === 'running' || status === 'starting'
+  const label = status === 'waiting' ? '대기' : busy ? '작업' : 'Claude'
+  return (
+    <div className="rail-claude">
+      <button className={`rail-btn claude ${status ?? 'idle'}`} aria-pressed={sideOpen} onClick={() => setSide(sideWidth, !sideOpen)}
+        title={`Claude · ${status === 'waiting' ? '네 답을 기다려' : busy ? '일하는 중' : '쉬는 중'} · 대화 ${sideOpen ? '접기' : '펼치기'} (⌘3)`}>
+        <span className="claude-ring"><MessageSquare size={14} /></span>{label}
+      </button>
+      {decisions > 0 && (
+        <button className="rail-badge" title={`결정 ${decisions}개가 너를 기다려 · 눌러서 하나씩 정하기`} onClick={() => {
+          useApp.getState().closeReader()
+          setTab('canvas')
+          useCanvas.getState().setDeciding(true)
+        }}>{decisions}</button>
+      )}
+    </div>
+  )
+}
+
+/** The app's left rail: the two views, the conversation, and what is about the app itself. */
+function Rail({ onHelp }: { onHelp: () => void }) {
+  const { tab, setTab, setPalette } = useApp()
+  const reading = useApp(s => Boolean(s.reader))
+  const drafts = useReview(s => s.comments.filter(c => c.state === 'draft').length)
+  const fileCount = useReview(s => s.diff?.files.length)
+  const counted = useReview(s => s.root && `${s.repos.find(r => r.path === s.root)?.label ?? s.root.split('/').pop()} · ${sourceLabel(s.source)}`)
+  const go = (t: 'canvas' | 'review') => { useApp.getState().closeReader(); setTab(t) }
+  return (
+    <nav className="rail" aria-label="앱">
+      <span className="brand-mark rail-logo" title="Duet"><i /><i /></span>
+      <div className="tabs" role="tablist" aria-orientation="vertical">
+        <button role="tab" className="rail-btn" aria-selected={!reading && tab === 'canvas'} onClick={() => go('canvas')} title="지도 (⌘1)">
+          <Shapes size={16} />지도
+        </button>
+        <button role="tab" className="rail-btn" aria-selected={!reading && tab === 'review'} onClick={() => go('review')} title={counted ? `리뷰 (⌘2) · ${counted}${fileCount ? ` 파일 ${fileCount}개` : ''}` : '리뷰 (⌘2)'}>
+          <FileDiff size={16} /><span>리뷰{fileCount ? <> <span className="count">{fileCount > 999 ? '999+' : fileCount}</span></> : null}</span>
+          {drafts > 0 && <span className="badge agent" title={`보내기 전 코멘트 ${drafts}개`}>{drafts}</span>}
+        </button>
+      </div>
+      <span className="rail-sep" />
+      <ClaudeSlot />
+      <span className="grow" />
+      <Offline />
+      <Stale />
+      <button className="rail-btn" title="찾기 · 명령 (⌘K)" onClick={() => setPalette(true)}><Search size={16} />찾기</button>
+      <button className="rail-btn" title="단축키 (?)" onClick={onHelp}><Keyboard size={16} /></button>
+      <ThemeButton />
+    </nav>
+  )
 }
 
 export function App() {
   const { workspace, tab, setTab, sideOpen, sideWidth, setSide, paletteOpen, setPalette, openWorkspace, toast } = useApp()
-  const drafts = useReview(s => s.comments.filter(c => c.state === 'draft').length)
-  const fileCount = useReview(s => s.diff?.files.length)
-  const counted = useReview(s => s.root && `${s.repos.find(r => r.path === s.root)?.label ?? s.root.split('/').pop()} · ${sourceLabel(s.source)}`)
-  const decisions = useCanvas(s => (s.map?.decisions ?? []).filter(d => !d.chosen).length)
   const [booted, setBooted] = useState(false)
   const [help, setHelp] = useState(false)
   const sessions = useApp(s => s.sessions)
@@ -238,31 +290,10 @@ export function App() {
 
   return (
     <div className="app">
-      <header className="topbar">
-        <div className="brand"><span className="brand-mark"><i /><i /></span>Duet</div>
-        <span className="sep" />
-        <WorkspaceMenu />
-        <WorkChip />
-        <div className="tabs" role="tablist">
-          <button role="tab" aria-selected={!reading && tab === 'canvas'} onClick={() => { useApp.getState().closeReader(); setTab('canvas') }} title="캔버스 (⌘1)">
-            <Shapes size={14} /> 캔버스 {decisions > 0 && <span className="badge">{decisions}</span>}
-          </button>
-          <button role="tab" aria-selected={!reading && tab === 'review'} onClick={() => { useApp.getState().closeReader(); setTab('review') }} title={counted ? `리뷰 (⌘2) · ${counted}${fileCount ? ` 파일 ${fileCount}개` : ''}` : '리뷰 (⌘2)'}>
-            <FileDiff size={14} /> 리뷰 {fileCount ? <span className="count">{fileCount}</span> : null} {drafts > 0 && <span className="badge agent">{drafts}</span>}
-          </button>
-        </div>
-        <span className="spacer" />
-        <Offline />
-        <Stale />
-        <button className="palette-btn" onClick={() => setPalette(true)}><Command size={12} /> 명령 <kbd>⌘K</kbd></button>
-        <button className="iconbtn" title="단축키 (?)" onClick={() => setHelp(true)}><Keyboard size={15} /></button>
-        <ThemeButton />
-        <button className="iconbtn" title="에이전트 패널 (⌘3)" onClick={() => setSide(sideWidth, !sideOpen)}>
-          {sideOpen ? <PanelRightClose size={16} /> : <PanelRightOpen size={16} />}
-        </button>
-      </header>
+      <Rail onHelp={() => setHelp(true)} />
       <div className="main">
         <section className="stage">
+          <div className="ws-line"><WorkspaceMenu /><WorkChip /></div>
           {tab === 'canvas' ? <CanvasView /> : <ReviewView />}
           {reading && <Reader />}
         </section>
