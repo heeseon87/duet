@@ -402,6 +402,11 @@
 .decision-why { font-size: 12.5px; line-height: 1.6; color: var(--ink-2); word-break: keep-all; overflow-wrap: anywhere; }
 .decision-why b, .option-rejected b { font-weight: 650; margin-right: 4px; }
 .decision .reopen { justify-self: start; font-size: 12px; color: var(--ink-3); }
+.decision-ask { display: grid; gap: 6px; border-radius: 9px; padding: 8px 10px; background: var(--panel-2); }
+.decision-ask-head { font-size: 11.5px; font-weight: 650; color: var(--ink-2); }
+.ask-tags { display: flex; flex-wrap: wrap; gap: 4px; }
+.ask-tag { font-size: 11px; font-weight: 600; line-height: 18px; padding: 0 6px; border: 1px solid var(--line-strong); border-radius: 6px; background: var(--panel); color: var(--ink-2); }
+.decision-ask-text { font-size: 12.5px; line-height: 1.6; color: var(--ink); word-break: keep-all; overflow-wrap: anywhere; }
 .options { display: grid; gap: 6px; }
 .option { display: block; width: 100%; text-align: left; border: 1px solid var(--line-strong); background: var(--panel); border-radius: 9px; padding: 8px 10px; transition: border-color .15s, box-shadow .15s; color: var(--ink); }
 .option.pickable { cursor: pointer; }

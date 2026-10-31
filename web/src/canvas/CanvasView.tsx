@@ -3,7 +3,7 @@ import {
   ChevronDown, ChevronUp, ChevronsDownUp, ChevronsLeft, ChevronsRight, ChevronsUpDown, Clock3, Compass, Copy, Eye, ListCollapse, ZoomIn, GitCompareArrows, Maximize2, MessageSquare, Minus, Plus, Shapes, Sparkles, Undo2, Workflow,
   Check, CircleDot, FileCode2, FileDiff, ArrowLeft, ArrowRight, ArrowUp, ArrowDown, X, Bot, User, Trash2, Send, Pencil, Share, ImageDown, FolderGit2,
 } from 'lucide-react'
-import { deliveryLabel, describeDiff, diffMaps, exportMermaid, filesUnder, labelOf, relationKey, shapedBy, stepMark, type CanvasDecision, type CanvasElement, type CanvasMap, type CanvasRelation } from '../../../shared/canvas.ts'
+import { deliveryLabel, describeDiff, diffMaps, exportMermaid, filesUnder, labelOf, relationKey, shapedBy, stepMark, type CanvasDecision, type CanvasElement, type CanvasMap, type CanvasRelation, type DecisionWhyTag } from '../../../shared/canvas.ts'
 import { codeMarks, refBase } from '../../../shared/mapFiles.ts'
 import type { CanvasThread } from '../../../shared/protocol.ts'
 import { api } from '../api.ts'
@@ -21,6 +21,7 @@ import { useCanvas } from './store.ts'
 import { useReview } from '../review/store.ts'
 
 const CHANGE_LABEL: Record<string, string> = { add: 'New', modify: 'Modified', delete: 'Deleted', result: 'Result', keep: 'Unchanged' }
+const WHY_TAG_LABEL: Record<DecisionWhyTag, string> = { convention: '관례가 둘', scope: '이 일 밖에 미침', irreversible: '되돌리기 어려움', context: '네가 아는 것', tie: '무게가 비슷' }
 const kindLabel = (kind = 'class') => (kind === 'group' ? 'package' : kind)
 
 function MapPicker() {
@@ -209,6 +210,17 @@ function OptionBody({ d, o }: { d: CanvasDecision; o: CanvasDecision['options'][
   )
 }
 
+/** Why the agent asks instead of going on: its tags, then its sentence. */
+function WhyAsk({ why }: { why: NonNullable<CanvasDecision['why']> }) {
+  return (
+    <div className="decision-ask">
+      <div className="decision-ask-head">왜 Claude가 혼자 정하지 않았나</div>
+      <div className="ask-tags">{why.tags.map(t => <span key={t} className="ask-tag">{WHY_TAG_LABEL[t]}</span>)}</div>
+      <div className="decision-ask-text">{why.text}</div>
+    </div>
+  )
+}
+
 /** Where the latest thing sent about this target stands with the agent. */
 function DeliveryLine({ target }: { target: string }) {
   const threads = useCanvas(s => s.threads)
@@ -249,6 +261,7 @@ function DecisionCard({ d, map, readOnly, show, onFold }: { d: CanvasDecision; m
           {onFold && <button className="iconbtn" title="한 줄로 접기" onClick={onFold}><ChevronUp size={13} /></button>}
         </div>
         <div className="decision-q">{d.question}</div>
+        {d.why && <WhyAsk why={d.why} />}
         <div className="decision-answer"><OptionBody d={d} o={chosen} />{count(chosen.id)}</div>
         {d.rationale && <div className="decision-why"><b>이유</b> {d.rationale}</div>}
         {others.length > 0 && (
@@ -273,6 +286,7 @@ function DecisionCard({ d, map, readOnly, show, onFold }: { d: CanvasDecision; m
         <span className="decision-state todo">결정 전</span>
       </div>
       <div className="decision-q">{d.question}</div>
+      {d.why && <WhyAsk why={d.why} />}
       <div className="options">
         {d.options.map(o => readOnly ? (
           <div key={o.id} className="option"><OptionBody d={d} o={o} />{count(o.id)}</div>
