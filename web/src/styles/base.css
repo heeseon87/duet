@@ -154,9 +154,8 @@ a:hover { text-decoration: underline; }
   display: flex; flex-direction: column; align-items: center; gap: 4px; font-size: 10.5px; font-weight: 600; cursor: help;
 }
 
-/* Where you work, above whichever view is open. */
-.ws-line { display: flex; align-items: center; gap: 10px; min-height: 30px; padding: 10px 24px 0; flex: none; background: var(--panel); }
-.ws-line:empty { display: none; }
+/* Between the workspace and what the view shows, on the canvas's and the review's head line. */
+.head-sep { flex: none; width: 1px; height: 16px; margin: 0 2px; background: var(--line-strong); }
 
 .main { flex: 1; display: flex; min-height: 0; min-width: 0; position: relative; }
 .stage { flex: 1; min-width: 0; display: flex; flex-direction: column; position: relative; }

@@ -16,6 +16,7 @@ import { changedFiles, sourceLabel, turnRefs, useReview } from './store.ts'
 import { listedFiles, mapGroups, type MapNode } from './mapGroups.ts'
 import { refBase } from '../../../shared/mapFiles.ts'
 import { useCanvas } from '../canvas/store.ts'
+import { WorkChip, WorkspaceMenu } from '../WorkspaceMenu.tsx'
 import { CHANGE_LABEL } from '../canvas/words.ts'
 
 type LogEntry = { sha: string; short: string; subject: string; author: string; date: number; refs: string }
@@ -307,7 +308,7 @@ function BoundBar() {
   )
 }
 
-/** What the review shows, as a title, and how big it is, on the line under it (R1). */
+/** One line: the workspace, what the review shows as a title, and how big it is (R1). */
 function ReviewHead() {
   const { bound, root, diff, viewed, comments, repos } = useReview()
   const toast = useApp(s => s.toast)
@@ -319,16 +320,20 @@ function ReviewHead() {
   const drafts = comments.filter(c => c.state === 'draft').length
   return (
     <div className="review-head">
-      <RepoHint />
-      <h1 className="review-title ellipsis" title={root}>{name}</h1>
-      <div className="review-meta">
-        {diff && <span title={`${diff.oldRef} → ${diff.newRef}`}><b>{diff.oldLabel} → {diff.newLabel}</b></span>}
-        {diff && <span>파일 {diff.files.length}</span>}
-        {diff && <span><b className="add">+{adds}</b> <b className="del">−{dels}</b></span>}
-        {diff && diff.files.length > 0 && <span>{seen}/{diff.files.length} viewed</span>}
-        {open > 0 && <span>코멘트 {open}{drafts > 0 && <b className="agent"> · 보내기 전 {drafts}</b>}</span>}
-        {root && <button className="link-btn" title={`${root}\n경로 복사`} onClick={() => { void navigator.clipboard.writeText(root); toast('경로를 복사했어') }}><Copy size={11} /></button>}
+      <div className="review-head-line">
+        <WorkspaceMenu /><WorkChip />
+        <span className="head-sep" />
+        <h1 className="review-title ellipsis" title={root}>{name}</h1>
+        <div className="review-meta">
+          {diff && <span title={`${diff.oldRef} → ${diff.newRef}`}><b>{diff.oldLabel} → {diff.newLabel}</b></span>}
+          {diff && <span>파일 {diff.files.length}</span>}
+          {diff && <span><b className="add">+{adds}</b> <b className="del">−{dels}</b></span>}
+          {diff && diff.files.length > 0 && <span>{seen}/{diff.files.length} viewed</span>}
+          {open > 0 && <span>코멘트 {open}{drafts > 0 && <b className="agent"> · 보내기 전 {drafts}</b>}</span>}
+          {root && <button className="link-btn" title={`${root}\n경로 복사`} onClick={() => { void navigator.clipboard.writeText(root); toast('경로를 복사했어') }}><Copy size={11} /></button>}
+        </div>
       </div>
+      <RepoHint />
     </div>
   )
 }

@@ -3,10 +3,18 @@
 .source-bar {
   display: flex; align-items: center; gap: 8px; padding: 0 24px; min-height: 40px; border-bottom: 1px solid var(--line); background: var(--panel); flex-wrap: nowrap; flex: none; min-width: 0;
 }
-/* The review's head (R1): what is reviewed as a title, its size on the line under it; the modes are tabs below. */
-.review-head { flex: none; display: flex; flex-direction: column; gap: 2px; padding: 0 24px 6px; background: var(--panel); min-width: 0; }
-.review-title { margin: 0; font-size: 22px; font-weight: 700; letter-spacing: -0.01em; line-height: 36px; }
-.review-meta { display: flex; align-items: center; flex-wrap: wrap; gap: 2px 0; font-size: 12px; color: var(--ink-3); font-variant-numeric: tabular-nums; min-width: 0; }
+/* The review's head (R1), one line: the workspace, what is reviewed as a title, its size; the modes are tabs below.
+   Narrow, the size drops to a second line. */
+.review-head { flex: none; display: flex; flex-direction: column; padding: 0 24px; background: var(--panel); min-width: 0; container-type: inline-size; }
+.review-head-line { display: flex; align-items: center; gap: 8px; min-height: 44px; min-width: 0; }
+.review-title { flex: 0 1 auto; min-width: 0; max-width: min(420px, 40cqw); margin: 0; font-size: 15px; font-weight: 650; line-height: 24px; }
+.review-meta { flex: 0 1 auto; display: flex; align-items: center; gap: 2px 0; margin-left: 4px; font-size: 12px; color: var(--ink-3); font-variant-numeric: tabular-nums; min-width: 0; overflow: hidden; white-space: nowrap; }
+.review-meta > * { flex: none; }
+@container (max-width: 1100px) { .review-head .ws-pick .branch { display: none; } }
+@container (max-width: 760px) {
+  .review-head-line { flex-wrap: wrap; padding-bottom: 6px; }
+  .review-meta { flex: 1 0 100%; margin-left: 0; }
+}
 .review-meta > * + *::before { content: '·'; margin: 0 8px; color: var(--ink-4); }
 .review-meta b { font-weight: 500; color: var(--ink-2); }
 .review-meta b.add { color: var(--add); }
@@ -179,7 +187,7 @@ table.diff.split td.no { position: relative; }
 .empty.small p { font-size: 12px; }
 
 
-.ws-pick { display: flex; align-items: center; gap: 8px; border: 0; background: transparent; padding: 3px 6px; margin-left: -6px; border-radius: var(--r-1); max-width: 520px; min-width: 0; font-family: var(--font-mono); font-size: 11.5px; color: var(--ink-3); }
+.ws-pick { flex: 0 1 auto; display: flex; align-items: center; gap: 8px; border: 0; background: transparent; padding: 3px 6px; margin-left: -6px; border-radius: var(--r-1); max-width: min(320px, 28cqw); min-width: 0; font-family: var(--font-mono); font-size: 11.5px; color: var(--ink-3); }
 .ws-pick b { font-weight: 500; color: var(--ink-2); }
 .ws-name { display: flex; align-items: baseline; gap: 4px; min-width: 0; white-space: nowrap; }
 .ws-name .repo { color: var(--ink-3); overflow: hidden; text-overflow: ellipsis; min-width: 0; max-width: 200px; }

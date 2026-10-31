@@ -21,6 +21,7 @@ import { useReview } from '../review/store.ts'
 import { FloatComposer } from '../agent/FloatComposer.tsx'
 import { Ask } from './DecisionParts.tsx'
 import { DecisionMode } from './DecisionMode.tsx'
+import { WorkChip, WorkspaceMenu } from '../WorkspaceMenu.tsx'
 
 const kindLabel = (kind = 'class') => (kind === 'group' ? 'package' : kind)
 
@@ -117,7 +118,12 @@ function Timeline() {
   )
 }
 
-/** What the map's colors and marks mean, at the end of the line under the title: the states it uses, open decisions, the agent's △. */
+/** The head line with only the workspace in it: no map yet, or one still loading. */
+function HeadLine() {
+  return <div className="canvas-bar map-head"><div className="map-head-row"><span className="head-ws"><WorkspaceMenu /><WorkChip /></span></div></div>
+}
+
+/** What the map's colors and marks mean, over the map's top right corner: the states it uses, open decisions, the agent's △. */
 function Legend({ map, revised }: { map: CanvasMap; revised?: { revision: number; ids: string[] } }) {
   const used = new Set(map.elements.map(e => e.change ?? 'keep'))
   const items = (['add', 'modify', 'delete', 'result', 'keep'] as const).filter(c => used.has(c))
@@ -125,7 +131,7 @@ function Legend({ map, revised }: { map: CanvasMap; revised?: { revision: number
   const rev = revised?.ids.length ? revised : undefined
   if (items.length <= 1 && !open && !rev) return null
   return (
-    <div className="legend meta-legend">
+    <div className="legend map-legend">
       {items.map(c => <span key={c} className="legend-item"><i className={`sw cv-sw-${c}`} />{CHANGE_LABEL[c]}</span>)}
       {open && <span className="legend-item"><i className="sw cv-sw-open" />결정 전</span>}
       {rev && (
@@ -245,6 +251,7 @@ export function CanvasView() {
   if (!s.list.length && !s.loading) {
     return (
       <div className="canvas empty-canvas">
+        <HeadLine />
         <div className="empty">
           <div className="hero-mark"><Shapes size={22} /></div>
           <h3>아직 지도가 없어</h3>
@@ -258,7 +265,7 @@ export function CanvasView() {
       </div>
     )
   }
-  if (!shownMap) return <div className="canvas" />
+  if (!shownMap) return <div className="canvas"><HeadLine /></div>
 
   // Another map gets a stage of its own: it opens fitted, and no fold, morph or pending frame of the last one carries over.
   // Keyed by the map loaded, not `name`, which changes first while the old map is still drawn.
@@ -369,36 +376,39 @@ export function CanvasView() {
     <div className="canvas">
       <div className="canvas-bar map-head">
         <div className="map-head-row">
+          <span className="head-ws"><WorkspaceMenu /><WorkChip /></span>
+          <span className="head-sep" />
           <MapPicker />
+          <div className="map-head-meta">
+            <Timeline />
+            {decisions.length > 0 && (
+              <button className={`chip dec-chip ${made < decisions.length ? 'accent' : 'quiet'}`} disabled={Boolean(s.preview)} onClick={() => s.setDeciding(true)}
+                title={s.preview ? `rev ${s.preview.revision}에서는 결정을 볼 수만 있어` : made < decisions.length ? `결정할 것 ${decisions.length - made}개 · 정한 결정 ${made}개 · 눌러서 하나씩 정하기` : '결정을 모두 정했어 · 눌러서 다시 보기'}>
+                결정 {made}/{decisions.length}{made < decisions.length && <span className="dec-wait"> · 너를 기다림</span>}
+              </button>
+            )}
+            <CodeChip marks={code} />
+          </div>
           <span className="grow" />
-          {s.compareFrom && !s.preview && (
-            <span className="compare-chip">
-              <GitCompareArrows size={13} /> rev {s.compareFrom} → {s.revision} 비교 중 · {changes.length}곳
-              <button className="iconbtn" onClick={() => void s.setCompare(undefined)}><X size={12} /></button>
-            </span>
-          )}
-          {!s.compareFrom && s.revision > 1 && !s.preview && (
-            <button className="btn sm ghost" onClick={() => void s.setCompare(s.revision - 1)} title="Compare with previous"><GitCompareArrows size={13} /><span className="bar-label"> Compare with previous</span></button>
-          )}
-          {hasGroups && (
-            <div className="seg">
-              <button onClick={() => s.setAllCollapsed(true)} title="Collapse all packages" disabled={allFolded}><ChevronsDownUp size={13} /><span className="bar-label"> Collapse all</span></button>
-              <button onClick={() => s.setAllCollapsed(false)} title="Expand all packages" disabled={!s.collapsed.size}><ChevronsUpDown size={13} /><span className="bar-label"> Expand all</span></button>
-            </div>
-          )}
-          <ExportMenu map={shownMap} stage={stage} name={s.name ?? 'map'} />
-          {s.name && <button className="iconbtn" title="지도 지우기" onClick={async () => { if (await confirmDialog({ title: '이 지도를 지울까?', body: '지도와 기록, 코멘트가 ~/.duet/trash로 옮겨져.', ok: '지우기', danger: true })) void s.remove(s.name!) }}><Trash2 size={14} /></button>}
-        </div>
-        <div className="map-head-meta">
-          <Timeline />
-          {decisions.length > 0 && (
-            <button className={`chip dec-chip ${made < decisions.length ? 'accent' : 'quiet'}`} disabled={Boolean(s.preview)} onClick={() => s.setDeciding(true)}
-              title={s.preview ? `rev ${s.preview.revision}에서는 결정을 볼 수만 있어` : made < decisions.length ? `결정할 것 ${decisions.length - made}개 · 정한 결정 ${made}개 · 눌러서 하나씩 정하기` : '결정을 모두 정했어 · 눌러서 다시 보기'}>
-              결정 {made}/{decisions.length}{made < decisions.length && <span className="dec-wait"> · 너를 기다림</span>}
-            </button>
-          )}
-          <CodeChip marks={code} />
-          <Legend map={shownMap} revised={s.preview ? undefined : s.revised} />
+          <div className="map-head-tools">
+            {s.compareFrom && !s.preview && (
+              <span className="compare-chip">
+                <GitCompareArrows size={13} /> rev {s.compareFrom} → {s.revision} 비교 중 · {changes.length}곳
+                <button className="iconbtn" onClick={() => void s.setCompare(undefined)}><X size={12} /></button>
+              </span>
+            )}
+            {!s.compareFrom && s.revision > 1 && !s.preview && (
+              <button className="iconbtn" onClick={() => void s.setCompare(s.revision - 1)} title="Compare with previous"><GitCompareArrows size={14} /></button>
+            )}
+            {hasGroups && (
+              <div className="seg">
+                <button onClick={() => s.setAllCollapsed(true)} title="Collapse all packages" disabled={allFolded}><ChevronsDownUp size={13} /></button>
+                <button onClick={() => s.setAllCollapsed(false)} title="Expand all packages" disabled={!s.collapsed.size}><ChevronsUpDown size={13} /></button>
+              </div>
+            )}
+            <ExportMenu map={shownMap} stage={stage} name={s.name ?? 'map'} />
+            {s.name && <button className="iconbtn" title="지도 지우기" onClick={async () => { if (await confirmDialog({ title: '이 지도를 지울까?', body: '지도와 기록, 코멘트가 ~/.duet/trash로 옮겨져.', ok: '지우기', danger: true })) void s.remove(s.name!) }}><Trash2 size={14} /></button>}
+          </div>
         </div>
       </div>
       {unseen && (
@@ -458,6 +468,7 @@ export function CanvasView() {
           </>}
         />
         <FlowList map={shownMap} selected={s.selected} onPeek={setPeek} onPick={pickStep} />
+        <Legend map={shownMap} revised={s.preview ? undefined : s.revised} />
         <FloatComposer />
         {menu && <ContextMenu at={menu.at} entries={menuEntries(menu.target, menu.at)} onClose={() => setMenu(undefined)} />}
         {asking && (
