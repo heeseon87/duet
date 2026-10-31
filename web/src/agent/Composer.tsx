@@ -1,4 +1,5 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { create } from 'zustand'
 import { ArrowUp, ChevronDown, Square, X, ListPlus, Gauge, Cpu, ShieldCheck, Eye } from 'lucide-react'
 import type { ContextItem, Effort, PermissionMode, SessionInfo } from '../../../shared/protocol.ts'
 import { useApp } from '../state.ts'
@@ -78,8 +79,23 @@ function useView(): { key?: string; item?: ContextItem } {
   }, [reading, tab, root, source, diff, scope, filter, name, map, revision, selected])
 }
 
-/** `terminal`: what is typed goes to a terminal, whose model and mode are its own. */
-export function Composer({ session, transcript, terminal }: { session?: SessionInfo; transcript?: Transcript; terminal?: boolean }) {
+type Img = { mediaType: string; data: string; url: string; name: string }
+type Typed = { text: string; context: ContextItem[]; images: Img[] }
+/** What is being typed, apart from the box: the panel's composer and the one floating over the map hold one draft. */
+const useTyped = create<Typed>(() => ({ text: '', context: [], images: [] }))
+function setter<K extends keyof Typed>(k: K) {
+  return (v: Typed[K] | ((cur: Typed[K]) => Typed[K])) =>
+    useTyped.setState(s => ({ [k]: typeof v === 'function' ? (v as (cur: Typed[K]) => Typed[K])(s[k]) : v }) as Pick<Typed, K>)
+}
+const setText = setter('text'), setContext = setter('context'), setImages = setter('images')
+// The last draft taken in: a composer mounting later (the panel reopened, or the floating one) must not take it again.
+let takenDraft = 0
+
+/**
+ * `terminal`: what is typed goes to a terminal, whose model and mode are its own.
+ * `floating`: the box over the map while the panel is folded; one line, without the model, mode and effort pickers.
+ */
+export function Composer({ session, transcript, terminal, floating }: { session?: SessionInfo; transcript?: Transcript; terminal?: boolean; floating?: boolean }) {
   const send = useApp(s => s.send)
   const interrupt = useApp(s => s.interrupt)
   const configure = useApp(s => s.configure)
@@ -90,16 +106,16 @@ export function Composer({ session, transcript, terminal }: { session?: SessionI
   const model = session ? session.model ?? null : prefs.model
   const mode = session ? session.permissionMode : prefs.permissionMode
   const effort = session ? session.effort ?? null : prefs.effort
-  const [text, setText] = useState('')
-  const [context, setContext] = useState<ContextItem[]>([])
-  const [images, setImages] = useState<{ mediaType: string; data: string; url: string; name: string }[]>([])
+  const text = useTyped(s => s.text)
+  const context = useTyped(s => s.context)
+  const images = useTyped(s => s.images)
   const [dragging, setDragging] = useState(false)
   const addFiles = async (files: FileList | File[]) => {
     const picked = [...files].filter(f => /^image\/(png|jpeg|gif|webp)$/.test(f.type))
     if (!picked.length) return
     const big = picked.find(f => f.size > 5 * 1024 * 1024)
     if (big) { toast(`5MB가 넘어: ${big.name}`, 'error'); return }
-    const read = await Promise.all(picked.map(f => new Promise<{ mediaType: string; data: string; url: string; name: string }>(resolve => {
+    const read = await Promise.all(picked.map(f => new Promise<Img>(resolve => {
       const r = new FileReader()
       r.onload = () => { const url = String(r.result); resolve({ mediaType: f.type, data: url.split(',')[1] ?? '', url, name: f.name || '붙인 이미지' }) }
       r.readAsDataURL(f)
@@ -112,7 +128,8 @@ export function Composer({ session, transcript, terminal }: { session?: SessionI
   const running = session?.status === 'running' || session?.status === 'waiting' || session?.status === 'starting'
 
   useEffect(() => {
-    if (!draft) return
+    if (!draft || draft.nonce === takenDraft) return
+    takenDraft = draft.nonce
     setText(t => (t.trim() ? `${t}\n${draft.text}` : draft.text))
     if (draft.context?.length) setContext(c => [...c, ...draft.context!])
     requestAnimationFrame(() => {
@@ -198,7 +215,7 @@ export function Composer({ session, transcript, terminal }: { session?: SessionI
 
   return (
     <div
-      className={`composer ${running ? 'running' : ''} ${dragging ? 'dropping' : ''}`}
+      className={`composer ${running ? 'running' : ''} ${dragging ? 'dropping' : ''} ${floating ? 'floating' : ''}`}
       onDragOver={e => { if ([...e.dataTransfer.items].some(i => i.type.startsWith('image/'))) { e.preventDefault(); setDragging(true) } }}
       onDragLeave={() => setDragging(false)}
       onDrop={e => { if (e.dataTransfer.files.length) { e.preventDefault(); setDragging(false); void addFiles(e.dataTransfer.files) } }}
@@ -272,7 +289,7 @@ export function Composer({ session, transcript, terminal }: { session?: SessionI
         }}
       />
       <div className="composer-bar">
-        {!terminal && <>
+        {!terminal && !floating && <>
           <Picker
             icon={<Cpu size={12} />}
             label={modelLabel(model)}
@@ -298,8 +315,8 @@ export function Composer({ session, transcript, terminal }: { session?: SessionI
             render={v => v ?? 'default'}
           />
         </>}
-        <span className="grow" />
-        {used ? (
+        {!floating && <span className="grow" />}
+        {used && !floating ? (
           <span
             className={`meter ${full ? 'full' : ''}`}
             title={`Context ${compact(used)}${room ? ` / ${compact(room)}` : ''} tokens${full ? '\n거의 찼어. /compact로 요약할 수 있어.' : ''}`}

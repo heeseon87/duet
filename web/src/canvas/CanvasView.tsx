@@ -19,6 +19,7 @@ import { download, standaloneSvg } from './exportSvg.ts'
 import { useCanvas } from './store.ts'
 import { CHANGE_LABEL } from './words.ts'
 import { useReview } from '../review/store.ts'
+import { FloatComposer } from '../agent/FloatComposer.tsx'
 import { Ask, DeliveryLine, OptionBody, ThreadView, WhyAsk, letterOf, partsOf } from './DecisionParts.tsx'
 import { DecisionMode } from './DecisionMode.tsx'
 
@@ -837,6 +838,7 @@ export function CanvasView() {
           ? <Inspector map={shownMap} readOnly={Boolean(s.preview)} onHide={() => setInspector(false)} wide={wideInsp} onToggleWide={toggleWide} onFrame={frameSoon} onCode={f => showCode(true, f)} />
           : <button className="btn sm insp-open" onClick={() => setInspector(true)}><Eye size={13} /> 정보 <kbd>i</kbd></button>}
         <FlowList map={shownMap} selected={s.selected} onPeek={setPeek} onPick={pickStep} />
+        <FloatComposer inset={inspector ? (wideInsp ? 584 : 364) : 0} />
         {menu && <ContextMenu at={menu.at} entries={menuEntries(menu.target, menu.at)} onClose={() => setMenu(undefined)} />}
         {asking && (
           <FloatAt at={asking.at} onClose={() => setAsking(undefined)} width={340} sticky className="ctx-ask">

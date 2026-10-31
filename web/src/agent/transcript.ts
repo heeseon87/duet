@@ -359,6 +359,17 @@ export function narration(blocks: Block[], now: number): { key: string; text: st
   return undefined
 }
 
+/** The main agent's latest finished words, in this turn or an earlier one: what the folded panel still shows. */
+export function lastWords(blocks: Block[]): { key: string; text: string } | undefined {
+  for (let i = blocks.length - 1; i >= 0; i--) {
+    const b = blocks[i]
+    if (b.kind !== 'text' || b.streaming) continue
+    const text = lastSentence(b.text)
+    if (text) return { key: b.key, text }
+  }
+  return undefined
+}
+
 /** The last sentence of a message, on one line, without code blocks or markdown marks. */
 function lastSentence(text: string): string {
   const lines = text.replace(/```[\s\S]*?(```|$)/g, '').split('\n').map(l => l.replace(/^\s*(#+|>|[-*+]|\d+\.)\s+/, '').replace(/\*\*|`/g, '').trim()).filter(Boolean)
