@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import {
-  ChevronDown, ChevronUp, ChevronsDownUp, ChevronsLeft, ChevronsRight, ChevronsUpDown, Clock3, Compass, Copy, Eye, ListCollapse, ZoomIn, GitCompareArrows, Maximize2, MessageSquare, Minus, Plus, Shapes, Sparkles, Undo2, Workflow,
+  ChevronDown, ChevronUp, ChevronsDownUp, ChevronsLeft, ChevronsRight, ChevronsUpDown, Clock3, Compass, Copy, Eye, ListCollapse, ZoomIn, GitCompareArrows, Maximize2, MessageSquare, Plus, Shapes, Sparkles, Undo2, Workflow,
   Check, CircleDot, FileCode2, FileDiff, ArrowLeft, ArrowRight, ArrowUp, ArrowDown, X, Bot, User, Trash2, Pencil, Share, ImageDown, FolderGit2,
 } from 'lucide-react'
 import { describeDiff, diffMaps, exportMermaid, filesUnder, labelOf, relationKey, stepMark, type CanvasDecision, type CanvasElement, type CanvasMap, type CanvasRelation } from '../../../shared/canvas.ts'
@@ -470,7 +470,7 @@ function RelLink({ r, map, dir }: { r: CanvasMap['relations'][number]; map: Canv
   )
 }
 
-/** What the map's colors and marks mean, bottom left over the map: the states it uses, open decisions, the agent's △. */
+/** What the map's colors and marks mean, at the end of the line under the title: the states it uses, open decisions, the agent's △. */
 function Legend({ map, revised }: { map: CanvasMap; revised?: { revision: number; ids: string[] } }) {
   const used = new Set(map.elements.map(e => e.change ?? 'keep'))
   const items = (['add', 'modify', 'delete', 'result', 'keep'] as const).filter(c => used.has(c))
@@ -478,7 +478,7 @@ function Legend({ map, revised }: { map: CanvasMap; revised?: { revision: number
   const rev = revised?.ids.length ? revised : undefined
   if (items.length <= 1 && !open && !rev) return null
   return (
-    <div className="legend stage-legend">
+    <div className="legend meta-legend">
       {items.map(c => <span key={c} className="legend-item"><i className={`sw cv-sw-${c}`} />{CHANGE_LABEL[c]}</span>)}
       {open && <span className="legend-item"><i className="sw cv-sw-open" />결정 전</span>}
       {rev && (
@@ -741,43 +741,39 @@ export function CanvasView() {
   }
   return (
     <div className="canvas">
-      <div className="canvas-bar">
-        <MapPicker />
-        <Timeline />
-        {decisions.length > 0 && (
-          <button className={`chip dec-chip ${made < decisions.length ? 'accent' : 'quiet'}`} onClick={() => (s.preview ? showDecisions() : s.setDeciding(true))}
-            title={made < decisions.length ? `결정할 것 ${decisions.length - made}개 · 정한 결정 ${made}개 · 눌러서 하나씩 정하기` : '결정을 모두 정했어 · 눌러서 다시 보기'}>
-            결정 {made}/{decisions.length}
-          </button>
-        )}
-        <CodeChip marks={code} />
-        <span className="grow" />
-        {s.compareFrom && !s.preview && (
-          <span className="compare-chip">
-            <GitCompareArrows size={13} /> rev {s.compareFrom} → {s.revision} 비교 중 · {changes.length}곳
-            <button className="iconbtn" onClick={() => void s.setCompare(undefined)}><X size={12} /></button>
-          </span>
-        )}
-        {!s.compareFrom && s.revision > 1 && !s.preview && (
-          <button className="btn sm ghost" onClick={() => void s.setCompare(s.revision - 1)} title="Compare with previous"><GitCompareArrows size={13} /><span className="bar-label"> Compare with previous</span></button>
-        )}
-        {hasGroups && (
-          <div className="seg">
-            <button onClick={() => s.setAllCollapsed(true)} title="Collapse all packages" disabled={allFolded}><ChevronsDownUp size={13} /><span className="bar-label"> Collapse all</span></button>
-            <button onClick={() => s.setAllCollapsed(false)} title="Expand all packages" disabled={!s.collapsed.size}><ChevronsUpDown size={13} /><span className="bar-label"> Expand all</span></button>
-          </div>
-        )}
-        <div className="seg">
-          <button aria-pressed={s.explore} onClick={() => s.setExplore(!s.explore)} title={s.explore ? '탐색 모드 끄기 (e)' : '탐색 모드 (e)'}><Compass size={13} /><span className="bar-label"> 탐색</span></button>
-          <button aria-pressed={codeOpen} onClick={() => showCode(!codeOpen)} title={codeOpen ? '코드 칸 닫기 (c)' : '코드 칸: 누른 상자의 코드를 옆에서 보기 (c)'}><FileCode2 size={13} /><span className="bar-label"> 코드</span></button>
+      <div className="canvas-bar map-head">
+        <div className="map-head-row">
+          <MapPicker />
+          <span className="grow" />
+          {s.compareFrom && !s.preview && (
+            <span className="compare-chip">
+              <GitCompareArrows size={13} /> rev {s.compareFrom} → {s.revision} 비교 중 · {changes.length}곳
+              <button className="iconbtn" onClick={() => void s.setCompare(undefined)}><X size={12} /></button>
+            </span>
+          )}
+          {!s.compareFrom && s.revision > 1 && !s.preview && (
+            <button className="btn sm ghost" onClick={() => void s.setCompare(s.revision - 1)} title="Compare with previous"><GitCompareArrows size={13} /><span className="bar-label"> Compare with previous</span></button>
+          )}
+          {hasGroups && (
+            <div className="seg">
+              <button onClick={() => s.setAllCollapsed(true)} title="Collapse all packages" disabled={allFolded}><ChevronsDownUp size={13} /><span className="bar-label"> Collapse all</span></button>
+              <button onClick={() => s.setAllCollapsed(false)} title="Expand all packages" disabled={!s.collapsed.size}><ChevronsUpDown size={13} /><span className="bar-label"> Expand all</span></button>
+            </div>
+          )}
+          <ExportMenu map={shownMap} stage={stage} name={s.name ?? 'map'} />
+          {s.name && <button className="iconbtn" title="지도 지우기" onClick={async () => { if (await confirmDialog({ title: '이 지도를 지울까?', body: '지도와 기록, 코멘트가 ~/.duet/trash로 옮겨져.', ok: '지우기', danger: true })) void s.remove(s.name!) }}><Trash2 size={14} /></button>}
         </div>
-        <div className="seg">
-          <button onClick={() => stage.current?.zoom(1 / 1.2)} title="Zoom out (-)"><Minus size={13} /></button>
-          <button onClick={() => stage.current?.fit()} title="Zoom to fit (f)"><Maximize2 size={13} /></button>
-          <button onClick={() => stage.current?.zoom(1.2)} title="Zoom in (+)"><Plus size={13} /></button>
+        <div className="map-head-meta">
+          <Timeline />
+          {decisions.length > 0 && (
+            <button className={`chip dec-chip ${made < decisions.length ? 'accent' : 'quiet'}`} onClick={() => (s.preview ? showDecisions() : s.setDeciding(true))}
+              title={made < decisions.length ? `결정할 것 ${decisions.length - made}개 · 정한 결정 ${made}개 · 눌러서 하나씩 정하기` : '결정을 모두 정했어 · 눌러서 다시 보기'}>
+              결정 {made}/{decisions.length}{made < decisions.length && <span className="dec-wait"> · 너를 기다림</span>}
+            </button>
+          )}
+          <CodeChip marks={code} />
+          <Legend map={shownMap} revised={s.preview ? undefined : s.revised} />
         </div>
-        <ExportMenu map={shownMap} stage={stage} name={s.name ?? 'map'} />
-        {s.name && <button className="iconbtn" title="지도 지우기" onClick={async () => { if (await confirmDialog({ title: '이 지도를 지울까?', body: '지도와 기록, 코멘트가 ~/.duet/trash로 옮겨져.', ok: '지우기', danger: true })) void s.remove(s.name!) }}><Trash2 size={14} /></button>}
       </div>
       {unseen && (
         <div className="unseen-banner fade-in">
@@ -830,13 +826,17 @@ export function CanvasView() {
             setMenu({ target: known ? t : undefined, at })
           }}
           rightInset={inspector ? (wideInsp ? 584 : 364) : 0}
+          controls={<>
+            <span className="zoom-sep" />
+            <button onClick={() => stage.current?.fit()} title="Zoom to fit (f)">맞춤 <kbd>f</kbd></button>
+            <button aria-pressed={codeOpen} onClick={() => showCode(!codeOpen)} title={codeOpen ? '코드 칸 닫기 (c)' : '코드 칸: 누른 상자의 코드를 옆에서 보기 (c)'}>코드 <kbd>c</kbd></button>
+            <button aria-pressed={s.explore} onClick={() => s.setExplore(!s.explore)} title={s.explore ? '탐색 모드 끄기 (e)' : '탐색 모드 (e)'}>탐색 <kbd>e</kbd></button>
+          </>}
         />
         {inspector
           ? <Inspector map={shownMap} readOnly={Boolean(s.preview)} onHide={() => setInspector(false)} wide={wideInsp} onToggleWide={toggleWide} onFrame={frameSoon} onCode={f => showCode(true, f)} />
           : <button className="btn sm insp-open" onClick={() => setInspector(true)}><Eye size={13} /> 정보 <kbd>i</kbd></button>}
         <FlowList map={shownMap} selected={s.selected} onPeek={setPeek} onPick={pickStep} />
-        <Legend map={shownMap} revised={s.preview ? undefined : s.revised} />
-        {s.explore && <div className="stage-hint muted">탐색 모드 · e로 끄기</div>}
         {menu && <ContextMenu at={menu.at} entries={menuEntries(menu.target, menu.at)} onClose={() => setMenu(undefined)} />}
         {asking && (
           <FloatAt at={asking.at} onClose={() => setAsking(undefined)} width={340} sticky className="ctx-ask">

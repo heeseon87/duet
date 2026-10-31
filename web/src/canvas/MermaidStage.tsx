@@ -89,6 +89,8 @@ type Props = {
   rightInset?: number
   /** A second look at the map (decision mode's): it neither takes nor leaves the view the canvas comes back to. */
   aside?: boolean
+  /** More buttons for the zoom bar at the bottom right, after zoom out · percent · zoom in. */
+  controls?: React.ReactNode
 }
 
 type View = { x: number; y: number; k: number }
@@ -530,7 +532,16 @@ export const MermaidStage = forwardRef<StageHandle, Props & { viewKey: string }>
       ))}
       {error && <div className="stage-error"><b>그리기 실패</b><pre>{error}</pre></div>}
       <div className="stage-tip" ref={tip} hidden />
-      <div className="zoom-readout">{Math.round(view.k * 100)}%</div>
+      {props.controls === undefined ? <div className="zoom-readout">{Math.round(view.k * 100)}%</div> : (
+        // Its own clicks, like the fold buttons: not a drag, a pick or a double-click of the stage underneath.
+        <div className="zoom-bar" role="toolbar" aria-label="배율" style={{ right: 16 + (props.rightInset ?? 0) }}
+          onPointerDown={e => e.stopPropagation()} onPointerUp={e => e.stopPropagation()} onDoubleClick={e => e.stopPropagation()} onContextMenu={e => e.stopPropagation()}>
+          <button onClick={() => zoom(1 / 1.2)} title="Zoom out (-)"><Minus size={13} /></button>
+          <span className="zoom-readout">{Math.round(view.k * 100)}%</span>
+          <button onClick={() => zoom(1.2)} title="Zoom in (+)"><Plus size={13} /></button>
+          {props.controls}
+        </div>
+      )}
     </div>
   )
 })

@@ -75,7 +75,7 @@ const looks = await page.evaluate(() => {
 check('open and made pins are drawn differently; the lost option is gone', looks.open && looks.made && looks.open !== looks.made && !looks.packer, JSON.stringify(looks))
 const chip = () => page.$eval('.canvas-bar .dec-chip', b => ({ text: b.textContent.trim(), accent: b.classList.contains('accent') })).catch(() => null)
 const chip1 = await chip()
-check('the bar counts decisions: 결정 1/3, accent while some are open', chip1?.text === '결정 1/3' && chip1.accent, JSON.stringify(chip1))
+check('the bar counts decisions: 결정 1/3 · 너를 기다림, accent while some are open', chip1?.text === '결정 1/3 · 너를 기다림' && chip1.accent, JSON.stringify(chip1))
 await shot('pins')
 
 // A pin picks its decision: what it shaped stays lit, the rest steps back.
@@ -178,7 +178,7 @@ check('the saved map keeps the chosen option\'s tags and drops the other option'
   saved.map.decisions.find(d => d.id === 'D1')?.chosen === 'D1-a' && el('Resolver')?.decision === 'D1' && el('Resolver')?.option === 'D1-a' && !el('Fetcher') && rel?.decision === 'D1' && rel?.option === 'D1-a' && el('Encoder')?.option === 'D2-a',
   JSON.stringify({ Resolver: el('Resolver'), Fetcher: el('Fetcher') ?? null, rel }))
 const chip2 = await chip()
-check('the chip now reads 결정 2/3', chip2?.text === '결정 2/3' && chip2.accent, JSON.stringify(chip2))
+check('the chip now reads 결정 2/3', chip2?.text === '결정 2/3 · 너를 기다림' && chip2.accent, JSON.stringify(chip2))
 
 // An old revision is only looked at: no choosing, no reopening.
 await page.keyboard.press('Escape'); await sleep(200)
