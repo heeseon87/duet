@@ -2,7 +2,7 @@
 // language a file needs, and only once variable colors are on.
 
 import type { Parser, Query } from 'web-tree-sitter'
-import { RULES, localMarks, varLangOf, type VarLang, type VarMark } from './variables.ts'
+import { RULES, keywordMarks, localMarks, varLangOf, type Span, type VarLang, type VarMark } from './variables.ts'
 
 type Url = Promise<{ default: string }>
 const GRAMMARS: Record<VarLang, { wasm: () => Url; locals: () => Url }> = {
@@ -38,15 +38,15 @@ function load(lang: VarLang) {
   return p
 }
 
-/** The identifiers to paint in a file, or undefined for a language without variable colors. */
-export async function variableMarks(text: string, path: string): Promise<VarMark[] | undefined> {
+/** The variables and the keywords to paint in a file, or undefined for a language without variable colors. */
+export async function variableMarks(text: string, path: string): Promise<{ vars: VarMark[]; keywords: Span[] } | undefined> {
   const lang = varLangOf(path)
   if (!lang) return undefined
   const { parser, query } = await load(lang)
   const tree = parser.parse(text)
-  if (!tree) return []
+  if (!tree) return { vars: [], keywords: [] }
   try {
-    return localMarks(tree.rootNode, query, RULES[lang])
+    return { vars: localMarks(tree.rootNode, query, RULES[lang]), keywords: keywordMarks(tree.rootNode) }
   } finally {
     tree.delete()
   }

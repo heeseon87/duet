@@ -81,9 +81,9 @@ const painted = () => page.evaluate(() => {
   for (let i = 0; i < 8; i++) for (const field of [false, true]) for (const r of CSS.highlights.get(`duet-var-${i}${field ? '-f' : ''}`) ?? []) out.push({ text: r.toString(), line: Number(r.startContainer.parentElement?.closest('tr')?.dataset.line), color: i, field })
   return out
 })
-/** Whether the `fun` keyword on line 4 is gray (the rest of the code muted while variables are colored). */
-const keywordGray = () => page.evaluate(() => {
-  const span = [...document.querySelectorAll('.code-pane tr[data-line="4"] td.code span')].find(s => s.textContent === 'fun')
+/** Whether the `Order` type on line 4 is gray (the rest of the code muted while variables are colored). */
+const typeGray = () => page.evaluate(() => {
+  const span = [...document.querySelectorAll('.code-pane tr[data-line="4"] td.code span')].find(s => s.textContent === 'Order')
   // The color may come back as oklch(…): paint it to read it as pixels.
   const ctx = document.createElement('canvas').getContext('2d')
   ctx.fillStyle = getComputedStyle(span).color
@@ -100,7 +100,9 @@ await (await button()).click()
 let kt = await until(async () => { const m = await painted(); return m.length ? m : undefined })
 check('turning it on paints the variables once the grammar loads', Boolean(kt?.length), JSON.stringify(kt?.slice(0, 4)))
 kt ??= []
-check('the rest of the code goes gray, keeping its shade', await keywordGray())
+check('the rest of the code goes gray, keeping its shade', await typeGray())
+const kw = await page.evaluate(() => [...(CSS.highlights.get('duet-kw') ?? [])].map(r => r.toString()))
+check('…but the keywords keep a color of their own', ['package', 'class', 'private', 'val', 'fun', 'var', 'for', 'in', 'return'].every(k => kw.includes(k)) && !kw.includes('Order') && !kw.includes('repo'), JSON.stringify(kw))
 check('a parameter keeps one color from its declaration to every use', JSON.stringify(linesOf(kt, 'order')) === '[4,5,8]' && colorsOf(kt, 'order').size === 1, JSON.stringify(linesOf(kt, 'order')))
 check('…so do a local and a class property', JSON.stringify(linesOf(kt, 'lines')) === '[5,7]' && colorsOf(kt, 'lines').size === 1 && JSON.stringify(linesOf(kt, 'repo')) === '[3,8]' && colorsOf(kt, 'repo').size === 1)
 check('variables in sight of each other differ', new Set(['order', 'n', 'lines', 'sum', 'repo'].map(v => [...colorsOf(kt, v)][0])).size === 5)
@@ -132,7 +134,7 @@ check('a language without colors has no button and nothing painted', !(await but
 await pick('Kt', 'src/Svc.kt')
 await until(async () => (await painted()).length)
 await (await button()).click(); await sleep(300)
-check('turning it off clears the colors and brings the theme back', !(await painted()).length && (await (await button()).getAttribute('aria-pressed')) === 'false' && !(await keywordGray()))
+check('turning it off clears the colors and brings the theme back', !(await painted()).length && (await (await button()).getAttribute('aria-pressed')) === 'false' && !(await typeGray()) && !(await page.evaluate(() => CSS.highlights.has('duet-kw'))))
 
 check('no page errors', !errors.length, errors.join(' | '))
 await browser.close()

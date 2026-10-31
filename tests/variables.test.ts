@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs'
 import { beforeAll, describe, expect, it } from 'vitest'
 import { Language, Parser, Query } from 'web-tree-sitter'
-import { RULES, VAR_COLORS, localMarks, varLangOf, type VarLang } from '../web/src/canvas/variables.ts'
+import { RULES, VAR_COLORS, keywordMarks, localMarks, varLangOf, type VarLang } from '../web/src/canvas/variables.ts'
 
 const WASM: Record<VarLang, string> = {
   kotlin: 'node_modules/@tree-sitter-grammars/tree-sitter-kotlin/tree-sitter-kotlin.wasm',
@@ -41,6 +41,27 @@ async function paint(lang: VarLang, src: string) {
   const field = (line: number, name: string, n = 0) => { const k = find(line, name, n); return Boolean(k && fields.has(k)) }
   return { at, field, count: color.size }
 }
+
+/** The words keywordMarks paints, in order. */
+async function keywords(lang: VarLang, src: string) {
+  const language = await Language.load(WASM[lang])
+  const parser = new Parser()
+  parser.setLanguage(language)
+  const tree = parser.parse(src)!
+  const lines = src.split('\n')
+  const words = keywordMarks(tree.rootNode).map(k => lines[k.line].slice(k.start, k.end))
+  tree.delete()
+  return words
+}
+
+describe('keywordMarks', () => {
+  it('marks the grammar\'s own words, not names or types', async () => {
+    expect(await keywords('kotlin', 'class Svc(private val repo: Repo) {\n  fun run(n: Int): Int {\n    val x = n\n    return x\n  }\n}'))
+      .toEqual(['class', 'private', 'val', 'fun', 'val', 'return'])
+    expect(await keywords('java', 'class A { public int f(int n) { return n; } }')).toEqual(['class', 'public', 'int', 'int', 'return'])
+    expect(await keywords('typescript', 'export function f(n: number) { const x = n; return x }')).toEqual(['export', 'function', 'number', 'const', 'return'])
+  })
+})
 
 describe('varLangOf', () => {
   it('colors Kotlin, Java and TypeScript', () => {

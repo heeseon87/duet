@@ -10,6 +10,28 @@ import { langOf } from '../lib/highlight.ts'
 export const VAR_COLORS = 8
 
 export type VarLang = 'kotlin' | 'java' | 'typescript' | 'tsx'
+/** A stretch of a line to paint: its 0-based line and columns in UTF-16 units. */
+export type Span = { line: number; start: number; end: number }
+
+/**
+ * The keywords (`val`, `fun`, `private`, `return`…): the grammar's own words, nodes with no name of their own. They keep
+ * a color of their own while the rest of the code goes gray; types and names stay gray.
+ */
+export function keywordMarks(root: Node): Span[] {
+  const out: Span[] = []
+  const c = root.walk()
+  for (;;) {
+    if (!c.nodeIsNamed && /^[a-z][a-z_]*$/.test(c.nodeType)) {
+      const at = c.startPosition
+      out.push({ line: at.row, start: at.column, end: at.column + c.endIndex - c.startIndex })
+    }
+    if (c.gotoFirstChild()) continue
+    while (!c.gotoNextSibling()) {
+      if (!c.gotoParent()) { c.delete(); return out }
+    }
+  }
+}
+
 /**
  * One identifier to paint: its 0-based line, its columns in UTF-16 units (as the DOM counts them), its variable's color,
  * and whether that variable is a class's property or field (drawn underlined, apart from a local of the same color).

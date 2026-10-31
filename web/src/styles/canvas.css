@@ -107,20 +107,24 @@
 /* The word under the click wherever it stands, and the clicked line. */
 ::highlight(duet-word) { background-color: color-mix(in srgb, var(--accent) 24%, transparent); }
 /* Variable colors (the code pane's palette button): one color per variable, VAR_COLORS of them taking turns. While they
-   are on the rest of the code goes gray (below), so the whole hue circle is theirs: eight per theme, picked so the closest
-   two stay as far apart as possible (OKLab), each colorful enough to stand off the grays and at 4.5:1 or more on the
-   code's background. The two themes are picked apart, so a variable's hue may differ between them. */
+   are on the rest of the code goes gray (below) except the keywords, so the whole hue circle is theirs: nine per theme,
+   eight for variables and one for keywords (the blue one), picked together so the closest two stay as far apart as
+   possible (OKLab), each colorful enough to stand off the grays and at 4.5:1 or more on the code's background. The two
+   themes are picked apart, so a variable's hue may differ between them. */
 :root {
-  --var-0: #c24173; --var-1: #005e15; --var-2: #373ba7; --var-3: #803100;
-  --var-4: #801571; --var-5: #885acb; --var-6: #9b6e00; --var-7: #007399;
+  --var-0: #9c3b96; --var-1: #247e00; --var-2: #773a00; --var-3: #c84435;
+  --var-4: #7063d6; --var-5: #007399; --var-6: #8e0049; --var-7: #9b6e00;
+  --var-kw: #0145a7;
 }
 :root[data-theme='dark'] {
-  --var-0: #00b8d6; --var-1: #facf4e; --var-2: #ec79a9; --var-3: #50f4c5;
-  --var-4: #85b749; --var-5: #f3beff; --var-6: #e48e26; --var-7: #a492fb;
+  --var-0: #bba500; --var-1: #9c95fe; --var-2: #03f3ea; --var-3: #f2798f;
+  --var-4: #fcb9ff; --var-5: #ffc98a; --var-6: #0bc18d; --var-7: #a9ea83;
+  --var-kw: #00b5e4;
 }
-/* The rest of the code keeps its theme's lightness and loses its hue: keywords, types and strings stay apart by shade. */
+/* The rest of the code keeps its theme's lightness and loses its hue: types and strings stay apart by shade. */
 .code-pane-body.vars-on .hl span { color: oklch(from var(--shiki-light) l 0 h); }
 :root[data-theme='dark'] .code-pane-body.vars-on .hl span { color: oklch(from var(--shiki-dark) l 0 h); }
+::highlight(duet-kw) { color: var(--var-kw); }
 ::highlight(duet-var-0) { color: var(--var-0); }
 ::highlight(duet-var-1) { color: var(--var-1); }
 ::highlight(duet-var-2) { color: var(--var-2); }

@@ -12,7 +12,7 @@ import { escapeRe, matchRanges, registry } from '../review/FindBar.tsx'
 import { widestCols } from '../review/diffModel.ts'
 import { useCanvas } from './store.ts'
 import { activeAt, outlineOf, type OutlineItem, type SymbolKind } from './outline.ts'
-import { VAR_COLORS, varLangOf, type VarMark } from './variables.ts'
+import { VAR_COLORS, varLangOf, type Span, type VarMark } from './variables.ts'
 import { variableMarks } from './variablesLoader.ts'
 
 const MIN_WIDTH = 320
@@ -293,7 +293,7 @@ function useWordMarks(body: React.RefObject<HTMLDivElement | null>, key: string,
  * True once painted: the rest of the code then goes gray (`vars-on`), so the variables' colors stand alone.
  */
 function useVariableColors(body: React.RefObject<HTMLDivElement | null>, text: string | undefined, path: string | undefined, tokens: unknown, on: boolean) {
-  const [marks, setMarks] = useState<VarMark[]>()
+  const [marks, setMarks] = useState<{ vars: VarMark[]; keywords: Span[] }>()
   useEffect(() => {
     setMarks(undefined)
     if (!on || text === undefined || !path || !varLangOf(path)) return
@@ -305,9 +305,11 @@ function useVariableColors(body: React.RefObject<HTMLDivElement | null>, text: s
     const reg = registry(), b = body.current
     if (!reg) return
     clearVars()
-    if (!marks?.length || !b) return
-    const byLine = new Map<number, VarMark[]>()
-    for (const m of marks) byLine.set(m.line, [...(byLine.get(m.line) ?? []), m])
+    if (!marks?.vars.length || !b) return
+    // Keywords ride along as their own highlight.
+    const all: (Span & { name: string })[] = [...marks.vars.map(m => ({ ...m, name: varHighlight(m.color, m.field) })), ...marks.keywords.map(k => ({ ...k, name: 'duet-kw' }))]
+    const byLine = new Map<number, (Span & { name: string })[]>()
+    for (const m of all) byLine.set(m.line, [...(byLine.get(m.line) ?? []), m])
     const ranges = new Map<string, Range[]>()
     for (const [line, ms] of byLine) {
       const cell = b.querySelector(`tr[data-line="${line + 1}"] > td.code`)
@@ -327,14 +329,13 @@ function useVariableColors(body: React.RefObject<HTMLDivElement | null>, text: s
         const r = document.createRange()
         r.setStart(...s)
         r.setEnd(...e)
-        const name = varHighlight(m.color, m.field)
-        ranges.set(name, [...(ranges.get(name) ?? []), r])
+        ranges.set(m.name, [...(ranges.get(m.name) ?? []), r])
       }
     }
     for (const [name, rs] of ranges) reg.highlights.set(name, new reg.Highlight(...rs))
   }, [marks, tokens, body])
   useEffect(() => clearVars, [])
-  return Boolean(on && marks?.length)
+  return Boolean(on && marks?.vars.length)
 }
 
 /** A color's highlight; a class's property or field has its own, underlined, so it stands apart from a local of that color. */
@@ -342,6 +343,7 @@ const varHighlight = (color: number, field: boolean) => `duet-var-${color}${fiel
 function clearVars() {
   const reg = registry()
   for (let i = 0; i < VAR_COLORS; i++) for (const field of [false, true]) reg?.highlights.delete(varHighlight(i, field))
+  reg?.highlights.delete('duet-kw')
 }
 
 /** The word around a caret in a code cell. */
