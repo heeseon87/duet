@@ -134,7 +134,9 @@ a:hover { text-decoration: underline; }
 .rail .count { font-variant-numeric: tabular-nums; }
 .rail-btn .badge { position: absolute; top: 2px; right: 2px; }
 .rail-sep { width: 24px; height: 1px; margin: 6px 0; background: var(--line); flex: none; }
-.rail-claude { position: relative; }
+.rail-btn.decide { margin-top: 4px; }
+.rail-btn.decide[aria-pressed='true'] { background: var(--accent-soft); color: var(--accent-ink); }
+.rail-btn.decide:disabled { opacity: .4; background: transparent; color: var(--ink-2); cursor: default; }
 .rail-btn.claude { min-height: 58px; color: var(--agent); }
 .claude-ring { width: 28px; height: 28px; display: grid; place-items: center; border: 1.5px solid currentColor; border-radius: 50%; }
 .rail-btn.claude[aria-pressed='true'] .claude-ring { background: var(--agent-soft); }
@@ -145,10 +147,6 @@ a:hover { text-decoration: underline; }
 .rail-btn.claude.error { color: var(--del); }
 @keyframes rail-spin { to { transform: rotate(360deg); } }
 @media (prefers-reduced-motion: reduce) { .rail-btn.claude .claude-ring, .rail-btn.claude .claude-ring > svg { animation: none !important; } }
-.rail-badge {
-  position: absolute; top: 0; right: 2px; min-width: 18px; height: 18px; padding: 0 5px; border: 2px solid var(--panel); border-radius: 9px;
-  background: var(--accent); color: #fff; font-size: 10px; font-weight: 700; line-height: 14px; font-variant-numeric: tabular-nums;
-}
 .rail-warn {
   width: 46px; padding: 6px 0; border-radius: var(--r-1); background: var(--warn-bg); color: var(--warn);
   display: flex; flex-direction: column; align-items: center; gap: 4px; font-size: 10.5px; font-weight: 600; cursor: help;

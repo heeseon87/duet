@@ -6,8 +6,8 @@ import { Composer } from './Composer.tsx'
 import { lastWords, waitLabel } from './transcript.ts'
 
 /**
- * The conversation over the map while the panel is folded: what Claude said last (or what it waits for), a way to the
- * open decisions, and the same draft as the panel's composer. Bottom left, clear of the zoom bar; above it when narrow.
+ * The conversation over the map while the panel is folded: what Claude said last (or what it waits for) and the same
+ * draft as the panel's composer. Bottom left, clear of the zoom bar; above it when narrow.
  */
 export function FloatComposer() {
   const sideOpen = useApp(s => s.sideOpen)
@@ -18,8 +18,6 @@ export function FloatComposer() {
   const currentTerminal = useApp(s => s.currentTerminal)
   const t = useTranscript(currentTerminal ? undefined : session?.id)
   const deciding = useCanvas(s => s.deciding)
-  const preview = useCanvas(s => Boolean(s.preview))
-  const open = useCanvas(s => (s.map?.decisions ?? []).filter(d => !d.chosen).length)
   const box = useRef<HTMLDivElement>(null)
   const [place, setPlace] = useState<{ width: number; raised: boolean }>()
 
@@ -54,11 +52,6 @@ export function FloatComposer() {
         {waits.length
           ? <button className="float-said wait" title="대화를 펼쳐서 답하기 (⌘3)" onClick={unfold}>{waitLabel(waits)}</button>
           : <button className="float-said" title={said ? `${said.text}\n대화 펼치기 (⌘3)` : '대화 펼치기 (⌘3)'} onClick={unfold}>{said?.text ?? (session?.title || '새 대화')}</button>}
-        {open > 0 && !preview && (
-          <button className="float-turn" title="열린 결정을 하나씩 정하기" onClick={() => { useApp.getState().closeReader(); useCanvas.getState().setDeciding(true) }}>
-            네 차례 · 결정 {open} →
-          </button>
-        )}
         <button className="iconbtn" title="대화 펼치기 (⌘3)" onClick={unfold}><PanelLeftOpen size={14} /></button>
       </div>
       {currentTerminal ? <Composer terminal floating /> : <Composer session={session} transcript={t} floating />}

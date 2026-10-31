@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { FileDiff, Keyboard, MessageSquare, Monitor, Moon, RotateCw, Search, Shapes, Sun, WifiOff } from 'lucide-react'
+import { FileDiff, Keyboard, MessageSquare, Signpost, Monitor, Moon, RotateCw, Search, Shapes, Sun, WifiOff } from 'lucide-react'
 import { connection, subscribe } from './api.ts'
 import { local, useApp } from './state.ts'
 import { Popover, isTypingTarget, shortcutKey } from './lib/ui.tsx'
@@ -129,29 +129,45 @@ function Stale() {
 
 /** The conversation's place on the rail: what it is doing, and what waits for you. A click shows or hides the panel. */
 function ClaudeSlot() {
-  const { sideOpen, sideWidth, setSide, setTab } = useApp()
+  const { sideOpen, sideWidth, setSide } = useApp()
   const status = useApp(s => s.sessions.find(x => x.id === s.currentSession)?.status)
-  const decisions = useCanvas(s => (s.map?.decisions ?? []).filter(d => !d.chosen).length)
   const busy = status === 'running' || status === 'starting'
   const label = status === 'waiting' ? '대기' : busy ? '작업' : 'Claude'
   return (
-    <div className="rail-claude">
-      <button className={`rail-btn claude ${status ?? 'idle'}`} aria-pressed={sideOpen} onClick={() => setSide(sideWidth, !sideOpen)}
-        title={`Claude · ${status === 'waiting' ? '네 답을 기다려' : busy ? '일하는 중' : '쉬는 중'} · 대화 ${sideOpen ? '접기' : '펼치기'} (⌘3)`}>
-        <span className="claude-ring"><MessageSquare size={14} /></span>{label}
-      </button>
-      {decisions > 0 && (
-        <button className="rail-badge" title={`결정 ${decisions}개가 너를 기다려 · 눌러서 하나씩 정하기`} onClick={() => {
-          useApp.getState().closeReader()
-          setTab('canvas')
-          useCanvas.getState().setDeciding(true)
-        }}>{decisions}</button>
-      )}
-    </div>
+    <button className={`rail-btn claude ${status ?? 'idle'}`} aria-pressed={sideOpen} onClick={() => setSide(sideWidth, !sideOpen)}
+      title={`Claude · ${status === 'waiting' ? '네 답을 기다려' : busy ? '일하는 중' : '쉬는 중'} · 대화 ${sideOpen ? '접기' : '펼치기'} (⌘3)`}>
+      <span className="claude-ring"><MessageSquare size={14} /></span>{label}
+    </button>
   )
 }
 
-/** The app's left rail: the two views, the conversation, and what is about the app itself. */
+/** Decision mode from anywhere: the open decisions of the map on the canvas, one at a time (all made, what was made). */
+function DecideSlot() {
+  const tab = useApp(s => s.tab)
+  const reading = useApp(s => Boolean(s.reader))
+  const all = useCanvas(s => s.map?.decisions?.length ?? 0)
+  const open = useCanvas(s => (s.map?.decisions ?? []).filter(d => !d.chosen).length)
+  const { deciding, setDeciding } = useCanvas()
+  const preview = useCanvas(s => s.preview?.revision)
+  const on = deciding && !reading && tab === 'canvas'
+  const title = !all ? '결정 · 이 지도에는 정할 결정이 없어'
+    : preview ? `결정 · rev ${preview}을 보는 동안은 열 수 없어`
+    : on ? '결정 모드 닫기 (esc)'
+    : open ? `결정 ${open}개가 너를 기다려 · 하나씩 정하기` : '결정을 모두 정했어 · 다시 보기'
+  return (
+    <button className="rail-btn decide" aria-pressed={on} disabled={!all || Boolean(preview)} title={title} onClick={() => {
+      if (on) { setDeciding(false); return }
+      useApp.getState().closeReader()
+      useApp.getState().setTab('canvas')
+      setDeciding(true)
+    }}>
+      <Signpost size={16} />결정
+      {open > 0 && <span className="badge">{open}</span>}
+    </button>
+  )
+}
+
+/** The app's left rail: the two views, decision mode, the conversation, and what is about the app itself. */
 function Rail({ onHelp }: { onHelp: () => void }) {
   const { tab, setTab, setPalette } = useApp()
   const reading = useApp(s => Boolean(s.reader))
@@ -171,6 +187,7 @@ function Rail({ onHelp }: { onHelp: () => void }) {
           {drafts > 0 && <span className="badge agent" title={`보내기 전 코멘트 ${drafts}개`}>{drafts}</span>}
         </button>
       </div>
+      <DecideSlot />
       <span className="rail-sep" />
       <ClaudeSlot />
       <span className="grow" />
