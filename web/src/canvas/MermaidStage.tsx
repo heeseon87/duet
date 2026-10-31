@@ -85,8 +85,6 @@ type Props = {
   /** Right click on a part (or on empty canvas: undefined), at this screen point. */
   onContext?: (target: string | undefined, at: { x: number; y: number }) => void
   readOnly?: boolean
-  /** Width covered on the right (the floating inspector): fitting centers in what is left. */
-  rightInset?: number
   /** A second look at the map (decision mode's): it neither takes nor leaves the view the canvas comes back to. */
   aside?: boolean
   /** More buttons for the zoom bar at the bottom right, after zoom out · percent · zoom in. */
@@ -119,8 +117,6 @@ export function partIds(map: CanvasMap, target: string): string[] {
 
 export const MermaidStage = forwardRef<StageHandle, Props & { viewKey: string }>(function MermaidStage(props, ref) {
   const { map, collapsed, ghostsFrom, glow, selected, peek, threads, code, revised, onSelect, onToggleGroup, onContext, viewKey } = props
-  const inset = useRef(props.rightInset ?? 0)
-  inset.current = props.rightInset ?? 0
   const outer = useRef<HTMLDivElement>(null)
   const inner = useRef<HTMLDivElement>(null)
   const [view, setView] = useState<View>(() => (!props.aside && lastView?.key === viewKey ? lastView.view : { x: 40, y: 40, k: 1 }))
@@ -168,7 +164,7 @@ export const MermaidStage = forwardRef<StageHandle, Props & { viewKey: string }>
     const svg = inner.current?.querySelector('svg')
     const full = outer.current?.getBoundingClientRect()
     if (!svg || !full) return
-    const box = { width: Math.max(320, full.width - inset.current), height: full.height }
+    const box = { width: Math.max(320, full.width), height: full.height }
     const w = svg.viewBox.baseVal.width || svg.getBoundingClientRect().width
     const h = svg.viewBox.baseVal.height || svg.getBoundingClientRect().height
     // Asked for (double-click, f, the button), the whole drawing fills the stage however small that makes it.
@@ -224,7 +220,7 @@ export const MermaidStage = forwardRef<StageHandle, Props & { viewKey: string }>
     }
     if (!Number.isFinite(l)) return
     const box = host.getBoundingClientRect()
-    const aw = Math.max(320, box.width - inset.current), ah = box.height
+    const aw = Math.max(320, box.width), ah = box.height
     const w = Math.max(r - l, 40), h = Math.max(b - t, 30)
     const fits = Math.min(1.25, Math.max(0.15, Math.min((aw - 120) / w, (ah - 120) / h)))
     const k = keepZoom ? Math.min(viewRef.current.k, fits) : fits
@@ -347,7 +343,7 @@ export const MermaidStage = forwardRef<StageHandle, Props & { viewKey: string }>
     return () => { live = false }
   }, [map, collapsed, ghostsFrom, themeTick, fit, frameNow])
 
-  // A selected part slides out from under the floating inspector (and back on screen).
+  // A selected part slides back on screen.
   useEffect(() => {
     if (!selected) return
     const host = outer.current
@@ -355,7 +351,7 @@ export const MermaidStage = forwardRef<StageHandle, Props & { viewKey: string }>
     if (!host || !el) return
     const box = host.getBoundingClientRect()
     const r = el.getBoundingClientRect()
-    const right = box.right - inset.current - 24, left = box.left + 24, top = box.top + 24, bottom = box.bottom - 24
+    const right = box.right - 24, left = box.left + 24, top = box.top + 24, bottom = box.bottom - 24
     let dx = 0, dy = 0
     if (r.right > right) dx = right - r.right
     if (r.left + dx < left) dx = left - r.left
@@ -364,14 +360,9 @@ export const MermaidStage = forwardRef<StageHandle, Props & { viewKey: string }>
     if (dx || dy) { glide(); setView(v => ({ ...v, x: v.x + dx, y: v.y + dy })) }
   }, [selected, glide])
 
-  // The stage narrows or widens (the code pane, the agent panel, the window): the drawing keeps its middle in the open
-  // area (the stage less the info card), gliding when the change is a jump, and a picked part that was in view stays so.
-  const seen = useRef<{ width: number; inset: number }>(undefined)
-  useLayoutEffect(() => {
-    // The card alone coming or going covers or bares the drawing and never moves it. Coming with a change of width
-    // (opening the pane puts the card away), it is left for the observer to take with that change.
-    if (seen.current && outer.current?.getBoundingClientRect().width === seen.current.width) seen.current.inset = inset.current
-  }, [props.rightInset])
+  // The stage narrows or widens (the code pane, the agent panel, the window): the drawing keeps its middle, gliding
+  // when the change is a jump, and a picked part that was in view stays so.
+  const seen = useRef<{ width: number }>(undefined)
   useEffect(() => {
     const host = outer.current
     if (!host) return
@@ -379,16 +370,16 @@ export const MermaidStage = forwardRef<StageHandle, Props & { viewKey: string }>
       const box = host.getBoundingClientRect(), was = seen.current
       // Hidden, it has no middle: keep the last size, so coming back applies whatever changed meanwhile.
       if (!box.width) return
-      seen.current = { width: box.width, inset: inset.current }
+      seen.current = { width: box.width }
       if (!was || box.width === was.width) return
-      let dx = (box.width - inset.current - (was.width - was.inset)) / 2
+      let dx = (box.width - was.width) / 2
       const sel = latest.current.selected
       const el = sel ? host.querySelector<SVGGraphicsElement>(`[data-target="${CSS.escape(sel)}"]:not(.cv-edge-hit)`) : null
       if (el) {
         // In the stage's own coordinates, where the view has not moved yet.
         const r = el.getBoundingClientRect(), l = r.left - box.left, rr = r.right - box.left
-        const right = box.width - inset.current - 24
-        if (rr > 0 && l < was.width - was.inset) {
+        const right = box.width - 24
+        if (rr > 0 && l < was.width) {
           if (rr + dx > right) dx = right - rr
           if (l + dx < 24) dx = 24 - l
         }
@@ -534,7 +525,7 @@ export const MermaidStage = forwardRef<StageHandle, Props & { viewKey: string }>
       <div className="stage-tip" ref={tip} hidden />
       {props.controls === undefined ? <div className="zoom-readout">{Math.round(view.k * 100)}%</div> : (
         // Its own clicks, like the fold buttons: not a drag, a pick or a double-click of the stage underneath.
-        <div className="zoom-bar" role="toolbar" aria-label="배율" style={{ right: 16 + (props.rightInset ?? 0) }}
+        <div className="zoom-bar" role="toolbar" aria-label="배율"
           onPointerDown={e => e.stopPropagation()} onPointerUp={e => e.stopPropagation()} onDoubleClick={e => e.stopPropagation()} onContextMenu={e => e.stopPropagation()}>
           <button onClick={() => zoom(1 / 1.2)} title="Zoom out (-)"><Minus size={13} /></button>
           <span className="zoom-readout">{Math.round(view.k * 100)}%</span>

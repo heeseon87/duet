@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { Compass, FileCode2, FileDiff, MessageSquarePlus, Moon, PanelRight, Search, Shapes, TextSearch, Loader2, CornerDownLeft } from 'lucide-react'
+import { FileCode2, FileDiff, MessageSquarePlus, Moon, PanelRight, Search, Shapes, TextSearch, Loader2, CornerDownLeft } from 'lucide-react'
 import { api, q } from './api.ts'
 import { useApp } from './state.ts'
 import { useReview } from './review/store.ts'
@@ -58,7 +58,6 @@ export function Palette({ onClose }: { onClose: () => void }) {
       { id: 'unfold-all', icon: <Shapes size={14} />, label: '캔버스: Expand all', run: () => { app.setTab('canvas'); canvas.setAllCollapsed(false) } },
     ] : []),
     ...(canvas.map ? [
-      { id: 'canvas-explore', icon: <Compass size={14} />, label: canvas.explore ? '캔버스: 탐색 모드 끄기' : '캔버스: 탐색 모드 켜기', hint: 'e', run: () => { app.setTab('canvas'); canvas.setExplore(!canvas.explore) } },
     ] : []),
     ...canvas.list.map(m => ({ id: `map-${m.name}`, icon: <Shapes size={14} />, label: `지도 열기: ${m.title}`, hint: m.name, run: () => { app.setTab('canvas'); void canvas.open(m.name) } })),
     ...app.sessions.slice(0, 12).map(s => ({ id: `ses-${s.id}`, icon: <MessageSquarePlus size={14} />, label: `대화: ${s.title}`, run: () => void app.selectSession(s.id) })),

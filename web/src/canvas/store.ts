@@ -33,8 +33,6 @@ type CanvasState = {
   /** The boxes the agent's last revision added or changed, still as it left them (a △ on each). */
   revised?: { revision: number; ids: string[] }
   collapsed: Set<string>
-  /** Explore: clicking only highlights; the info card stays as it is. Remembered. */
-  explore: boolean
   loading: boolean
   /** The agent changed a map the person is not looking at. */
   elsewhere?: { name: string; title: string; revision: number }
@@ -46,7 +44,6 @@ type CanvasState = {
   toggleCollapse: (groupId: string) => void
   /** Fold every package (nested ones too, so unfolding opens one level at a time), or unfold all. */
   setAllCollapsed: (fold: boolean) => void
-  setExplore: (on: boolean) => void
   /** Unfold this package (and the ones around it), fold every other; what is inside keeps its state. False when nothing changes. */
   soloExpand: (groupId: string) => boolean
   setCompare: (rev: number | undefined) => Promise<void>
@@ -133,7 +130,6 @@ export const useCanvas = create<CanvasState>((set, get) => ({
   threads: [],
   deliveries: {},
   collapsed: new Set(),
-  explore: local.get('canvas.explore') !== '0',
   loading: false,
 
   loadList: async () => {
@@ -233,11 +229,6 @@ export const useCanvas = create<CanvasState>((set, get) => ({
     if (w && name) local.set(`canvas.collapsed:${w}:${name}`, JSON.stringify([...next]))
     set({ collapsed: next })
     return true
-  },
-
-  setExplore: on => {
-    local.set('canvas.explore', on ? '1' : '0')
-    set({ explore: on })
   },
 
   setCompare: async rev => {

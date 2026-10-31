@@ -1,31 +1,16 @@
 import { useState } from 'react'
 import { Bot, Check, Send, Undo2, User } from 'lucide-react'
-import { deliveryLabel, shapedBy, type CanvasDecision, type CanvasMap, type DecisionWhyTag } from '../../../shared/canvas.ts'
+import { deliveryLabel, type CanvasDecision, type DecisionWhyTag } from '../../../shared/canvas.ts'
 import type { CanvasThread } from '../../../shared/protocol.ts'
 import { relTime } from '../lib/ui.tsx'
 import { Markdown } from '../lib/Markdown.tsx'
 import { useCanvas } from './store.ts'
 
-/** Pieces of a decision and its threads, shared by the info card and decision mode. */
+/** Pieces of a decision and its threads: decision mode's, and the canvas's ask box. */
 
 export const WHY_TAG_LABEL: Record<DecisionWhyTag, string> = { convention: '관례가 둘', scope: '이 일 밖에 미침', irreversible: '되돌리기 어려움', context: '네가 아는 것', tie: '무게가 비슷' }
 
 export const letterOf = (d: CanvasDecision, optionId: string) => optionId.replace(`${d.id}-`, '')
-
-/** How many parts a decision (or one option) shaped, and what to frame to show them: a merged line is found by its ends. */
-export function partsOf(map: CanvasMap, d: string, option?: string) {
-  const s = shapedBy(map, d, option)
-  return { n: s.elements.length + s.relations.length + s.messages.length, ids: [...s.elements.map(e => e.id), ...s.relations.flatMap(r => [r.from, r.to]), ...s.messages.map(m => m.id)] }
-}
-
-export function OptionBody({ d, o }: { d: CanvasDecision; o: CanvasDecision['options'][number] }) {
-  return (
-    <>
-      <div className="option-text"><span className="opt-letter">{letterOf(d, o.id)}</span>{o.text}</div>
-      {o.impact && <div className="option-impact">{o.impact}</div>}
-    </>
-  )
-}
 
 /** Why the agent asks instead of going on: its tags, then its sentence. */
 export function WhyAsk({ why }: { why: NonNullable<CanvasDecision['why']> }) {

@@ -1,14 +1,13 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import {
-  ChevronDown, ChevronUp, ChevronsDownUp, ChevronsLeft, ChevronsRight, ChevronsUpDown, Clock3, Compass, Copy, Eye, ListCollapse, ZoomIn, GitCompareArrows, Maximize2, MessageSquare, Plus, Shapes, Sparkles, Undo2, Workflow,
-  Check, CircleDot, FileCode2, FileDiff, ArrowLeft, ArrowRight, ArrowUp, ArrowDown, X, Bot, User, Trash2, Pencil, Share, ImageDown, FolderGit2,
+  ChevronDown, ChevronsDownUp, ChevronsUpDown, Clock3, Copy, ListCollapse, ZoomIn, GitCompareArrows, Maximize2, MessageSquare, Plus, Shapes, Sparkles, Undo2, Workflow,
+  Check, FileCode2, FileDiff, ArrowLeft, ArrowRight, ArrowUp, ArrowDown, X, Bot, User, Trash2, Share, ImageDown, FolderGit2,
 } from 'lucide-react'
-import { describeDiff, diffMaps, exportMermaid, filesUnder, labelOf, relationKey, stepMark, type CanvasDecision, type CanvasElement, type CanvasMap, type CanvasRelation } from '../../../shared/canvas.ts'
+import { describeDiff, diffMaps, exportMermaid, filesUnder, labelOf, relationKey, type CanvasMap } from '../../../shared/canvas.ts'
 import { codeMarks, refBase } from '../../../shared/mapFiles.ts'
 import { api } from '../api.ts'
 import { local, useApp } from '../state.ts'
 import { Popover, isTypingTarget, relTime, shortcutKey } from '../lib/ui.tsx'
-import { Markdown } from '../lib/Markdown.tsx'
 import { MermaidStage, partIds, type StageHandle } from './MermaidStage.tsx'
 import { CodePane } from './CodePane.tsx'
 import { FlowList } from './FlowList.tsx'
@@ -20,7 +19,7 @@ import { useCanvas } from './store.ts'
 import { CHANGE_LABEL } from './words.ts'
 import { useReview } from '../review/store.ts'
 import { FloatComposer } from '../agent/FloatComposer.tsx'
-import { Ask, DeliveryLine, OptionBody, ThreadView, WhyAsk, letterOf, partsOf } from './DecisionParts.tsx'
+import { Ask } from './DecisionParts.tsx'
 import { DecisionMode } from './DecisionMode.tsx'
 
 const kindLabel = (kind = 'class') => (kind === 'group' ? 'package' : kind)
@@ -118,359 +117,6 @@ function Timeline() {
   )
 }
 
-function MapAsk() {
-  const [open, setOpen] = useState(false)
-  if (!open) return <button className="btn sm ghost ask-open" onClick={() => setOpen(true)}><MessageSquare size={13} /> 지도 전체에 대해 묻기</button>
-  return <div className="insp-section"><h4>지도 전체에 대해</h4><Ask target="" placeholder="묻거나 고칠 점 적기" /></div>
-}
-
-function RelationEditor({ rel }: { rel: CanvasRelation }) {
-  const patch = useCanvas(s => s.patch)
-  const select = useCanvas(s => s.select)
-  const base = { from: rel.from, to: rel.to, kind: rel.kind }
-  return (
-    <>
-      <InlineEdit className="insp-note-edit mono" value={rel.label ?? ''} placeholder="무엇이 오가는지 적기" onSave={v => void patch({ relations: [{ ...base, label: v || null }] }, `${rel.from}→${rel.to} 라벨`)} />
-      <div className="row">
-        <span className="muted small">단계</span>
-        <input className="input step-input" type="number" min={0} defaultValue={rel.step ?? ''} onBlur={e => { const n = Number(e.target.value); if ((n || undefined) !== rel.step) void patch({ relations: [{ ...base, step: n > 0 ? n : null }] }, `${rel.from}→${rel.to} 단계`) }} />
-        <span className="grow" />
-        <button className="btn sm ghost danger" onClick={async () => {
-          if (!(await confirmDialog({ title: '이 관계선을 지울까?', body: `${rel.from} → ${rel.to}`, ok: '지우기', danger: true }))) return
-          await patch({ relations: [{ ...base, remove: true }] }, `${rel.from}→${rel.to} 지움`)
-          select(undefined)
-        }}><Trash2 size={12} /> 지우기</button>
-      </div>
-    </>
-  )
-}
-
-/** Select a decision and bring these parts of the map into view. */
-type Show = (decision: string, ids: string[]) => void
-
-/**
- * One decision in full. Open: the question, then each option, to pick from. Made: the question,
- * the pick and why, and the options that lost with why they lost. The id and the part counts
- * select the decision and frame what it shaped on the map.
- */
-function DecisionCard({ d, map, readOnly, show, onFold }: { d: CanvasDecision; map: CanvasMap; readOnly: boolean; show: Show; onFold?: () => void }) {
-  const choose = useCanvas(s => s.choose)
-  const select = useCanvas(s => s.select)
-  const [pick, setPick] = useState<string | undefined>()
-  const [why, setWhy] = useState('')
-  const [notify, setNotify] = useState(true)
-  const all = partsOf(map, d.id)
-  const idClass = `decision-id ${d.chosen ? 'done' : ''}`
-  const id = all.n
-    ? <button className={idClass} title="지도에서 보기" onClick={() => show(d.id, all.ids)}>{d.id}</button>
-    : <span className={idClass}>{d.id}</span>
-  const count = (oid: string) => {
-    const p = partsOf(map, d.id, oid)
-    return p.n > 0 && <button className="link-btn option-count" onClick={e => { e.stopPropagation(); show(d.id, p.ids) }}>{p.n}곳 보기</button>
-  }
-  const chosen = d.options.find(o => o.id === d.chosen)
-  if (chosen) {
-    const others = d.options.filter(o => o.id !== chosen.id)
-    return (
-      <div className="decision closed">
-        <div className="decision-top">
-          {id}
-          <span className="decision-state done"><Check size={12} /> {letterOf(d, chosen.id)}로 정함</span>
-          <span className="grow" />
-          {onFold && <button className="iconbtn" title="한 줄로 접기" onClick={onFold}><ChevronUp size={13} /></button>}
-        </div>
-        <div className="decision-q">{d.question}</div>
-        {d.why && <WhyAsk why={d.why} />}
-        <div className="decision-answer"><OptionBody d={d} o={chosen} />{count(chosen.id)}</div>
-        {d.rationale && <div className="decision-why"><b>이유</b> {d.rationale}</div>}
-        {others.length > 0 && (
-          <div className="options">
-            {others.map(o => (
-              <div key={o.id} className="option lost">
-                <OptionBody d={d} o={o} />
-                {o.rejected && <div className="option-rejected"><b>버린 이유</b> {o.rejected}</div>}
-              </div>
-            ))}
-          </div>
-        )}
-        {!readOnly && <button className="link-btn reopen" onClick={() => void choose(d.id, null)}>이 결정 다시 열기</button>}
-      </div>
-    )
-  }
-  const toggle = (oid: string) => setPick(p => (p === oid ? undefined : oid))
-  return (
-    <div className="decision open">
-      <div className="decision-top">
-        {id}
-        <span className="decision-state todo">결정 전</span>
-      </div>
-      <div className="decision-q">{d.question}</div>
-      {d.why && <WhyAsk why={d.why} />}
-      <div className="options">
-        {d.options.map(o => readOnly ? (
-          <div key={o.id} className="option"><OptionBody d={d} o={o} />{count(o.id)}</div>
-        ) : (
-          <div key={o.id} role="button" tabIndex={0} className={`option pickable ${pick === o.id ? 'picked' : ''}`} aria-pressed={pick === o.id}
-            onClick={() => toggle(o.id)} onKeyDown={e => { if (e.target === e.currentTarget && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); toggle(o.id) } }}>
-            <OptionBody d={d} o={o} />
-            {count(o.id)}
-          </div>
-        ))}
-      </div>
-      {pick && !readOnly && (
-        <div className="decide-form">
-          <input className="input" placeholder="고른 이유 (선택)" value={why} onChange={e => setWhy(e.target.value)} />
-          <label className="toggle"><input type="checkbox" checked={notify} onChange={e => setNotify(e.target.checked)} /> 에이전트에게 보내기</label>
-          <div className="row">
-            <span className="muted small">다른 선택지 쪽은 지도에서 정리돼</span>
-            <span className="grow" />
-            <button className="btn sm ghost" onClick={() => setPick(undefined)}>취소</button>
-            <button className="btn sm primary" onClick={() => { void choose(d.id, pick, why || undefined, notify); select(undefined) }}>{letterOf(d, pick)}로 결정</button>
-          </div>
-        </div>
-      )}
-    </div>
-  )
-}
-
-/** A made decision in one line, "D3 ✓ a 질문 … → 고른 답"; a click opens it in full with its thread. */
-function MadeDecision({ d, map, readOnly, show }: { d: CanvasDecision; map: CanvasMap; readOnly: boolean; show: Show }) {
-  const [open, setOpen] = useState(false)
-  const threads = useCanvas(s => s.threads)
-  const chosen = d.options.find(o => o.id === d.chosen)
-  if (!chosen) return null
-  if (open) {
-    return (
-      <div className="made open" data-decision={d.id}>
-        <DecisionCard d={d} map={map} readOnly={readOnly} show={show} onFold={() => setOpen(false)} />
-        {threads.filter(t => t.target === d.id).map(t => <ThreadView key={t.id} t={t} />)}
-      </div>
-    )
-  }
-  return (
-    <div className="made" data-decision={d.id}>
-      <button className="made-row" onClick={() => setOpen(true)} title={`${d.question} → ${chosen.text}`}>
-        <span className="decision-id done">{d.id}</span>
-        <Check size={12} className="made-check" />
-        <span className="opt-letter">{letterOf(d, chosen.id)}</span>
-        <span className="made-text">{d.question}<span className="made-arrow"> → </span>{chosen.text}</span>
-      </button>
-      <DeliveryLine target={d.id} />
-    </div>
-  )
-}
-
-function Inspector({ map, readOnly, onHide, wide, onToggleWide, onFrame, onCode }: { map: CanvasMap; readOnly: boolean; onHide: () => void; wide: boolean; onToggleWide: () => void; onFrame: (ids: string[]) => void; onCode: (file: string) => void }) {
-  const { selected, select, threads, toggleCollapse, collapsed } = useCanvas()
-  const show: Show = (d, ids) => { select(d); onFrame(ids) }
-  const el = map.elements.find(e => e.id === selected)
-  const rel = map.relations.find(r => relationKey(r) === selected)
-  const msg = map.messages?.find(m => m.id === selected)
-  const dec = map.decisions?.find(d => d.id === selected)
-  const mine = threads.filter(t => t.target === (selected ?? ''))
-  const openThreads = threads.filter(t => t.state === 'open')
-  const openDecisions = (map.decisions ?? []).filter(d => !d.chosen)
-  const closedDecisions = (map.decisions ?? []).filter(d => d.chosen)
-  const widen = <button className="iconbtn" onClick={onToggleWide} title={wide ? '좁게 보기' : '넓게 보기'}>{wide ? <ChevronsRight size={14} /> : <ChevronsLeft size={14} />}</button>
-
-  if (!selected) {
-    return (
-      <div className={`inspector compact ${wide ? 'wide' : ''}`}>
-        <div className="insp-head"><span className="grow" />{widen}<button className="iconbtn" onClick={onHide} title="닫기 (i)"><X size={14} /></button></div>
-        <div className="insp-title">{map.title}</div>
-        {map.context && <div className="insp-context"><Markdown text={map.context} /></div>}
-        {openDecisions.length > 0 && <div className="insp-section" data-decisions><h4>결정할 것 {openDecisions.length}</h4>{openDecisions.map(d => <DecisionCard key={d.id} d={d} map={map} readOnly={readOnly} show={show} />)}</div>}
-        {openThreads.length > 0 && (
-          <div className="insp-section">
-            <h4>열린 코멘트 {openThreads.length}</h4>
-            {openThreads.map(t => (
-              <button key={t.id} className="thread-link" onClick={() => select(t.target || undefined)}>
-                <MessageSquare size={12} /><span className="ellipsis grow">{t.targetLabel}</span><span className="muted">{t.items.length}</span>
-              </button>
-            ))}
-          </div>
-        )}
-        {!readOnly && <MapAsk />}
-        {mine.length > 0 && <div className="insp-section">{mine.map(t => <ThreadView key={t.id} t={t} />)}</div>}
-        {closedDecisions.length > 0 && (
-          <div className="insp-section made-list" data-decisions><h4>정한 결정 {closedDecisions.length}</h4>{closedDecisions.map(d => <MadeDecision key={d.id} d={d} map={map} readOnly={readOnly} show={show} />)}</div>
-        )}
-      </div>
-    )
-  }
-
-  const incoming = el ? map.relations.filter(r => r.to === el.id) : []
-  const outgoing = el ? map.relations.filter(r => r.from === el.id) : []
-  const children = el ? map.elements.filter(e => e.parent === el.id) : []
-  return (
-    <div className={`inspector ${wide ? 'wide' : ''}`}>
-      <div className="insp-head">
-        <button className="iconbtn" onClick={() => select(undefined)} title="선택 해제 (esc)"><ArrowLeft size={14} /></button>
-        <span className="grow" />
-        {widen}
-        <button className="iconbtn" onClick={onHide} title="닫기 (i)"><X size={14} /></button>
-      </div>
-      {el && (
-        <>
-          {readOnly ? <div className="insp-title">{el.label ?? el.id}</div> : <ElementEditor el={el} />}
-          <div className="row wrap">
-            <span className="chip">{kindLabel(el.kind)}</span>
-            {readOnly && el.change && el.change !== 'keep' && <span className={`chip cv-chip-${el.change}`}>{CHANGE_LABEL[el.change]}</span>}
-            {el.decision && <DecisionChip map={map} decision={el.decision} option={el.option} />}
-            <code className="muted">{el.id}</code>
-          </div>
-          {el.kind === 'group' && (
-            <button className="btn sm" onClick={() => toggleCollapse(el.id)}>{collapsed.has(el.id) ? 'Expand' : 'Collapse'}</button>
-          )}
-          {readOnly && el.note && <div className="insp-note"><Markdown text={el.note} /></div>}
-          {el.members && el.members.length > 0 && (
-            <div className="insp-section">
-              <h4>멤버</h4>
-              <ul className="members">
-                {el.members.map((m, i) => <li key={i} className={m.change ?? ''}><span className="mark">{m.change === 'add' ? '+' : m.change === 'delete' ? '−' : m.change === 'modify' ? '~' : ''}</span><code>{m.text}</code></li>)}
-              </ul>
-            </div>
-          )}
-          {el.files && el.files.length > 0 && (
-            <div className="insp-section">
-              <h4>코드</h4>
-              {el.files.map(f => (
-                <button key={f} className="file-link" onClick={() => onCode(f)}>
-                  <FileCode2 size={12} /><span className="ellipsis">{f}</span>
-                </button>
-              ))}
-            </div>
-          )}
-          {children.length > 0 && (
-            <div className="insp-section"><h4>안에 있는 것 {children.length}</h4>
-              {children.map(c => <button key={c.id} className="rel-link" onClick={() => select(c.id)}><CircleDot size={11} /> {c.label ?? c.id}</button>)}
-            </div>
-          )}
-          {(incoming.length > 0 || outgoing.length > 0) && (
-            <div className="insp-section">
-              <h4>관계</h4>
-              {outgoing.map(r => <RelLink key={relationKey(r)} r={r} map={map} dir="out" />)}
-              {incoming.map(r => <RelLink key={relationKey(r)} r={r} map={map} dir="in" />)}
-            </div>
-          )}
-        </>
-      )}
-      {rel && (
-        <>
-          <div className="insp-title rel-title">
-            <button className="link-btn" onClick={() => select(rel.from)}>{labelOf(map, rel.from)}</button>
-            <ArrowRight size={14} />
-            <button className="link-btn" onClick={() => select(rel.to)}>{labelOf(map, rel.to)}</button>
-          </div>
-          <div className="row wrap">
-            <span className="chip">{rel.kind ?? 'association'}</span>
-            {rel.step && <span className="chip accent">{stepMark(rel.step)} 단계</span>}
-            {rel.change && <span className={`chip cv-chip-${rel.change}`}>{CHANGE_LABEL[rel.change]}</span>}
-            {rel.decision && <DecisionChip map={map} decision={rel.decision} option={rel.option} />}
-          </div>
-          {readOnly
-            ? rel.label && <div className="insp-note"><code>{rel.label}</code></div>
-            : <RelationEditor rel={rel} />}
-        </>
-      )}
-      {msg && (
-        <>
-          <div className="insp-title">{msg.label || msg.id}</div>
-          <div className="row wrap">
-            <button className="link-btn" onClick={() => select(msg.from)}>{labelOf(map, msg.from)}</button>
-            {msg.to && <><ArrowRight size={13} /><button className="link-btn" onClick={() => select(msg.to)}>{labelOf(map, msg.to)}</button></>}
-            <span className="chip">{msg.kind ?? 'call'}</span>
-          </div>
-        </>
-      )}
-      {dec && <DecisionCard key={dec.id} d={dec} map={map} readOnly={readOnly} show={show} />}
-      {!el && !rel && !msg && !dec && <div className="insp-note muted">지금 지도에서는 지워졌어.</div>}
-      <div className="insp-section">
-        {mine.map(t => <ThreadView key={t.id} t={t} />)}
-        {!readOnly && <Ask target={selected} placeholder="묻거나 고칠 점 적기" />}
-      </div>
-    </div>
-  )
-}
-
-/** The decision that shaped a part, with its option: a click selects the decision. */
-function DecisionChip({ map, decision, option }: { map: CanvasMap; decision: string; option?: string }) {
-  const select = useCanvas(s => s.select)
-  const made = map.decisions?.some(d => d.id === decision && d.chosen)
-  return <button className={`chip ${made ? 'add' : 'accent'}`} onClick={() => select(decision)}>{decision}{option ? ` · ${option.replace(`${decision}-`, '')}` : ''}</button>
-}
-
-/** Click to edit in place; Enter saves, Escape cancels. */
-function InlineEdit({ value, onSave, className, placeholder, multiline }: { value: string; onSave: (v: string) => void; className?: string; placeholder?: string; multiline?: boolean }) {
-  const [editing, setEditing] = useState(false)
-  const [draft, setDraft] = useState(value)
-  useEffect(() => { if (!editing) setDraft(value) }, [value, editing])
-  if (!editing) {
-    return (
-      <button className={`inline-edit ${className ?? ''} ${value ? '' : 'empty-val'}`} title="고치기" onClick={() => setEditing(true)}>
-        {value || placeholder}<Pencil size={11} className="pen" />
-      </button>
-    )
-  }
-  const save = () => { setEditing(false); if (draft.trim() !== value.trim()) onSave(draft.trim()) }
-  const Tag = multiline ? 'textarea' : 'input'
-  return (
-    <Tag
-      autoFocus
-      className={`input inline-input ${className ?? ''}`}
-      value={draft}
-      rows={multiline ? 3 : undefined}
-      onChange={e => setDraft(e.target.value)}
-      onBlur={save}
-      onKeyDown={e => {
-        if (e.key === 'Escape') { e.stopPropagation(); setEditing(false); setDraft(value) }
-        if (e.key === 'Enter' && (!multiline || e.metaKey) && !e.nativeEvent.isComposing) { e.preventDefault(); save() }
-      }}
-    />
-  )
-}
-
-const CHANGES: CanvasElement['change'][] = ['add', 'modify', 'delete', 'result', 'keep']
-
-function ElementEditor({ el }: { el: CanvasElement }) {
-  const patch = useCanvas(s => s.patch)
-  const select = useCanvas(s => s.select)
-  const toast = useApp(s => s.toast)
-  const apply = async (p: Parameters<typeof patch>[0], note: string) => {
-    const errors = await patch(p, note)
-    if (errors?.length) toast(errors[0], 'error')
-  }
-  return (
-    <>
-      <InlineEdit className="insp-title" value={el.label ?? el.id} onSave={v => void apply({ elements: [{ id: el.id, label: v || null }] }, `${el.id} 이름 바꿈`)} />
-      {el.kind !== 'group' && (
-        <div className="change-pick">
-          {CHANGES.map(c => (
-            <button key={c} className={`chip cv-chip-${c} ${(el.change ?? 'keep') === c ? 'on' : ''}`} onClick={() => void apply({ elements: [{ id: el.id, change: c === 'keep' ? null : c }] }, `${el.id} → ${CHANGE_LABEL[c!]}`)}>{CHANGE_LABEL[c!]}</button>
-          ))}
-        </div>
-      )}
-      <InlineEdit multiline className="insp-note-edit" value={el.note ?? ''} placeholder="메모 달기" onSave={v => void apply({ elements: [{ id: el.id, note: v || null }] }, `${el.id} 메모`)} />
-      <button className="btn sm ghost danger del-el" onClick={async () => {
-        if (!(await confirmDialog({ title: `'${el.label ?? el.id}' 지울까?`, body: '이어진 관계선도 함께 지워져. 기록에서 되돌릴 수 있어.', ok: '지우기', danger: true }))) return
-        await apply({ remove: { elements: [el.id] } }, `${el.id} 지움`)
-        select(undefined)
-      }}><Trash2 size={12} /> 지도에서 지우기</button>
-    </>
-  )
-}
-
-function RelLink({ r, map, dir }: { r: CanvasMap['relations'][number]; map: CanvasMap; dir: 'in' | 'out' }) {
-  const select = useCanvas(s => s.select)
-  const other = dir === 'out' ? r.to : r.from
-  return (
-    <button className="rel-link" onClick={() => select(relationKey(r))}>
-      <span className={`rel-dir ${dir}`}>{dir === 'out' ? '→' : '←'}</span>
-      <span className="ellipsis grow"><b>{labelOf(map, other)}</b>{r.label ? <span className="muted"> · {r.step ? stepMark(r.step) + ' ' : ''}{r.label}</span> : null}</span>
-    </button>
-  )
-}
-
 /** What the map's colors and marks mean, at the end of the line under the title: the states it uses, open decisions, the agent's △. */
 function Legend({ map, revised }: { map: CanvasMap; revised?: { revision: number; ids: string[] } }) {
   const used = new Set(map.elements.map(e => e.change ?? 'keep'))
@@ -502,14 +148,7 @@ export function CanvasView() {
   // The flow list's row under the pointer: its line is lit on the map.
   const [peek, setPeek] = useState<string>()
   const [asking, setAsking] = useState<{ target: string; at: Point }>()
-  // Explore mode starts (and stays) with the card away: clicking only highlights. So does the code pane, which stands in for the card.
-  const [inspector, setInspector] = useState(() => !useCanvas.getState().explore && local.get('canvas.code') === '0')
-  useEffect(() => { if (s.explore) setInspector(false) }, [s.explore])
-  // A wider info card for long decisions and notes; remembered.
-  const [wideInsp, setWideInsp] = useState(() => local.get('canvas.wideInspector') === '1')
-  const toggleWide = () => setWideInsp(w => { local.set('canvas.wideInspector', w ? '0' : '1'); return !w })
-  // The code pane beside the map; remembered. It stands in for the info card: opening it puts the card away, and while
-  // it is open a pick does not bring the card back (`i` still does).
+  // The code pane beside the map; remembered.
   const [codeOpen, setCodeOpen] = useState(() => local.get('canvas.code') !== '0')
   const codeOpenRef = useRef(codeOpen)
   codeOpenRef.current = codeOpen
@@ -521,7 +160,6 @@ export function CanvasView() {
     if (open && !codeOpenRef.current) codeSlide.current = true
     setCodeOpen(open)
     local.set('canvas.code', open ? '1' : '0')
-    if (open) setInspector(false)
     if (file) setCodeWant({ file, nonce: Date.now() })
   }
 
@@ -572,7 +210,6 @@ export function CanvasView() {
   // zoom the map is at.
   const pickStep = (key: string) => {
     s.select(key)
-    if (!useCanvas.getState().explore && !codeOpenRef.current) setInspector(true)
     const m = useCanvas.getState().preview?.map ?? useCanvas.getState().map
     if (m) requestAnimationFrame(() => stage.current?.center(partIds(m, key)))
   }
@@ -585,13 +222,10 @@ export function CanvasView() {
       // A checkbox (the code pane's Viewed) keeps the keys.
       if (isTypingTarget(e.target)) return
       const k = shortcutKey(e)
-      // Letting go of the selection also puts the info card away; `i` brings back the map's overview.
-      if (k === 'Escape') { s.select(undefined); setInspector(false) }
+      if (k === 'Escape') s.select(undefined)
       else if (k === 'f' && !e.metaKey) stage.current?.fit()
       else if ((k === '=' || k === '+') && !e.metaKey) stage.current?.zoom(1.2)
       else if (k === '-' && !e.metaKey) stage.current?.zoom(1 / 1.2)
-      else if (k === 'i' && !e.metaKey) setInspector(v => !v)
-      else if (k === 'e' && !e.metaKey) s.setExplore(!useCanvas.getState().explore)
       else if (k === 'c' && !e.metaKey && !e.ctrlKey) showCode(!codeOpenRef.current)
       else if ((k === 'n' || k === 'p') && !e.metaKey && !e.ctrlKey) {
         const st = useCanvas.getState()
@@ -637,11 +271,6 @@ export function CanvasView() {
   const frameSoon = (ids: string[]) => requestAnimationFrame(() => stage.current?.frame(ids))
   const decisions = shownMap.decisions ?? []
   const made = decisions.filter(d => d.chosen).length
-  const showDecisions = () => {
-    s.select(undefined)
-    setInspector(true)
-    requestAnimationFrame(() => requestAnimationFrame(() => document.querySelector('.inspector [data-decisions]')?.scrollIntoView({ block: 'start', behavior: 'smooth' })))
-  }
   /**
    * The package drawn right beside a top-level package, toward `side` along a row (a column when
    * the map runs LR), and where it goes in the map's order to cross it. Read off the drawing, so it
@@ -677,7 +306,6 @@ export function CanvasView() {
     const rel = target && !el ? map.relations.find(r => relationKey(r) === target) : undefined
     const msg = target && !el && !rel ? map.messages?.find(m => m.id === target) : undefined
     const ask = (t: string): MenuEntry[] => readOnly ? [] : [{ kind: 'item', key: 'ask', icon: <MessageSquare size={14} />, label: t ? '에이전트에게 묻기' : '지도 전체에 대해 묻기', run: () => setAsking({ target: t, at }) }]
-    const info = (t: string): MenuEntry => ({ kind: 'item', key: 'info', icon: <Eye size={14} />, label: '정보 카드에서 보기', hint: 'i', run: () => { s.select(t); setInspector(true) } })
     const zoomTo = (ids: string[]): MenuEntry => ({ kind: 'item', key: 'zoom', icon: <ZoomIn size={14} />, label: 'Zoom to selection', run: () => frameSoon(ids) })
     if (el || rel || msg) {
       const t = target!
@@ -722,7 +350,6 @@ export function CanvasView() {
           move(-1, across ? '위로 옮기기' : '왼쪽으로 옮기기', across ? <ArrowUp size={14} /> : <ArrowLeft size={14} />),
           move(1, across ? '아래로 옮기기' : '오른쪽으로 옮기기', across ? <ArrowDown size={14} /> : <ArrowRight size={14} />))
       }
-      out.push({ kind: 'sep' }, info(t))
       return out
     }
     return [
@@ -732,8 +359,6 @@ export function CanvasView() {
         { kind: 'item', key: 'fold-all', icon: <ChevronsDownUp size={14} />, label: 'Collapse all', disabled: allFolded, run: () => s.setAllCollapsed(true) },
         { kind: 'item', key: 'unfold-all', icon: <ChevronsUpDown size={14} />, label: 'Expand all', disabled: !s.collapsed.size, run: () => s.setAllCollapsed(false) },
       ] satisfies MenuEntry[] : []),
-      { kind: 'item', key: 'explore', icon: <Compass size={14} />, label: s.explore ? '탐색 모드 끄기' : '탐색 모드 켜기', hint: 'e', run: () => s.setExplore(!s.explore) },
-      { kind: 'item', key: 'card', icon: <Eye size={14} />, label: inspector ? '정보 카드 닫기' : '정보 카드 열기', hint: 'i', run: () => setInspector(v => !v) },
       ...(canCompare ? [{ kind: 'item', key: 'compare', icon: <GitCompareArrows size={14} />, label: s.compareFrom ? '비교 끄기' : 'Compare with previous', run: () => void s.setCompare(s.compareFrom ? undefined : s.revision - 1) }] satisfies MenuEntry[] : []),
       ...ask(''),
       { kind: 'sep' },
@@ -767,8 +392,8 @@ export function CanvasView() {
         <div className="map-head-meta">
           <Timeline />
           {decisions.length > 0 && (
-            <button className={`chip dec-chip ${made < decisions.length ? 'accent' : 'quiet'}`} onClick={() => (s.preview ? showDecisions() : s.setDeciding(true))}
-              title={made < decisions.length ? `결정할 것 ${decisions.length - made}개 · 정한 결정 ${made}개 · 눌러서 하나씩 정하기` : '결정을 모두 정했어 · 눌러서 다시 보기'}>
+            <button className={`chip dec-chip ${made < decisions.length ? 'accent' : 'quiet'}`} disabled={Boolean(s.preview)} onClick={() => s.setDeciding(true)}
+              title={s.preview ? `rev ${s.preview.revision}에서는 결정을 볼 수만 있어` : made < decisions.length ? `결정할 것 ${decisions.length - made}개 · 정한 결정 ${made}개 · 눌러서 하나씩 정하기` : '결정을 모두 정했어 · 눌러서 다시 보기'}>
               결정 {made}/{decisions.length}{made < decisions.length && <span className="dec-wait"> · 너를 기다림</span>}
             </button>
           )}
@@ -818,7 +443,7 @@ export function CanvasView() {
           threads={s.threads}
           code={code?.marks}
           revised={s.preview ? undefined : s.revised}
-          onSelect={t => { s.select(t); if (!useCanvas.getState().explore && !codeOpen) setInspector(Boolean(t)) }}
+          onSelect={t => s.select(t)}
           onToggleGroup={s.toggleCollapse}
           onContext={(t, at) => {
             // A known part is picked (lit) so the menu clearly speaks about it; the info card stays as it is.
@@ -826,19 +451,14 @@ export function CanvasView() {
             if (known) s.select(t)
             setMenu({ target: known ? t : undefined, at })
           }}
-          rightInset={inspector ? (wideInsp ? 584 : 364) : 0}
           controls={<>
             <span className="zoom-sep" />
             <button onClick={() => stage.current?.fit()} title="Zoom to fit (f)">맞춤 <kbd>f</kbd></button>
             <button aria-pressed={codeOpen} onClick={() => showCode(!codeOpen)} title={codeOpen ? '코드 칸 닫기 (c)' : '코드 칸: 누른 상자의 코드를 옆에서 보기 (c)'}>코드 <kbd>c</kbd></button>
-            <button aria-pressed={s.explore} onClick={() => s.setExplore(!s.explore)} title={s.explore ? '탐색 모드 끄기 (e)' : '탐색 모드 (e)'}>탐색 <kbd>e</kbd></button>
           </>}
         />
-        {inspector
-          ? <Inspector map={shownMap} readOnly={Boolean(s.preview)} onHide={() => setInspector(false)} wide={wideInsp} onToggleWide={toggleWide} onFrame={frameSoon} onCode={f => showCode(true, f)} />
-          : <button className="btn sm insp-open" onClick={() => setInspector(true)}><Eye size={13} /> 정보 <kbd>i</kbd></button>}
         <FlowList map={shownMap} selected={s.selected} onPeek={setPeek} onPick={pickStep} />
-        <FloatComposer inset={inspector ? (wideInsp ? 584 : 364) : 0} />
+        <FloatComposer />
         {menu && <ContextMenu at={menu.at} entries={menuEntries(menu.target, menu.at)} onClose={() => setMenu(undefined)} />}
         {asking && (
           <FloatAt at={asking.at} onClose={() => setAsking(undefined)} width={340} sticky className="ctx-ask">

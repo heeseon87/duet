@@ -8,9 +8,8 @@ import { lastWords, waitLabel } from './transcript.ts'
 /**
  * The conversation over the map while the panel is folded: what Claude said last (or what it waits for), a way to the
  * open decisions, and the same draft as the panel's composer. Bottom left, clear of the zoom bar; above it when narrow.
- * `inset`: the info card's width; the zoom bar moves left of it without either resizing, so the box refits on it.
  */
-export function FloatComposer({ inset }: { inset: number }) {
+export function FloatComposer() {
   const sideOpen = useApp(s => s.sideOpen)
   const sideWidth = useApp(s => s.sideWidth)
   const setSide = useApp(s => s.setSide)
@@ -41,7 +40,7 @@ export function FloatComposer({ inset }: { inset: number }) {
     const bar = host.querySelector('.zoom-bar')
     if (bar) ro.observe(bar)
     return () => ro.disconnect()
-  }, [sideOpen, deciding, inset])
+  }, [sideOpen, deciding])
 
   if (sideOpen || deciding) return null
   const waits = t?.waiting() ?? []
