@@ -434,9 +434,34 @@ export const MermaidStage = forwardRef<StageHandle, Props & { viewKey: string }>
     return left < l + 4 || f.h * view.k < foldSize ? [] : [{ ...f, left, top: t - foldSize / 2 }]
   })
 
+  /**
+   * A cut package title's whole name, by the pointer. Drawn here, not as the title's own tooltip: a line coming into a
+   * narrow package crosses its title, and the line's wide hit area, drawn above, would take the hover.
+   */
+  const tip = useRef<HTMLDivElement>(null)
+  const tipFrame = useRef(0)
+  const showTip = (cx: number, cy: number) => {
+    cancelAnimationFrame(tipFrame.current)
+    tipFrame.current = requestAnimationFrame(() => {
+      const el = tip.current, stage = outer.current?.getBoundingClientRect()
+      if (!el || !stage) return
+      const p = document.elementsFromPoint(cx, cy).find(n => n.closest('.cv-cluster .cluster-label'))?.closest('.cluster-label')?.querySelector('p')
+      const range = document.createRange()
+      if (p) range.selectNodeContents(p)
+      const name = p && range.getBoundingClientRect().width > p.getBoundingClientRect().width + 0.5 ? p.textContent ?? '' : ''
+      if (!name) { el.hidden = true; return }
+      if (el.textContent !== name) { el.textContent = name; el.hidden = true }
+      el.style.left = `${cx - stage.left + 12}px`
+      el.style.top = `${cy - stage.top + 16}px`
+      el.hidden = false
+    })
+  }
+  const hideTip = () => { cancelAnimationFrame(tipFrame.current); if (tip.current) tip.current.hidden = true }
+
   const onPointerMove = (e: React.PointerEvent) => {
     const d = drag.current
-    if (!d) return
+    if (!d) { showTip(e.clientX, e.clientY); return }
+    hideTip()
     const dx = e.clientX - d.x, dy = e.clientY - d.y
     if (!d.moved && Math.hypot(dx, dy) < 4) return
     if (!d.moved) { d.moved = true; outer.current?.setPointerCapture(e.pointerId) }
@@ -477,6 +502,7 @@ export const MermaidStage = forwardRef<StageHandle, Props & { viewKey: string }>
       onPointerUp={onPointerUp}
       onDoubleClick={onDoubleClick}
       onContextMenu={onContextMenu}
+      onPointerLeave={hideTip}
     >
       <div className="stage-inner" ref={inner} style={{ transform: `translate(${view.x}px, ${view.y}px) scale(${view.k})` }} />
       {foldButtons.map(f => (
@@ -487,6 +513,7 @@ export const MermaidStage = forwardRef<StageHandle, Props & { viewKey: string }>
         </button>
       ))}
       {error && <div className="stage-error"><b>그리기 실패</b><pre>{error}</pre></div>}
+      <div className="stage-tip" ref={tip} hidden />
       <div className="zoom-readout">{Math.round(view.k * 100)}%</div>
     </div>
   )
@@ -580,7 +607,8 @@ const FOLD_CLEAR = FOLD_BTN + 8 + 4
 /**
  * Mermaid titles an open package (a namespace) with its id: its grammar has no other name. Put the package's name there
  * instead: centered when it fits clear of the fold button on the corner, else from the left edge up to the button, cut
- * short with an ellipsis and whole on hover. Measured once the web font is in: before, it would be cut where it fits.
+ * short with an ellipsis (the stage shows it whole by the pointer). Measured once the web font is in: before, it would
+ * be cut where it fits.
  */
 function titlePackage(g: SVGGElement, name: string) {
   const rect = g.querySelector(':scope > rect'), label = g.querySelector(':scope > .cluster-label')
@@ -588,7 +616,6 @@ function titlePackage(g: SVGGElement, name: string) {
   if (!rect || !label || !fo || !box || !p) return
   p.textContent = name
   Object.assign(p.style, { margin: '0', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' })
-  box.addEventListener('mouseenter', () => { box.title = p.scrollWidth > p.clientWidth ? name : '' })
   const frame = Number(rect.getAttribute('width')), x = Number(rect.getAttribute('x'))
   const y = /,\s*([-\d.]+)\)/.exec(label.getAttribute('transform') ?? '')?.[1] ?? '0'
   void document.fonts.ready.then(() => {

@@ -159,6 +159,10 @@
 .stage-inner svg.cv-still, .stage-inner svg.cv-still * { transition: none !important; }
 .stage-error { position: absolute; left: 16px; top: 16px; right: 16px; background: var(--del-bg); color: var(--del); border-radius: var(--r-2); padding: 10px 14px; font-size: 12px; }
 .stage-error pre { margin: 4px 0 0; white-space: pre-wrap; }
+/* A cut package title's whole name by the pointer; it comes in after a moment, as a tooltip does. */
+.stage-tip { position: absolute; z-index: 6; pointer-events: none; max-width: 420px; padding: 4px 8px; border: 1px solid var(--line); border-radius: 6px; background: var(--panel); box-shadow: var(--shadow-1); font-size: 12px; color: var(--ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; animation: stage-tip-in .12s .35s both; }
+.stage-tip[hidden] { display: none; }
+@keyframes stage-tip-in { from { opacity: 0; } to { opacity: 1; } }
 .zoom-readout { position: absolute; left: 12px; bottom: 10px; font-size: 11px; color: var(--ink-4); font-variant-numeric: tabular-nums; pointer-events: none; }
 .stage-hint { position: absolute; left: 50%; transform: translateX(-50%); bottom: 10px; font-size: 11px; pointer-events: none; opacity: .8; }
 /* Every package's fold button: sized by the stage (shrinking as the map zooms out, its hit area kept at 18px), gliding with the drawing (and only then: a drag or the wheel must not lag). */

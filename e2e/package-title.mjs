@@ -1,6 +1,6 @@
 // Package titles: an open package is titled with its name (label), not its id; a name wider than the frame is cut with
-// an ellipsis inside the frame and shown whole on hover (only then); a package with no name keeps its id; a folded
-// package shows its name too.
+// an ellipsis inside the frame and shown whole by the pointer (only then), even where a line coming into the package
+// crosses the title; a package with no name keeps its id; a folded package shows its name too.
 //   DUET_PORT=7981 DUET_TOKEN=... DUET_WS=<workspace> DUET_SHOTS=/dir [DUET_THEME=dark] node e2e/package-title.mjs   (makes and removes a map named package-title)
 import { open, sleep } from './browser.mjs'
 const port = Number(process.env.DUET_PORT ?? 7979)
@@ -51,15 +51,30 @@ check('a name wider than its frame is cut with an ellipsis, inside the frame and
 check('a package with no name keeps its id', plain?.text === 'plain', JSON.stringify(plain))
 await shot('open')
 
-// Hover: the whole name, only where it was cut. At the title's left end: a line coming in from above may cross its middle.
-const hover = async id => {
-  const sel = `.stage-inner > svg .cv-cluster[data-target="${id}"] .cluster-label foreignObject > div`
-  const box = await page.$eval(sel, d => { const r = d.getBoundingClientRect(); return { h: r.height } })
-  await page.hover(sel, { position: { x: 3, y: box.h / 2 } }); await sleep(150)
-  return page.$eval(sel, d => d.title)
+// Hover: the whole name by the pointer, only where it was cut. In the middle of the narrow title a line comes in from
+// above: its hit area lies over the title, and the name must still show.
+const hover = async (id, where) => {
+  const at = await page.$eval(`.stage-inner > svg .cv-cluster[data-target="${id}"] .cluster-label foreignObject > div`, (d, where) => {
+    const r = d.getBoundingClientRect(), y = r.top + r.height / 2
+    if (where === 'left') return { x: r.left + 3, y }
+    // Where a line's hit area lies over the title, if one does; else its middle.
+    for (let x = r.left + 1; x < r.right; x += 2) if (document.elementFromPoint(x, y)?.classList.contains('cv-edge-hit')) return { x, y }
+    return { x: r.left + r.width / 2, y }
+  }, where)
+  await page.mouse.move(at.x, at.y, { steps: 3 }); await sleep(700)
+  return page.evaluate(([x, y]) => {
+    const tip = document.querySelector('.stage-tip')
+    return { tip: tip && !tip.hidden && Number(getComputedStyle(tip).opacity) > 0.9 ? tip.textContent : '', under: document.elementFromPoint(x, y)?.getAttribute('class') }
+  }, [at.x, at.y])
 }
-check('hovering a cut name gives the whole name', (await hover('g_long')) === LONG)
-check('hovering a whole name adds nothing', (await hover('g_api')) === '')
+const middle = await hover('g_long', 'line')
+check('a line coming into the narrow package lies over its title', middle.under === 'cv-edge-hit', JSON.stringify(middle))
+check('…and hovering there still shows the whole name', middle.tip === LONG, JSON.stringify(middle))
+check('hovering the cut title\'s end shows it too', (await hover('g_long', 'left')).tip === LONG)
+await shot('tip')
+check('hovering a whole name shows nothing', (await hover('g_api', 'middle')).tip === '')
+await page.mouse.move(5, 500); await sleep(200)
+check('leaving the title takes the name away', await page.$eval('.stage-tip', t => t.hidden))
 
 // Folded, the box shows the name as before.
 await page.click('button:has-text("Collapse all")'); await sleep(1200)
