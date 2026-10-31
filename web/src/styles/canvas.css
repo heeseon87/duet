@@ -297,8 +297,9 @@
 .stage-inner .cv-label.cv-peek { opacity: 1 !important; }
 .stage-inner .cv-label.cv-peek p { background: var(--accent) !important; color: var(--cv-sel-ink) !important; }
 
-.stage-inner .cv-badge circle { fill: var(--accent); stroke: var(--panel); stroke-width: 2; }
-.stage-inner .cv-badge text { fill: var(--cv-sel-ink); font-size: 10px; font-weight: 700; font-family: var(--font-ui); }
+/* Mermaid colors a class box's circles under its own id (white, gray ring): the badge's colors must win outright. */
+.stage-inner .cv-badge circle { fill: var(--accent) !important; stroke: var(--panel) !important; stroke-width: 2; }
+.stage-inner .cv-badge text { fill: var(--cv-sel-ink) !important; font-size: 10px; font-weight: 700; font-family: var(--font-ui); }
 /* Decision pins: tags, not counts, along a box's top edge from the left; accent while the decision is open, green once made.
    Mermaid styles every rect under its own id, so the colors must win outright. */
 .stage-inner [data-pin] { cursor: pointer; }
