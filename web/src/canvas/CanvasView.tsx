@@ -446,7 +446,7 @@ export function CanvasView() {
           onSelect={t => s.select(t)}
           onToggleGroup={s.toggleCollapse}
           onContext={(t, at) => {
-            // A known part is picked (lit) so the menu clearly speaks about it; the info card stays as it is.
+            // A known part is picked (lit) so the menu clearly speaks about it.
             const known = isPart(t)
             if (known) s.select(t)
             setMenu({ target: known ? t : undefined, at })

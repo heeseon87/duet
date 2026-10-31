@@ -1,4 +1,4 @@
-// The flow list: a class map with numbered relations lists its steps top right in order; a row under the pointer lights
+// The flow list: a class map with numbered relations lists its steps top left in order; a row under the pointer lights
 // its line and label, a click picks the step and brings it to the middle at the zoom the map is at; n and p walk the steps
 // (n in Hangul input too) and stop at the ends, the brackets do not; the head's −·+ (and ⌘ + wheel) size the list like the
 // code, remembered; folding the list keeps a one-line head (remembered) and the keys still walk; folded packages keep
@@ -56,8 +56,8 @@ const active = () => page.evaluate(() => document.querySelector('.flow-step.acti
 await show(NAME)
 const rows = await page.$$eval('.flow-list .flow-step', bs => bs.map(b => b.textContent))
 check('the list shows the numbered steps in order, with their ends and labels', rows.length === 4 && rows[0] === '1Controller → Servicehandle(req)' && rows[1].startsWith('2Service → Policy') && rows[2].startsWith('3Service → Repo') && rows[3].startsWith('4Repo → Db'), JSON.stringify(rows))
-const place = await page.evaluate(() => { const l = document.querySelector('.flow-list').getBoundingClientRect(), s = document.querySelector('.stage-canvas').getBoundingClientRect(), card = document.querySelector('.inspector')?.getBoundingClientRect(); return { dx: (card ? card.left : s.right) - l.right, dy: l.top - s.top, opacity: Number(getComputedStyle(document.querySelector('.flow-list')).opacity) } })
-check('it sits at the top right of the canvas (left of an open info card, under its button), see-through', place.dx >= 0 && place.dx < 30 && place.dy >= 0 && place.dy < 60 && place.opacity < 1, JSON.stringify(place))
+const place = await page.evaluate(() => { const l = document.querySelector('.flow-list').getBoundingClientRect(), s = document.querySelector('.stage-canvas').getBoundingClientRect(); return { dx: l.left - s.left, dy: l.top - s.top, opacity: Number(getComputedStyle(document.querySelector('.flow-list')).opacity) } })
+check('it sits at the top left of the canvas, see-through', place.dx >= 0 && place.dx < 30 && place.dy >= 0 && place.dy < 30 && place.opacity < 1, JSON.stringify(place))
 await shot('list')
 
 // The row under the pointer lights its line and label; leaving lets go.

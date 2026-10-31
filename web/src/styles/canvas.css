@@ -356,17 +356,19 @@ svg[id^='cv'] g.node > .label-group p { font-family: var(--font-ui); font-size: 
 
 @keyframes slide-in { from { opacity: 0; transform: translateX(10px); } }
 
-/* The flow list: a class map's numbered steps, top right over the stage, see-through until the pointer comes: below the
-   info card's button, or left of the open card. */
+/* The flow list: a class map's numbered steps, top left over the stage, see-through until the pointer comes. It stops
+   short of the floating composer below it. */
 /* `--flow-scale` is its size (−·+ on its head, ⌘ + wheel): the rows and the width follow it, the head stays as it is. */
 .flow-list {
-  --flow-top: 12px; --flow-right: 12px;
-  position: absolute; top: var(--flow-top); right: var(--flow-right); z-index: 4; display: flex; flex-direction: column;
-  min-width: calc(180px * var(--flow-scale, 1)); max-width: min(calc(320px * var(--flow-scale, 1)), calc(100% - var(--flow-right) - 12px)); max-height: calc(100% - var(--flow-top) - 52px);
+  --flow-below: 52px;
+  position: absolute; top: 12px; left: 12px; z-index: 4; display: flex; flex-direction: column;
+  min-width: calc(180px * var(--flow-scale, 1)); max-width: min(calc(320px * var(--flow-scale, 1)), calc(100% - 24px)); max-height: calc(100% - 12px - var(--flow-below));
   border: 1px solid var(--line); border-radius: 4px;
   background: color-mix(in srgb, var(--panel) 80%, transparent); backdrop-filter: blur(6px);
   opacity: .86; transition: opacity .15s, background-color .15s;
 }
+.canvas-main:has(.float-composer) .flow-list { --flow-below: 170px; }
+.canvas-main:has(.float-composer.raised) .flow-list { --flow-below: 210px; }
 .flow-list:hover, .flow-list:focus-within { opacity: 1; background: color-mix(in srgb, var(--panel) 96%, transparent); }
 .flow-head { flex: none; display: flex; align-items: center; gap: 2px; height: 32px; padding: 0 6px 0 10px; border-bottom: 1px solid var(--line); font-family: var(--font-mono); font-size: 10.5px; color: var(--ink-3); }
 .flow-list.folded .flow-head { border-bottom: 0; }

@@ -8,7 +8,7 @@ const MIN_SCALE = 0.6
 const MAX_SCALE = 1.4
 
 /**
- * A class map's flow, top right over the map and see-through until the pointer comes: a row under the pointer lights
+ * A class map's flow, top left over the map and see-through until the pointer comes: a row under the pointer lights
  * its line, a click picks the step and brings it to the middle. A step's number is in a circle, as on the line's label. Folded away, it stays a one-line head; its size is set
  * like the code's (−·+, ⌘ + wheel). Both remembered.
  */
