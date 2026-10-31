@@ -513,6 +513,8 @@ function annotate(svg: SVGSVGElement, id: string, map: CanvasMap, p: ReturnType<
       g.setAttribute('data-target', gid)
       g.setAttribute('data-group', gid)
       g.classList.add('cv-cluster')
+      const name = byId.get(gid)?.label
+      if (name && name !== gid) titlePackage(g, name)
     }
     const paths = svg.querySelectorAll<SVGPathElement>('path[id*="-id_"]')
     for (const path of paths) {
@@ -570,6 +572,36 @@ function annotate(svg: SVGSVGElement, id: string, map: CanvasMap, p: ReturnType<
       if (nid && !nid.startsWith('frag:')) { n.setAttribute('data-target', nid); n.classList.add('cv-note') }
     })
   }
+}
+
+/** How far in from a frame's right edge its fold button reaches (in drawing units, at its largest), with a little room. */
+const FOLD_CLEAR = FOLD_BTN + 8 + 4
+
+/**
+ * Mermaid titles an open package (a namespace) with its id: its grammar has no other name. Put the package's name there
+ * instead: centered when it fits clear of the fold button on the corner, else from the left edge up to the button, cut
+ * short with an ellipsis and whole on hover. Measured once the web font is in: before, it would be cut where it fits.
+ */
+function titlePackage(g: SVGGElement, name: string) {
+  const rect = g.querySelector(':scope > rect'), label = g.querySelector(':scope > .cluster-label')
+  const fo = label?.querySelector('foreignObject'), box = fo?.firstElementChild as HTMLElement | null, p = box?.querySelector('p')
+  if (!rect || !label || !fo || !box || !p) return
+  p.textContent = name
+  Object.assign(p.style, { margin: '0', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' })
+  box.addEventListener('mouseenter', () => { box.title = p.scrollWidth > p.clientWidth ? name : '' })
+  const frame = Number(rect.getAttribute('width')), x = Number(rect.getAttribute('x'))
+  const y = /,\s*([-\d.]+)\)/.exec(label.getAttribute('transform') ?? '')?.[1] ?? '0'
+  void document.fonts.ready.then(() => {
+    if (!g.isConnected) return
+    fo.setAttribute('width', '4000')
+    Object.assign(box.style, { display: 'inline-block', width: '' })
+    // scrollWidth rounds: a little room, or a name that fits would get an ellipsis for a fraction of a pixel.
+    const natural = box.scrollWidth + 2
+    const [left, w] = natural <= frame - 2 * FOLD_CLEAR ? [x + (frame - natural) / 2, natural] : [x + 8, Math.max(40, frame - 8 - FOLD_CLEAR)]
+    Object.assign(box.style, { display: 'block', width: `${w}px`, textAlign: 'center' })
+    fo.setAttribute('width', String(w))
+    label.setAttribute('transform', `translate(${left}, ${y})`)
+  })
 }
 
 const CHANGE_CLASS = ['cv-add', 'cv-modify', 'cv-delete', 'cv-result', 'cv-keep', 'cv-ghost', 'cv-open', 'cv-sel', 'cv-in', 'cv-rel', 'cv-ctx', 'cv-dim', 'cv-glow', 'cv-glow-mod', 'cv-new', 'cv-changed', 'cv-peek']

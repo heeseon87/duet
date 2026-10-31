@@ -1,0 +1,73 @@
+// Package titles: an open package is titled with its name (label), not its id; a name wider than the frame is cut with
+// an ellipsis inside the frame and shown whole on hover (only then); a package with no name keeps its id; a folded
+// package shows its name too.
+//   DUET_PORT=7981 DUET_TOKEN=... DUET_WS=<workspace> DUET_SHOTS=/dir [DUET_THEME=dark] node e2e/package-title.mjs   (makes and removes a map named package-title)
+import { open, sleep } from './browser.mjs'
+const port = Number(process.env.DUET_PORT ?? 7979)
+const { DUET_TOKEN: T, DUET_WS: ws, DUET_SHOTS: shots } = process.env
+const theme = process.env.DUET_THEME ?? 'light'
+if (!T || !ws) { console.error('DUET_TOKEN and DUET_WS are required'); process.exit(2) }
+const H = { 'x-duet-token': T, 'content-type': 'application/json' }
+const call = async (method, path, body) => {
+  const r = await fetch(`http://127.0.0.1:${port}${path}`, { method, headers: H, body: body ? JSON.stringify(body) : undefined })
+  const t = await r.text()
+  if (!r.ok) throw new Error(`${method} ${path}: ${r.status} ${t}`)
+  return t ? JSON.parse(t) : undefined
+}
+let failed = 0
+const check = (name, ok, extra = '') => { if (!ok) failed++; console.log(ok ? 'PASS' : 'FAIL', name, extra) }
+const W = encodeURIComponent(ws)
+const NAME = 'package-title'
+const LONG = 'user.group.domain.service.transfer.policy.internal'
+
+for (const m of await call('GET', `/api/canvas?ws=${W}`)) if (m.name === NAME) await call('DELETE', `/api/canvas/${NAME}?ws=${W}`)
+await call('POST', '/api/canvas', { ws, name: NAME, diagram: 'class', title: '패키지 제목 시험' })
+await call('POST', `/api/canvas/${NAME}/patch`, { ws, note: '시험 지도', patch: {
+  elements: [
+    { id: 'g_api', kind: 'group', label: 'user.group.controller' }, { id: 'GroupController', parent: 'g_api' }, { id: 'GroupSwagger', parent: 'g_api' },
+    { id: 'g_long', kind: 'group', label: LONG }, { id: 'Pol', parent: 'g_long' },
+    { id: 'plain', kind: 'group' }, { id: 'Store', parent: 'plain' },
+  ],
+  relations: [{ from: 'GroupController', to: 'Pol' }, { from: 'Pol', to: 'Store' }, { from: 'GroupSwagger', to: 'Store' }],
+} })
+
+const { browser, page, errors } = await open({ port, token: T, ws, width: 1500, height: 940, theme })
+const shot = async n => { if (shots) await page.screenshot({ path: `${shots}/package-title-${theme}-${n}.png` }) }
+await page.evaluate(([w, m]) => { localStorage.setItem('duet.tab', 'canvas'); localStorage.setItem(`duet.canvas.current:${w}`, m); localStorage.removeItem(`duet.canvas.collapsed:${w}:${m}`); localStorage.setItem('duet.canvas.explore', '1') }, [ws, NAME])
+await page.reload({ waitUntil: 'domcontentloaded' })
+await page.waitForSelector('.stage-inner > svg .cv-cluster', { state: 'attached', timeout: 15000 }); await sleep(1200)
+const title = id => page.evaluate(id => {
+  const g = document.querySelector(`.stage-inner > svg .cv-cluster[data-target="${id}"]`), p = g?.querySelector('.cluster-label p'), frame = g?.querySelector(':scope > rect')
+  if (!p || !frame) return null
+  const pr = p.getBoundingClientRect(), fr = frame.getBoundingClientRect(), fold = document.querySelector(`.stage-fold[data-group="${id}"]`)?.getBoundingClientRect()
+  // Cut as drawn: the text's own box wider than its line (scrollWidth and clientWidth round, and miss a fraction).
+  const range = document.createRange(); range.selectNodeContents(p)
+  return { text: p.textContent, cut: range.getBoundingClientRect().width > pr.width + 0.5, ellipsis: getComputedStyle(p).textOverflow, inside: pr.left >= fr.left - 1 && pr.right <= fr.right + 1,
+    clear: !fold || pr.right <= fold.left || pr.bottom <= fold.top, centered: Math.abs((pr.left + pr.right) / 2 - (fr.left + fr.right) / 2) < 2 }
+}, id)
+const api = await title('g_api'), long = await title('g_long'), plain = await title('plain')
+check('an open package shows its name, not its id, centered', api?.text === 'user.group.controller' && !api.cut && api.inside && api.centered && api.clear, JSON.stringify(api))
+check('a name wider than its frame is cut with an ellipsis, inside the frame and clear of the fold button', long?.text === LONG && long.cut && long.ellipsis === 'ellipsis' && long.inside && long.clear, JSON.stringify(long))
+check('a package with no name keeps its id', plain?.text === 'plain', JSON.stringify(plain))
+await shot('open')
+
+// Hover: the whole name, only where it was cut. At the title's left end: a line coming in from above may cross its middle.
+const hover = async id => {
+  const sel = `.stage-inner > svg .cv-cluster[data-target="${id}"] .cluster-label foreignObject > div`
+  const box = await page.$eval(sel, d => { const r = d.getBoundingClientRect(); return { h: r.height } })
+  await page.hover(sel, { position: { x: 3, y: box.h / 2 } }); await sleep(150)
+  return page.$eval(sel, d => d.title)
+}
+check('hovering a cut name gives the whole name', (await hover('g_long')) === LONG)
+check('hovering a whole name adds nothing', (await hover('g_api')) === '')
+
+// Folded, the box shows the name as before.
+await page.click('button:has-text("Collapse all")'); await sleep(1200)
+const folded = await page.$eval('.stage-inner > svg .cv-node[data-group="g_api"]', g => g.textContent)
+check('a folded package shows its name', folded.includes('user.group.controller'), folded)
+
+check('no page errors', !errors.length, errors.join(' | '))
+await browser.close()
+await call('DELETE', `/api/canvas/${NAME}?ws=${W}`)
+console.log(failed ? `${failed} failed` : 'all passed')
+process.exit(failed ? 1 : 0)
