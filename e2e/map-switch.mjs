@@ -47,7 +47,6 @@ const inStage = () => page.evaluate(() => {
 const freshOpen = async m => {
   await page.evaluate(([w, names, cur]) => {
     localStorage.setItem('duet.tab', 'canvas'); localStorage.setItem(`duet.canvas.current:${w}`, cur)
-    localStorage.removeItem('duet.canvas.explore'); localStorage.removeItem('duet.canvas.wideInspector')
     for (const n of names) { localStorage.removeItem(`duet.canvas.collapsed:${w}:${n}`); localStorage.setItem(`duet.canvas.seen:${w}:${n}`, '99') }
   }, [ws, [A.name, B.name], m.name])
   await page.reload({ waitUntil: 'domcontentloaded' })

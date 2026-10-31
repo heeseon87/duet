@@ -9,7 +9,7 @@ const check = (name, ok, extra = '') => { if (!ok) failed++; console.log(ok ? 'P
 await page.evaluate(([w, m, g]) => { localStorage.setItem('duet.tab', 'canvas'); localStorage.setItem(`duet.canvas.current:${w}`, m); localStorage.setItem(`duet.canvas.collapsed:${w}:${m}`, JSON.stringify([g])); localStorage.setItem('duet.sideOpen', '0') }, [ws, mapName, group])
 await page.reload({ waitUntil: 'domcontentloaded' })
 await page.waitForSelector(`.stage-inner > svg .cv-node[data-target="${group}"]`, { timeout: 20000 }); await sleep(800)
-await page.click('button:has-text("Compare with previous")'); await sleep(1500)
+await page.click('.map-head-tools button[title="Compare with previous"]'); await sleep(1500)
 const folded = await page.evaluate(g => {
   const n = document.querySelector(`.stage-inner > svg .cv-node[data-target="${g}"]`)
   return { cls: [...n.classList].filter(c => c.startsWith('cv-')).join(' '), badge: n.querySelector('.cv-inside')?.getAttribute('data-text') ?? null }

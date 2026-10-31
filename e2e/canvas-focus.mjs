@@ -36,7 +36,7 @@ const { browser, page, errors } = await open({ port, token: T, ws, width: 1600, 
 let failed = 0
 const check = (name, ok, extra = '') => { if (!ok) failed++; console.log(ok ? 'PASS' : 'FAIL', name, extra) }
 const shot = async name => { if (shots) await page.screenshot({ path: `${shots}/${theme}-${name}.png` }) }
-await page.evaluate(([w, m]) => { localStorage.setItem('duet.tab', 'canvas'); localStorage.setItem(`duet.canvas.current:${w}`, m); localStorage.removeItem(`duet.canvas.collapsed:${w}:${m}`); localStorage.removeItem('duet.canvas.explore') }, [ws, mapName])
+await page.evaluate(([w, m]) => { localStorage.setItem('duet.tab', 'canvas'); localStorage.setItem(`duet.canvas.current:${w}`, m); localStorage.removeItem(`duet.canvas.collapsed:${w}:${m}`) }, [ws, mapName])
 await page.reload({ waitUntil: 'domcontentloaded' })
 await page.waitForSelector('.stage-canvas svg .cv-cluster', { timeout: 20000 }); await sleep(1500)
 await page.mouse.click(5, 500); await page.keyboard.press('f'); await sleep(700)
@@ -58,16 +58,14 @@ const sel = await page.evaluate(id => {
   }
 }, nested)
 check('a nested package selects and lights what it holds', sel.sel && sel.inside > 0, JSON.stringify(sel))
-const card = await page.$eval('.inspector', e => e.textContent).catch(e => 'ERR ' + e.message)
-check('the info card opens for the nested package', card.includes(nested), card.slice(0, 120))
 await shot('nested-selected')
 
 // 1. Selecting a class: unrelated boxes stay readable, package frames stay.
 await page.keyboard.press('Escape'); await sleep(200)
-// A class box well inside the visible stage (not under the info card).
+// A class box well inside the visible stage.
 const node = await page.evaluate(() => {
   const stage = document.querySelector('.stage-canvas').getBoundingClientRect()
-  const right = stage.right - 380
+  const right = stage.right - 40
   for (const n of document.querySelectorAll('.stage-inner > svg .cv-node:not([data-group])')) {
     const b = n.getBoundingClientRect()
     if (b.left > stage.left + 20 && b.right < right && b.top > stage.top + 40 && b.bottom < stage.bottom - 40) return { x: b.left + b.width / 2, y: b.top + 12, id: n.getAttribute('data-target') }
@@ -130,66 +128,30 @@ check('the folded package stayed in place', Math.abs(done.x - wasBox.x) < 6 && M
 await shot('folded')
 // Quick double toggles must not leave two drawings behind.
 await toggleFold(page, nested); await sleep(90)
-await page.click('button:has-text("Collapse all")'); await sleep(60)
-await page.click('button:has-text("Expand all")'); await sleep(900)
+await page.click('button[title="Collapse all packages"]'); await sleep(60)
+await page.click('button[title="Expand all packages"]'); await sleep(900)
 const calm = await page.evaluate(() => ({ svgs: document.querySelectorAll('.stage-inner > svg').length, overlays: document.querySelectorAll('.morph-overlay').length, clusters: document.querySelectorAll('.stage-inner > svg .cv-cluster').length }))
 check('rapid toggles settle into one drawing, all unfolded', calm.svgs === 1 && calm.overlays === 0 && calm.clusters > 3, JSON.stringify(calm))
-await page.click('button:has-text("Collapse all")'); await sleep(900)
+await page.click('button[title="Collapse all packages"]'); await sleep(900)
 const all = await page.evaluate(() => ({ clusters: document.querySelectorAll('.stage-inner > svg .cv-cluster').length, groupBoxes: document.querySelectorAll('.stage-inner > svg .cv-node[data-group]').length }))
 check('fold all leaves only package boxes', all.clusters === 0 && all.groupBoxes > 0, JSON.stringify(all))
 await shot('all-folded')
-await page.click('button:has-text("Expand all")'); await sleep(900)
-// Letting go of a selection puts the info card away: clicking empty canvas, or Esc. `i` brings the overview back.
+await page.click('button[title="Expand all packages"]'); await sleep(900)
+// Letting go of a selection: clicking empty canvas, or Esc.
 const someBox = await page.$eval('.stage-inner > svg .cv-node:not([data-group])', n => { const b = n.getBoundingClientRect(); return { x: b.left + b.width / 2, y: b.top + 10 } })
+const picked = () => page.evaluate(() => Boolean(document.querySelector('.stage-inner > svg .cv-sel')))
 await page.mouse.click(someBox.x, someBox.y); await sleep(300)
-const shownOnPick = Boolean(await page.$('.inspector:not(.compact)'))
-const empty = await page.evaluate(() => { const r = document.querySelector('.stage-canvas').getBoundingClientRect(); return { x: r.left + 8, y: r.bottom - 40 } })
+const pickedNow = await picked()
+const empty = await page.evaluate(() => { const r = document.querySelector('.stage-canvas').getBoundingClientRect(); return { x: r.left + r.width - 80, y: r.bottom - 80 } })
 await page.mouse.click(empty.x, empty.y); await sleep(300)
-check('picking shows the info card; clicking empty canvas hides it', shownOnPick && !(await page.$('.inspector')) && Boolean(await page.$('.insp-open')))
+check('a click picks a box; clicking empty canvas lets go', pickedNow && !(await picked()))
 await page.mouse.click(someBox.x, someBox.y); await sleep(300)
 await page.keyboard.press('Escape'); await sleep(300)
-check('Esc lets go and hides the info card too', !(await page.$('.inspector')))
-await page.keyboard.press('i'); await sleep(300)
-// Decisions made in the older design-map read as made: nothing left to decide, each shows its pick.
-const dec = await page.evaluate(() => ({
-  left: [...document.querySelectorAll('.chip.accent')].some(c => /결정 \d+개 남음/.test(c.textContent)),
-  sections: [...document.querySelectorAll('.inspector .insp-section h4')].map(h => h.textContent.trim()),
-}))
-check('decided map: nothing left to decide, decisions listed as made', !dec.left && dec.sections.some(t => t.startsWith('정한 결정')), JSON.stringify(dec))
-await page.click('.inspector button[title="넓게 보기"]'); await sleep(300)
-check('the info card widens', await page.$eval('.inspector', e => e.getBoundingClientRect().width > 500))
-await page.click('.inspector button[title="좁게 보기"]'); await sleep(200)
-
-// Explore mode: clicking only highlights; the info card neither opens nor closes on its own. Remembered.
-const exploreBtn = 'button:has-text("탐색")'
-const pressed = () => page.$eval(exploreBtn, b => b.getAttribute('aria-pressed') === 'true')
-await page.keyboard.press('e'); await sleep(300)
-check('explore on (e): the info card goes away', (await pressed()) && !(await page.$('.inspector')))
-const boxes = await page.$$eval('.stage-inner > svg .cv-node:not([data-group])', ns => ns.slice(0, 2).map(n => { const b = n.getBoundingClientRect(); return { x: b.left + b.width / 2, y: b.top + 10, id: n.getAttribute('data-target') } }))
-await page.mouse.click(boxes[0].x, boxes[0].y); await sleep(400)
-const lit = await page.evaluate(id => Boolean(document.querySelector(`.stage-inner > svg .cv-node.cv-sel[data-target="${CSS.escape(id)}"]`)), boxes[0].id)
-check('explore: a click highlights without opening the info card', lit && !(await page.$('.inspector')) && Boolean(await page.$('.insp-open')))
-await page.keyboard.press('i'); await sleep(300)
-await page.mouse.click(boxes[1].x, boxes[1].y); await sleep(400)
-const follows = await page.$eval('.inspector', e => e.textContent).catch(() => '')
-await page.mouse.click(empty.x, empty.y); await sleep(300)
-check('explore: a card opened by hand follows the pick and stays on empty clicks', follows.includes(boxes[1].id) && Boolean(await page.$('.inspector')))
-await page.reload({ waitUntil: 'domcontentloaded' })
-await page.waitForSelector('.stage-canvas svg .cv-node', { timeout: 20000 }); await sleep(1200)
-check('explore is remembered and opens with the card away', (await pressed()) && !(await page.$('.inspector')))
-await page.click(exploreBtn); await page.keyboard.press('f'); await sleep(700)
-// A box on screen (the reload does not restore the camera).
-const again = await page.evaluate(() => {
-  const stage = document.querySelector('.stage-canvas').getBoundingClientRect()
-  for (const n of document.querySelectorAll('.stage-inner > svg .cv-node:not([data-group])')) {
-    const b = n.getBoundingClientRect()
-    if (b.left > stage.left + 20 && b.right < stage.right - 120 && b.top > stage.top + 40 && b.bottom < stage.bottom - 40) return { x: b.left + b.width / 2, y: b.top + 10 }
-  }
-  return { x: 0, y: 0 }
-})
-await page.mouse.click(again.x, again.y); await sleep(400)
-check('explore off: a click opens the info card again', !(await pressed()) && Boolean(await page.$('.inspector')))
-await shot('explore-off')
+check('Esc lets go too', !(await picked()))
+// Decisions made in the older design-map read as made: the chip counts them all made, quietly.
+const chip = await page.$eval('.canvas-bar .dec-chip', c => ({ text: c.textContent.trim(), accent: c.classList.contains('accent') })).catch(() => null)
+check('decided map: the chip counts every decision made, without the accent', Boolean(chip) && /^결정 (\d+)\/\1$/.test(chip.text) && !chip.accent, JSON.stringify(chip))
+await shot('deselected')
 if (errors.length) { failed++; console.log('page errors', errors) }
 await browser.close()
 if (own) await call('DELETE', `/api/canvas/${mapName}?ws=${encodeURIComponent(ws)}`)

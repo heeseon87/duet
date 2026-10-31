@@ -1,11 +1,11 @@
 // The code pane: `c` opens the picked part's code beside the map, on its declaration or the lines its reference names,
 // with the lines the map's code changed marked. It follows the picks (a package's files, a line's two ends), keeps what
-// it shows on an empty click, shows the latest of quick picks, stands in for the info card while open (the map gliding
-// to the middle of what is left as it opens and closes, the picked box kept in view), is resized by its edge (pushing
+// it shows on an empty click, shows the latest of quick picks, opens and closes with the map gliding to the middle of
+// what is left (the picked box kept in view), is resized by its edge (pushing
 // the map along) and remembered, zooms its code on its own, reads like an editor (the clicked word lit wherever it stands,
-// the file's structure, resized and closed by its edge), and the menu, the info card and the pane itself lead to the code and on to the review.
+// the file's structure, resized and closed by its edge), and the menu and the pane itself lead to the code and on to the review.
 // The review's Viewed is set from the canvas too: the pane's checkbox for its file, the menu for a part's files at once.
-// Left to its defaults the canvas opens in explore mode with the code on: the pane shows up with the first pick, and
+// Left to its defaults the canvas opens with the code on: the pane shows up with the first pick, and
 // stays out of the way with no part to show (another map, a part removed).
 //   DUET_PORT=7981 DUET_TOKEN=... [DUET_SCRATCH=<folder>] DUET_SHOTS=/dir node e2e/code-pane.mjs
 //   (makes a repo under DUET_SCRATCH, else the temp folder, opens it as a workspace and leaves it there.)
@@ -53,14 +53,14 @@ await call('POST', `/api/canvas/${name}/patch`, { ws, note: 'm', patch: {
 appendFileSync(join(ws, 'src/store/Store.kt'), 'fun added() = 1\n')
 const addedLine = storeDecl + 5
 
-// Nothing remembered yet: explore mode and the code on, no info card, and the pane waits for a pick.
+// Nothing remembered yet: the code on, and the pane waits for a pick.
 {
   const first = await open({ port, token: T, ws, width: 1500, height: 940, appDefaults: true })
   await first.page.evaluate(([w, m]) => { localStorage.setItem('duet.tab', 'canvas'); localStorage.setItem(`duet.canvas.current:${w}`, m) }, [ws, name])
   await first.page.reload({ waitUntil: 'domcontentloaded' })
   await first.page.waitForSelector('.stage-inner > svg .cv-node[data-target="Store"]', { timeout: 20000 }); await sleep(800)
-  const d = await first.page.evaluate(() => ({ pane: Boolean(document.querySelector('.code-pane')), card: Boolean(document.querySelector('.inspector')), explore: document.querySelector('.zoom-bar button[title^="탐색 모드"]')?.getAttribute('aria-pressed'), code: document.querySelector('.zoom-bar button[title^="코드 칸"]')?.getAttribute('aria-pressed') }))
-  check('left to its defaults the canvas opens exploring with the code on, no pane before a pick', !d.pane && !d.card && d.explore === 'true' && d.code === 'true', JSON.stringify(d))
+  const d = await first.page.evaluate(() => ({ pane: Boolean(document.querySelector('.code-pane')), code: document.querySelector('.zoom-bar button[title^="코드 칸"]')?.getAttribute('aria-pressed') }))
+  check('left to its defaults the canvas opens with the code on, no pane before a pick', !d.pane && d.code === 'true', JSON.stringify(d))
   const b = await first.page.$eval('.stage-inner > svg .cv-node[data-target="Store"]', e => { const r = e.getBoundingClientRect(); return { x: r.left + r.width / 2, y: r.top + r.height / 2 } })
   await first.page.mouse.click(b.x, b.y)
   const path = await first.page.waitForSelector('.code-pane .code-pane-path .file-path', { timeout: 5000 }).then(e => e.getAttribute('title')).catch(() => '')
@@ -71,16 +71,16 @@ const addedLine = storeDecl + 5
 const { browser, page, errors } = await open({ port, token: T, ws, width: 1500, height: 940 })
 await page.evaluate(([w, m]) => {
   localStorage.setItem('duet.tab', 'canvas'); localStorage.setItem(`duet.canvas.current:${w}`, m); localStorage.setItem('duet.sideOpen', '0')
-  localStorage.removeItem('duet.canvas.code'); localStorage.removeItem('duet.canvas.codeWidth'); localStorage.setItem('duet.canvas.explore', '0'); localStorage.removeItem('duet.canvas.wideInspector')
+  localStorage.removeItem('duet.canvas.code'); localStorage.removeItem('duet.canvas.codeWidth')
 }, [ws, name])
 await page.reload({ waitUntil: 'domcontentloaded' })
 await page.waitForSelector('.stage-inner > svg .cv-node[data-target="Store"]', { timeout: 20000 }); await sleep(1200)
 const shot = async n => { if (shots) await page.screenshot({ path: `${shots}/code-pane-${n}.png` }) }
-/** Where the drawing stands, the open area of the stage (less the info card) and the picked box, in screen pixels. */
+/** Where the drawing stands, the stage and the picked box, in screen pixels. */
 const where = id => page.evaluate(id => {
-  const st = document.querySelector('.stage-canvas').getBoundingClientRect(), card = document.querySelector('.inspector')?.getBoundingClientRect()
+  const st = document.querySelector('.stage-canvas').getBoundingClientRect()
   const b = document.querySelector(`.stage-inner > svg .cv-node[data-target="${id}"]`).getBoundingClientRect()
-  return { x: document.querySelector('.stage-inner > svg').getBoundingClientRect().left, left: st.left, right: card ? Math.min(st.right, card.left) : st.right, box: { left: b.left, right: b.right }, gliding: document.querySelector('.stage-canvas').classList.contains('gliding') }
+  return { x: document.querySelector('.stage-inner > svg').getBoundingClientRect().left, left: st.left, right: st.right, box: { left: b.left, right: b.right }, gliding: document.querySelector('.stage-canvas').classList.contains('gliding') }
 }, id)
 /** The box sits inside the open area. */
 const shown = w => w.box.left >= w.left && w.box.right <= w.right
@@ -89,7 +89,6 @@ const pickBox = async id => { const p = await center(`.stage-inner > svg .cv-nod
 const shownPath = () => page.$eval('.code-pane .code-pane-path .file-path', e => e.getAttribute('title')).catch(() => '')
 const rows = cls => page.$$eval(`.code-pane tr.${cls}`, trs => trs.map(t => Number(t.getAttribute('data-line'))))
 const tabs = () => page.$$eval('.code-tabs button', bs => bs.map(b => b.textContent))
-const card = () => page.$('.inspector')
 const paneText = () => page.$eval('.code-pane', e => e.textContent).catch(() => '')
 /** The row is inside the pane's scrolled view (give or take a pixel's rounding). */
 const inView = no => page.evaluate(no => {
@@ -97,32 +96,30 @@ const inView = no => page.evaluate(no => {
   return Boolean(r && r.top >= body.top - 1 && r.bottom <= body.bottom + 1)
 }, no)
 
-// 1. Closed by default: a pick opens the info card as before. `c` opens the pane on the picked box and puts the card away.
+// 1. Closed here: a pick only lights the box. `c` opens the pane on the picked box.
 check('the pane starts closed', !(await page.$('.code-pane')))
 await pickBox('Store'); await sleep(400)
-check('closed, a pick opens the info card', Boolean(await card()))
+check('closed, a pick does not open it', !(await page.$('.code-pane')))
 const w0 = await where('Store')
 await page.keyboard.press('c')
 await until(() => page.$('.code-pane tr[data-line]'))
 await sleep(400)
-// The open area's middle stays where the drawing was: it moves by half of what the area lost (the card's 364 back, the pane's width taken).
+// The stage's middle stays where the drawing was: it moves by half of the width the pane takes.
 const w1 = await where('Store'), pane0 = await page.$eval('.code-pane', e => e.getBoundingClientRect().width)
-check('opening, the map glides to the middle of what is left', Math.abs(w1.x - w0.x - (364 - pane0) / 2) < 2 || Math.abs(w1.box.right - (w1.right - 24)) < 2, JSON.stringify({ moved: w1.x - w0.x, want: (364 - pane0) / 2 }))
+check('opening, the map glides to the middle of what is left', Math.abs(w1.x - w0.x + pane0 / 2) < 2 || Math.abs(w1.box.right - (w1.right - 24)) < 2, JSON.stringify({ moved: w1.x - w0.x, want: -pane0 / 2 }))
 check('and the picked box stays in view', shown(w1), JSON.stringify(w1))
 check('c opens the pane on the picked box\'s file', await shownPath() === 'src/store/Store.kt', await shownPath())
-check('and puts the info card away', !(await card()))
 check('the class declaration is marked', JSON.stringify(await rows('target')) === `[${storeDecl}]`, JSON.stringify(await rows('target')))
 check('and scrolled into view', await inView(storeDecl))
 const changed = await until(async () => { const r = await rows('changed'); return r.length ? r : undefined })
 check('the line the map\'s code added is marked', JSON.stringify(changed) === `[${addedLine}]`, JSON.stringify(changed))
 await shot('store')
 
-// 2. It follows the picks; the card stays away while it is open.
+// 2. It follows the picks.
 await pickBox('Api')
 await until(async () => (await shownPath()) === 'src/api/Api.kt')
 check('a box with two files gets a tab for each', JSON.stringify(await tabs()) === '["Api.kt","ApiClient.kt"]', JSON.stringify(await tabs()))
 check('its reference\'s lines are marked', JSON.stringify(await until(async () => { const r = await rows('target'); return r.length ? r : undefined })) === '[12,13,14]', JSON.stringify(await rows('target')))
-check('a pick does not bring the card back', !(await card()))
 await page.click('.code-tabs button:has-text("ApiClient.kt")')
 check('a tab shows its file', await until(async () => (await shownPath()) === 'src/api/ApiClient.kt'), await shownPath())
 await pickBox('NoFile'); await sleep(400)
@@ -159,7 +156,6 @@ check('reloaded, the code stays on and the pane waits for a pick', !(await page.
 await pickBox('Store')
 await page.waitForSelector('.code-pane', { timeout: 5000 }); await sleep(800)
 check('open and width are remembered', Math.abs((await page.$eval('.code-pane', e => e.getBoundingClientRect().width)) - wider) < 2)
-check('opening with the pane, the info card stays away', !(await card()))
 await shot('wide')
 
 // 3b. The code zooms on its own: buttons, ⌘ + wheel over the pane; the line at the top stays; remembered.
@@ -279,7 +275,7 @@ await pickBox('Api')
 await until(async () => (await shownPath()) === 'src/api/Api.kt')
 check('another file starts without marks', await until(async () => (await words()) === 0), String(await words()))
 
-// 4. The menu and the info card open code in the pane; the pane leads on to the review.
+// 4. The menu opens code in the pane; the pane leads on to the review.
 await page.keyboard.press('f'); await sleep(500)
 const s = await center('.stage-inner > svg .cv-node[data-target="Store"]')
 await page.mouse.click(s.x, s.y, { button: 'right' }); await sleep(250)
@@ -293,10 +289,11 @@ const menuOn = async (sel, at = c => c) => { const r = await page.$eval(sel, e =
 check('a changed file offers Viewed in the pane, not viewed yet', (await paneViewed()) === false, String(await paneViewed()))
 await page.click('.code-pane .code-pane-head .toggle input'); await sleep(300)
 check('checking it marks the file viewed, and the box\'s badge carries the check', (await paneViewed()) === true && await until(() => badgeViewed('Store')))
-const cardBefore = Boolean(await card())
-await page.keyboard.press('i'); await sleep(300)
-check('the checkbox keeps the canvas keys', Boolean(await card()) !== cardBefore)
-await page.keyboard.press('i'); await sleep(300)
+const zoomNow = () => page.$eval('.zoom-bar .zoom-readout', e => e.textContent)
+const zoomBefore = await zoomNow()
+await page.keyboard.press('='); await sleep(400)
+check('the checkbox keeps the canvas keys', (await zoomNow()) !== zoomBefore, `${zoomBefore} → ${await zoomNow()}`)
+await page.keyboard.press('-'); await sleep(400)
 await menuOn('.stage-inner > svg .cv-node[data-target="Store"]', () => ({}))
 check('the box\'s menu offers to take it back', Boolean(await page.$('.ctx-menu .menu-item:has-text("Viewed 해제")')))
 await shot('viewed')
@@ -305,17 +302,16 @@ check('and the pane and the badge follow', (await paneViewed()) === false && !(a
 await menuOn('.stage-inner > svg .cv-cluster[data-target="storepkg"]', r => ({ x: r.x + 12, y: r.y + 12 }))
 await page.click('.ctx-menu .menu-item:has-text("Viewed로 표시")'); await sleep(300)
 check('a package\'s menu marks all the files in it viewed', (await paneViewed()) === true, String(await paneViewed()))
-await pickBox('Api'); await sleep(300)
-await page.keyboard.press('i'); await sleep(300)
-await page.click('.inspector .file-link:has-text("ApiClient.kt")')
-check('the info card\'s file opens in the pane', await until(async () => (await shownPath()) === 'src/api/ApiClient.kt'), await shownPath())
+await menuOn('.stage-inner > svg .cv-node[data-target="Api"]', () => ({}))
+await page.click('.ctx-menu .menu-item:has-text("ApiClient.kt")')
+check('the menu lists a box\'s files, each opening in the pane', await until(async () => (await shownPath()) === 'src/api/ApiClient.kt'), await shownPath())
 check('a file the map\'s code did not change has no Viewed', (await paneViewed()) === null)
 await openMore()
 await page.click('.code-more .menu-item[title="리뷰에서 보기"]'); await sleep(800)
 check('the pane leads to the file in the review', await page.evaluate(() => localStorage.getItem('duet.tab')) === 'review')
 await page.keyboard.press('Meta+1'); await sleep(800)
 
-// 5. `c` closes it, and a pick opens the card again.
+// 5. `c` closes it, and a pick leaves it closed.
 const c0 = await where('Store'), pane1 = await page.$eval('.code-pane', e => e.getBoundingClientRect().width)
 await page.keyboard.press('c'); await sleep(400)
 check('c closes the pane', !(await page.$('.code-pane')))
@@ -323,7 +319,7 @@ const c1 = await where('Store')
 check('closing, the map glides back to the middle', Math.abs(c1.x - c0.x - pane1 / 2) < 2, JSON.stringify({ moved: c1.x - c0.x, want: pane1 / 2 }))
 await page.keyboard.press('Escape'); await sleep(200)
 await pickBox('Store'); await sleep(400)
-check('closed again, a pick opens the info card', Boolean(await card()))
+check('closed again, a pick leaves it closed', !(await page.$('.code-pane')))
 
 // 6. Nothing stale: another map, or a part the agent removed, puts the pane away until the next pick.
 const gone = () => page.$('.code-pane').then(p => !p)

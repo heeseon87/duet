@@ -1,8 +1,7 @@
 // Zooming to a part and folding a package without the menu: double-clicking a box or a package frames it (a package no
 // longer folds that way; a line or the empty canvas still fits the map), and every package that can fold shows its fold
 // button at the right end of its title row (a folded one: on its top edge), with no pointer near it; the buttons wait while a fold slides and
-// go with their corners through a wheel, a drag and a glide, shrinking as the map zooms out. With explore off, the info card a click opens narrows the
-// stage, framing centers in what is left, and the card covers the buttons under it.
+// go with their corners through a wheel, a drag and a glide, shrinking as the map zooms out.
 //   DUET_PORT=7981 DUET_TOKEN=... DUET_WS=<workspace> DUET_SHOTS=/dir node e2e/zoom-fold.mjs   (makes and removes a map named zoom-fold)
 import { open, sleep } from './browser.mjs'
 const port = Number(process.env.DUET_PORT ?? 7979)
@@ -36,8 +35,7 @@ await call('POST', `/api/canvas/${NAME}/patch`, { ws, note: '시험 지도', pat
 } })
 
 const { browser, page, errors } = await open({ port, token: T, ws, width: 1500, height: 940 })
-// Explore mode: a click only lights a part, so no info card narrows the stage while we measure the middle.
-await page.evaluate(([w, m]) => { localStorage.setItem('duet.tab', 'canvas'); localStorage.setItem(`duet.canvas.current:${w}`, m); localStorage.removeItem(`duet.canvas.collapsed:${w}:${m}`); localStorage.setItem('duet.canvas.explore', '1') }, [ws, NAME])
+await page.evaluate(([w, m]) => { localStorage.setItem('duet.tab', 'canvas'); localStorage.setItem(`duet.canvas.current:${w}`, m); localStorage.removeItem(`duet.canvas.collapsed:${w}:${m}`) }, [ws, NAME])
 await page.reload({ waitUntil: 'domcontentloaded' })
 await page.waitForSelector('.stage-inner > svg [data-target="store2"]', { timeout: 20000 }); await sleep(1200)
 const shot = async n => { if (shots) await page.screenshot({ path: `${shots}/zoom-fold-${n}.png` }) }
@@ -139,37 +137,6 @@ const zoomed = await zoom()
 const now = await pointOn(line)
 await page.mouse.dblclick(now.x, now.y); await sleep(700)
 check('double-clicking a line fits the whole map', await zoom() !== zoomed, `${zoomed} → ${await zoom()}`)
-
-// 5. Explore off, as by default: a click opens the info card, and framing centers in what the card leaves of the stage.
-await page.evaluate(() => localStorage.setItem('duet.canvas.explore', '0'))
-await page.reload({ waitUntil: 'domcontentloaded' })
-await page.waitForSelector('.stage-inner > svg [data-target="store2"]', { timeout: 20000 }); await sleep(1200)
-const leftOf = async sel => {
-  const s = await stage(), r = await rect(sel), card = Boolean(await page.$('.inspector'))
-  const aw = s.w - (card ? 364 : 0)
-  return { ok: card && Math.abs(r.x - (s.left + aw / 2)) < 10 && Math.abs(r.y - s.y) < 10, dx: Math.round(r.x - (s.left + aw / 2)), dy: Math.round(r.y - s.y), card }
-}
-await page.keyboard.press('f'); await sleep(600)
-b = await rect(node('store2'))
-await page.mouse.dblclick(b.x, b.y); await sleep(800)
-check('explore off: double-clicking a box centers it beside the info card', (await leftOf(node('store2'))).ok, JSON.stringify(await leftOf(node('store2'))))
-await page.keyboard.press('f'); await sleep(600)
-c = await rect(`${cluster('store')} rect`)
-await page.mouse.dblclick(c.left + 12, c.top + 8); await sleep(800)
-check('explore off: double-clicking a package centers it beside the info card', (await leftOf(`${cluster('store')} rect`)).ok, JSON.stringify(await leftOf(`${cluster('store')} rect`)))
-// Slide the map sideways until the api package's top right corner lies under the card: the card covers its button.
-await page.keyboard.press('f'); await sleep(600)
-const card = await rect('.inspector'), s1 = await stage()
-await page.mouse.move(s1.left + 30, s1.y)
-for (let i = 0; i < 30 && (await rect(cluster('api'))).right < card.left + 60; i++) { await page.mouse.wheel(-40, 0); await sleep(30) }
-await sleep(200)
-const underCard = await page.evaluate(() => {
-  const r = document.querySelector('.stage-fold[data-group="api"]')?.getBoundingClientRect()
-  const c = document.querySelector('.inspector')?.getBoundingClientRect()
-  return r && c && { under: r.left > c.left && r.top > c.top, covered: Boolean(document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2)?.closest('.inspector')) }
-})
-await shot('card')
-check('a button under the info card is covered by it', underCard?.under && underCard.covered, JSON.stringify(underCard))
 
 await call('DELETE', `/api/canvas/${NAME}?ws=${W}`)
 if (errors.length) { failed++; console.log('page errors', errors.slice(0, 3)) }

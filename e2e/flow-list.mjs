@@ -44,7 +44,7 @@ const { browser, page, errors } = await open({ port, token: T, ws, width: 1500, 
 const shot = async n => { if (shots) await page.screenshot({ path: `${shots}/flow-list-${n}.png` }) }
 const show = async name => {
   // Explore mode: a click only lights a part, so no info card narrows the stage while we measure the middle.
-  await page.evaluate(([w, m]) => { localStorage.setItem('duet.tab', 'canvas'); localStorage.setItem(`duet.canvas.current:${w}`, m); localStorage.removeItem(`duet.canvas.collapsed:${w}:${m}`); localStorage.setItem('duet.canvas.explore', '1') }, [ws, name])
+  await page.evaluate(([w, m]) => { localStorage.setItem('duet.tab', 'canvas'); localStorage.setItem(`duet.canvas.current:${w}`, m); localStorage.removeItem(`duet.canvas.collapsed:${w}:${m}`) }, [ws, name])
   await page.reload({ waitUntil: 'domcontentloaded' })
   await page.waitForSelector('.stage-inner > svg [data-target]', { state: 'attached', timeout: 15000 })
   await sleep(900)
@@ -137,7 +137,7 @@ await page.click('.flow-toggle'); await sleep(200)
 
 // Folded packages: every step stays listed; a step inside one folded package lights that package.
 await page.keyboard.press('Escape'); await sleep(200)
-await page.click('button:has-text("Collapse all")'); await sleep(1200)
+await page.click('button[title="Collapse all packages"]'); await sleep(1200)
 check('with packages folded every step is still listed', (await page.$$('.flow-list .flow-step')).length === 4)
 await page.click('.flow-list .flow-step >> nth=0'); await sleep(700)
 const merged = await selected()

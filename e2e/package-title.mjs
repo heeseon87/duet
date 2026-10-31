@@ -33,7 +33,7 @@ await call('POST', `/api/canvas/${NAME}/patch`, { ws, note: '시험 지도', pat
 
 const { browser, page, errors } = await open({ port, token: T, ws, width: 1500, height: 940, theme })
 const shot = async n => { if (shots) await page.screenshot({ path: `${shots}/package-title-${theme}-${n}.png` }) }
-await page.evaluate(([w, m]) => { localStorage.setItem('duet.tab', 'canvas'); localStorage.setItem(`duet.canvas.current:${w}`, m); localStorage.removeItem(`duet.canvas.collapsed:${w}:${m}`); localStorage.setItem('duet.canvas.explore', '1') }, [ws, NAME])
+await page.evaluate(([w, m]) => { localStorage.setItem('duet.tab', 'canvas'); localStorage.setItem(`duet.canvas.current:${w}`, m); localStorage.removeItem(`duet.canvas.collapsed:${w}:${m}`) }, [ws, NAME])
 await page.reload({ waitUntil: 'domcontentloaded' })
 await page.waitForSelector('.stage-inner > svg .cv-cluster', { state: 'attached', timeout: 15000 }); await sleep(1200)
 const title = id => page.evaluate(id => {
@@ -79,7 +79,7 @@ await page.mouse.move(5, 500); await sleep(200)
 check('leaving the title takes the name away', await page.$eval('.stage-tip', t => t.hidden))
 
 // Folded, the box shows the name as before.
-await page.click('button:has-text("Collapse all")'); await sleep(1200)
+await page.click('button[title="Collapse all packages"]'); await sleep(1200)
 const folded = await page.$eval('.stage-inner > svg .cv-node[data-group="g_api"]', g => g.textContent)
 check('a folded package shows its name', folded.includes('user.group.controller'), folded)
 

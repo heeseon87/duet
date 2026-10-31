@@ -1,7 +1,7 @@
 // Decisions on the canvas: pins on what each decision shaped (open and made), a pin picks its decision and
-// lights its parts, a folded package carries its children's pins, the card's links frame the parts, made
-// decisions sit one per line and open in full, the bar's chip counts them, a choice sent to a busy agent shows
-// where it stands (대기열 → 작업 중 → 답함) and keeps its tags, and an old revision offers no choosing.
+// lights its parts, a folded package carries its children's pins, the head's chip and the rail's 결정 count them and
+// open decision mode, a choice sent there to a busy agent shows where it stands in the summary (대기열 → 작업 중 → 답함)
+// and keeps its tags, and an old revision offers no choosing.
 //   DUET_PORT=7981 DUET_TOKEN=... DUET_WS=<scratch repo> DUET_SHOTS=/dir node e2e/decisions.mjs   (runs one Haiku conversation)
 import { execFileSync } from 'node:child_process'
 import { open, sleep } from './browser.mjs'
@@ -58,7 +58,7 @@ const { browser, page, errors } = await open({ port, token: T, ws, width: 1500, 
 const shot = async n => { if (shots) await page.screenshot({ path: `${shots}/decisions-${n}.png` }) }
 await page.evaluate(([w, m, id]) => {
   localStorage.setItem('duet.tab', 'canvas'); localStorage.setItem(`duet.canvas.current:${w}`, m); localStorage.removeItem(`duet.canvas.collapsed:${w}:${m}`)
-  localStorage.removeItem('duet.canvas.explore'); localStorage.setItem(`duet.session:${w}`, id); localStorage.setItem('duet.sideOpen', '0')
+  localStorage.setItem(`duet.session:${w}`, id); localStorage.setItem('duet.sideOpen', '0')
 }, [ws, name, s.id])
 await page.reload({ waitUntil: 'domcontentloaded' })
 await page.waitForSelector('.stage-canvas svg .cv-cluster', { timeout: 20000 }); await sleep(1200)
@@ -85,59 +85,30 @@ const lit = await page.evaluate(() => {
   const svg = document.querySelector('.stage-inner > svg')
   const cls = id => [...(svg.querySelector(`[data-target="${id}"]:is(.cv-node, .cv-cluster)`)?.classList ?? [])].filter(c => /^cv-(sel|in|rel|ctx|dim)$/.test(c)).join(' ')
   const op = id => Number(getComputedStyle(svg.querySelector(`.cv-node[data-target="${id}"]`)).opacity)
-  return { Resolver: cls('Resolver'), Fetcher: cls('Fetcher'), Store: cls('Store'), Uploader: cls('Uploader'), opResolver: op('Resolver'), opStore: op('Store'), card: document.querySelector('.inspector')?.textContent ?? '' }
+  return { Resolver: cls('Resolver'), Fetcher: cls('Fetcher'), Store: cls('Store'), Uploader: cls('Uploader'), opResolver: op('Resolver'), opStore: op('Store') }
 })
-check('a pin click selects the decision and the info card shows it', lit.card.includes('D1') && lit.card.includes('원본 영상을 어디서 가져올까?') && !lit.card.includes('결정할 것'), lit.card.slice(0, 80))
-check('its tagged parts stay lit while the rest dims', lit.Resolver === 'cv-sel' && lit.Fetcher === 'cv-sel' && lit.Store === 'cv-dim' && lit.Uploader === 'cv-dim' && lit.opResolver === 1 && lit.opStore < 1, JSON.stringify(lit, (k, v) => (k === 'card' ? undefined : v)))
+check('a pin click selects the decision: its tagged parts stay lit while the rest dims', lit.Resolver === 'cv-sel' && lit.Fetcher === 'cv-sel' && lit.Store === 'cv-dim' && lit.Uploader === 'cv-dim' && lit.opResolver === 1 && lit.opStore < 1, JSON.stringify(lit))
 await shot('pin-selected')
 
 // Folded, a package carries the pins of what is inside it, once each, and stands lit for them.
-await page.click('button:has-text("Collapse all")'); await sleep(1300)
+await page.click('button[title="Collapse all packages"]'); await sleep(1300)
 const folded = { ingest: await pinsOf('ingest'), render: await pinsOf('render'), litIngest: await page.$eval('.stage-inner > svg .cv-node[data-target="ingest"]', n => n.classList.contains('cv-sel')) }
 check('a folded package shows its children\'s pins, deduplicated', folded.ingest.join() === 'D1:open' && folded.render.join() === 'D2:made' && folded.litIngest, JSON.stringify(folded))
 await shot('folded')
-await page.click('button:has-text("Expand all")'); await sleep(1300)
+await page.click('button[title="Expand all packages"]'); await sleep(1300)
 
-// The card's id frames the parts: zoom far away first, then follow the link.
+// The rail's 결정 counts the open decisions and opens decision mode on the first; what is made is listed as made.
 await page.keyboard.press('Escape'); await sleep(200)
-for (let i = 0; i < 8; i++) await page.keyboard.press('=')
-await sleep(500)
-await page.mouse.move(400, 500); await page.mouse.down(); await page.mouse.move(1400, 900, { steps: 8 }); await page.mouse.up(); await sleep(300)
-await page.keyboard.press('i'); await sleep(400)
-const d3 = await page.evaluate(() => {
-  const card = [...document.querySelectorAll('.inspector .decision.open')].find(c => c.textContent.includes('D3'))
-  return card ? { link: Boolean(card.querySelector('button.decision-id')), counts: card.querySelectorAll('.option-count').length } : null
-})
-check('an untagged decision shows no map link', d3 && !d3.link && d3.counts === 0, JSON.stringify(d3))
-const inView = ids => page.evaluate(ids => {
-  const stage = document.querySelector('.stage-canvas').getBoundingClientRect()
-  const insp = document.querySelector('.inspector')?.getBoundingClientRect()
-  const right = insp ? insp.left : stage.right
-  return ids.map(id => { const r = document.querySelector(`.stage-inner > svg .cv-node[data-target="${id}"]`)?.getBoundingClientRect(); return Boolean(r && r.left >= stage.left - 1 && r.right <= right + 1 && r.top >= stage.top - 1 && r.bottom <= stage.bottom + 1) })
-}, ids)
-const before = await inView(['Resolver', 'Fetcher'])
-await page.click('.inspector .decision.open button.decision-id:has-text("D1")'); await sleep(900)
-const after = await inView(['Resolver', 'Fetcher'])
-const picked = await page.$eval('.inspector', e => e.textContent.includes('원본 영상을 어디서 가져올까?') && !e.textContent.includes('결정할 것'))
-check('the card\'s id link frames the decision\'s parts and selects it', !before.every(Boolean) && after.every(Boolean) && picked, JSON.stringify({ before, after, picked }))
-await page.keyboard.press('Escape'); await page.keyboard.press('f'); await sleep(600)
-await page.keyboard.press('i'); await sleep(400)
-await page.click('.inspector .decision.open:has-text("D1") .option-count >> nth=0'); await sleep(900)
-check('an option\'s part count frames that option\'s parts', (await inView(['Resolver']))[0] && (await page.$eval('.stage-inner > svg .cv-node[data-target="Resolver"]', n => n.classList.contains('cv-sel'))))
-await page.keyboard.press('Escape'); await sleep(200)
+const railBtn = () => page.$eval('.rail-btn.rail-decide', b => ({ badge: b.querySelector('.badge')?.textContent ?? '', pressed: b.getAttribute('aria-pressed'), disabled: b.disabled }))
+check('the rail\'s 결정 counts the open decisions', (await railBtn()).badge === '2', JSON.stringify(await railBtn()))
+await page.click('.rail-btn.rail-decide'); await sleep(900)
+const mode = await page.evaluate(() => ({ q: document.querySelector('.decide .dm-q')?.textContent, made: [...document.querySelectorAll('.decide .dm-item.made')].map(i => i.getAttribute('data-decision')) }))
+check('it opens decision mode on D1, with D2 listed as made', mode.q === '원본 영상을 어디서 가져올까?' && mode.made.join() === 'D2' && (await railBtn()).pressed === 'true', JSON.stringify(mode))
+await shot('rail')
+await page.click('.rail-btn.rail-decide'); await sleep(500)
+check('pressed again, it closes the mode', !(await page.$('.decide')) && (await railBtn()).pressed === 'false')
 
-// Made decisions: one line each, opening in full.
-// The chip opens decision mode now (e2e/decision-mode.mjs); the info card's overview lists them all.
-await page.keyboard.press('i'); await sleep(700)
-const rows = await page.$$eval('.inspector .made-list .made', ms => ms.map(m => { const r = m.querySelector('.made-row'); const t = r.querySelector('.made-text'); return { id: m.getAttribute('data-decision'), h: Math.round(r.getBoundingClientRect().height), oneLine: t.scrollHeight <= t.clientHeight + 1, text: r.textContent } }))
-check('the info card lists the decisions; a made one is one line', rows.length === 1 && rows[0].id === 'D2' && rows[0].h <= 32 && rows[0].oneLine && rows[0].text.includes('→'), JSON.stringify(rows))
-await page.click('.inspector .made[data-decision="D2"] .made-row'); await sleep(300)
-const full = await page.$eval('.inspector .made[data-decision="D2"]', m => ({ q: Boolean(m.querySelector('.decision-q')), why: m.querySelector('.decision-why')?.textContent ?? '', lost: m.querySelector('.option-rejected')?.textContent ?? '', reopen: Boolean(m.querySelector('.reopen')) }))
-check('opened: question, pick, reason, the lost option and why, reopen', full.q && full.why.includes('단계가 적어서') && full.lost.includes('묶는 단계가 느리다') && full.reopen, JSON.stringify(full))
-await shot('made-open')
-await page.click('.inspector .made[data-decision="D2"] button[title="한 줄로 접기"]'); await sleep(200)
-
-// Choosing D1 with the agent told, while the agent is busy: the decision shows where it stands.
+// Choosing D1 and D3 with Claude told, while the agent is busy: the summary shows where D1 stands.
 await call('POST', `/api/sessions/${s.id}/messages`, { text: 'Run `sleep 20` with Bash, then reply with the one word "done". From then on, answer every message in this conversation with one short sentence and use no tools at all.' })
 for (let i = 0; i < 120; i++) {
   await sleep(500)
@@ -145,29 +116,21 @@ for (let i = 0; i < 120; i++) {
   if (log.some(e => e.kind === 'sdk' && e.msg.type === 'assistant' && (e.msg.message?.content ?? []).some(c => c.type === 'tool_use' && c.name === 'Bash'))) break
 }
 await sleep(1500)
-const pinD1 = await page.$eval('.stage-inner > svg [data-target="Resolver"] .cv-pin[data-pin="D1"] rect', r => { const b = r.getBoundingClientRect(); return { x: b.left + b.width / 2, y: b.top + b.height / 2 } })
-await page.mouse.click(pinD1.x, pinD1.y); await sleep(400)
-await page.click('.inspector .decision.open .option.pickable >> nth=0'); await sleep(200)
-check('choosing offers the agent notice, on by default', await page.$eval('.decide-form .toggle input', i => i.checked))
 const revBefore = (await call('GET', `/api/canvas/${name}?ws=${W}`)).revision
-await page.click('.decide-form button:has-text("a로 결정")')
+await page.click('.rail-btn.rail-decide'); await sleep(900)
+check('sending to Claude is on by default', await page.$eval('.decide .toggle input', i => i.checked))
+await page.keyboard.press('1'); await page.keyboard.press('Enter'); await sleep(900)
+await page.keyboard.press('2'); await page.keyboard.press('Enter'); await sleep(900)
 const seen = []
-const ui = { side: false, toast: false }
 const t0 = Date.now()
 while (Date.now() - t0 < 180_000) {
-  const now = await page.evaluate(() => ({
-    text: document.querySelector('.inspector .made[data-decision="D1"] .delivery')?.textContent,
-    side: Boolean(document.querySelector('.side')),
-    toast: [...document.querySelectorAll('.toast')].some(t => t.textContent.includes('결정을 보냈어')),
-  }))
-  ui.side ||= now.side; ui.toast ||= now.toast
-  if (now.text && seen[seen.length - 1] !== now.text) seen.push(now.text)
-  if (now.text?.startsWith('답함') || now.text?.startsWith('끝남')) break
+  const text = await page.evaluate(() => document.querySelector('.dm-done[data-decision="D1"] .delivery')?.textContent)
+  if (text && seen[seen.length - 1] !== text) seen.push(text)
+  if (text?.startsWith('답함') || text?.startsWith('끝남')) break
   await sleep(200)
 }
 const at = p => seen.findIndex(t => t.startsWith(p))
 check('the decision shows 대기열, then 작업 중, then 답함', at('대기열') >= 0 && at('작업 중') > at('대기열') && at('답함') > at('작업 중'), seen.join(' → '))
-check('sending opens the agent panel and says so', ui.side && ui.toast, JSON.stringify(ui))
 await shot('answered')
 const saved = await call('GET', `/api/canvas/${name}?ws=${W}`)
 const thread = saved.threads.find(t => t.target === 'D1')
@@ -178,25 +141,16 @@ check('the saved map keeps the chosen option\'s tags and drops the other option'
   saved.map.decisions.find(d => d.id === 'D1')?.chosen === 'D1-a' && el('Resolver')?.decision === 'D1' && el('Resolver')?.option === 'D1-a' && !el('Fetcher') && rel?.decision === 'D1' && rel?.option === 'D1-a' && el('Encoder')?.option === 'D2-a',
   JSON.stringify({ Resolver: el('Resolver'), Fetcher: el('Fetcher') ?? null, rel }))
 const chip2 = await chip()
-check('the chip now reads 결정 2/3', chip2?.text === '결정 2/3 · 너를 기다림' && chip2.accent, JSON.stringify(chip2))
+check('the chip now reads 결정 3/3, quiet', chip2?.text === '결정 3/3' && !chip2.accent, JSON.stringify(chip2))
 
-// An old revision is only looked at: no choosing, no reopening.
-await page.keyboard.press('Escape'); await sleep(200)
+// An old revision is only looked at: neither the chip nor the rail opens decision mode.
+await page.keyboard.press('Escape'); await sleep(300)
 await page.click('.rev-chip'); await sleep(300)
 await page.click(`.timeline .tl-item:has(b:text-is("rev ${revBefore}")) .tl-main`); await sleep(1500)
 await page.waitForSelector('.preview-banner')
-const oldPin = await page.$eval('.stage-inner > svg [data-target="Resolver"] .cv-pin[data-pin="D1"]', p => { const b = p.querySelector('rect').getBoundingClientRect(); return { x: b.left + b.width / 2, y: b.top + b.height / 2, open: p.classList.contains('open') } })
-await page.mouse.click(oldPin.x, oldPin.y); await sleep(400)
-await page.click('.inspector .decision.open .option >> nth=0'); await sleep(300)
-const ro = await page.evaluate(() => ({
-  pickable: document.querySelectorAll('.inspector .option.pickable').length,
-  form: Boolean(document.querySelector('.decide-form')),
-  decide: [...document.querySelectorAll('.inspector button')].some(b => b.textContent.includes('로 결정')),
-}))
-await page.keyboard.press('Escape'); await page.keyboard.press('i'); await sleep(300)
-await page.click('.inspector .made[data-decision="D2"] .made-row').catch(() => {}); await sleep(200)
-const reopen = await page.$('.inspector .reopen')
-check('in an old-rev preview there is no decide button and no reopen', oldPin.open && !ro.pickable && !ro.form && !ro.decide && !reopen, JSON.stringify({ ...ro, reopen: Boolean(reopen) }))
+const oldPin = await page.$eval('.stage-inner > svg [data-target="Resolver"] .cv-pin[data-pin="D1"]', p => p.classList.contains('open'))
+const ro = { chip: await page.$eval('.canvas-bar .dec-chip', b => b.disabled), rail: (await railBtn()).disabled }
+check('in an old-rev preview D1 is open again, and neither the chip nor the rail opens decision mode', oldPin && ro.chip && ro.rail, JSON.stringify(ro))
 await page.click('.preview-banner button:has-text("최신으로")'); await sleep(300)
 
 check('the agent left the scratch repo as it was', gitStatus() === treeBefore)

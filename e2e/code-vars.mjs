@@ -63,7 +63,7 @@ await call('POST', `/api/canvas/${name}/patch`, { ws, note: 'm', patch: {
   relations: [{ from: 'Kt', to: 'Jv' }, { from: 'Jv', to: 'Ts' }, { from: 'Ts', to: 'Py' }],
 } })
 
-// Left to its defaults the canvas opens in explore mode with the code on: a pick shows the box's file.
+// Left to its defaults the canvas opens with the code on: a pick shows the box's file.
 const { browser, page, errors } = await open({ port, token: T, ws, width: 1500, height: 940, appDefaults: true })
 const shot = async n => { if (shots) await page.screenshot({ path: `${shots}/code-vars-${n}.png` }) }
 await page.evaluate(([w, m]) => { localStorage.setItem('duet.tab', 'canvas'); localStorage.setItem(`duet.canvas.current:${w}`, m) }, [ws, name])

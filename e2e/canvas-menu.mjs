@@ -11,7 +11,7 @@ const check = (name, ok, extra = '') => { if (!ok) failed++; console.log(ok ? 'P
 const shot = async name => { if (shots) await page.screenshot({ path: `${shots}/${theme}-menu-${name}.png` }) }
 await page.evaluate(([w, m]) => {
   localStorage.setItem('duet.tab', 'canvas'); localStorage.setItem(`duet.canvas.current:${w}`, m)
-  localStorage.removeItem(`duet.canvas.collapsed:${w}:${m}`); localStorage.removeItem('duet.canvas.explore')
+  localStorage.removeItem(`duet.canvas.collapsed:${w}:${m}`)
 }, [ws, mapName])
 await page.reload({ waitUntil: 'domcontentloaded' })
 await page.waitForSelector('.stage-canvas svg .cv-cluster', { timeout: 20000 }); await sleep(1500)
@@ -40,8 +40,8 @@ const head = await page.$eval('.ctx-menu .ctx-head', e => e.textContent).catch((
 const labels = await menuLabels()
 const lit = await page.evaluate(id => Boolean(document.querySelector(`.stage-inner > svg .cv-node.cv-sel[data-target="${CSS.escape(id)}"]`)), node.id)
 const el = map.elements.find(e => e.id === node.id)
-check('right click on a box opens its menu and lights it', head.includes(el.label ?? el.id) && lit && !(await page.$('.inspector')), head)
-check('box menu: ask, zoom, info card', ['에이전트에게 묻기', 'Zoom to selection', '정보 카드에서 보기'].every(l => labels.some(x => x.startsWith(l))), labels.join(' | '))
+check('right click on a box opens its menu and lights it', head.includes(el.label ?? el.id) && lit, head)
+check('box menu: ask, zoom', ['에이전트에게 묻기', 'Zoom to selection'].every(l => labels.some(x => x.startsWith(l))) && !labels.some(x => x.includes('정보 카드')), labels.join(' | '))
 const focused = await page.evaluate(() => document.activeElement?.textContent?.trim())
 await page.keyboard.press('ArrowDown')
 const moved = await page.evaluate(() => document.activeElement?.textContent?.trim())
@@ -102,7 +102,7 @@ if (box) {
   check('a folded package box offers unfold and "unfold this one only"', fl.some(l => l.startsWith('Expand')) && fl.some(l => l.startsWith('이것만 펼치기')), fl.join(' | '))
   await page.keyboard.press('Escape'); await sleep(150)
 } else console.log('SKIP no folded package box on screen')
-await page.click('button:has-text("Expand all")'); await sleep(1200)
+await page.click('button[title="Expand all packages"]'); await sleep(1200)
 
 // A relation: right click on its label; zoom frames both ends.
 await page.keyboard.press('f'); await sleep(600)
@@ -125,13 +125,6 @@ const ends = await page.evaluate(ids => {
 }, [rf, rt])
 check('zoom to a line frames both of its ends', ends.every(Boolean), `${rf} → ${rt}: ${ends}`)
 await page.keyboard.press('Escape'); await sleep(150)
-
-// Control-click (a Mac's right click) does not pick, so it never opens the info card.
-await page.keyboard.press('Escape'); await page.keyboard.press('f'); await sleep(600)
-const n4 = await pickNode()
-await page.keyboard.down('Control'); await page.mouse.click(n4.x, n4.y); await page.keyboard.up('Control'); await sleep(300)
-await page.keyboard.press('Escape'); await sleep(150)
-check('control-click does not open the info card', !(await page.$('.inspector')))
 
 // 5. Ask: a card at the click, focused; Esc closes it without sending.
 await page.keyboard.press('f'); await sleep(600)
@@ -166,12 +159,8 @@ await page.waitForSelector('.stage-canvas svg .cv-node'); await page.keyboard.pr
 const empty = await page.evaluate(() => { const r = document.querySelector('.stage-canvas').getBoundingClientRect(); return { x: r.left + 8, y: r.bottom - 40 } })
 await page.mouse.click(empty.x, empty.y, { button: 'right' }); await sleep(250)
 const emptyLabels = await menuLabels()
-check('empty canvas menu: fit, fold all, explore, info card, Mermaid', ['Zoom to fit', 'Collapse all', '탐색 모드 켜기', '정보 카드', 'Mermaid로 복사'].every(l => emptyLabels.some(x => x.startsWith(l))), emptyLabels.join(' | '))
+check('empty canvas menu: fit, fold all, ask about the map, Mermaid', ['Zoom to fit', 'Collapse all', '지도 전체에 대해 묻기', 'Mermaid로 복사'].every(l => emptyLabels.some(x => x.startsWith(l))) && !emptyLabels.some(x => /탐색|정보 카드/.test(x)), emptyLabels.join(' | '))
 await shot('empty')
-await clickItem('탐색 모드 켜기'); await sleep(300)
-check('the menu turns explore mode on', await page.$eval('button:has-text("탐색")', b => b.getAttribute('aria-pressed') === 'true'))
-await page.keyboard.press('e'); await sleep(200)
-await page.mouse.click(empty.x, empty.y, { button: 'right' }); await sleep(250)
 await page.keyboard.press('Escape'); await sleep(200)
 check('Esc closes the menu', !(await page.$('.ctx-menu')))
 await page.mouse.click(empty.x, empty.y, { button: 'right' }); await sleep(250)
@@ -179,7 +168,7 @@ await page.mouse.click(empty.x, empty.y, { button: 'right' }); await sleep(250)
 await page.mouse.click(st.right - 200, st.top + 120); await sleep(200)
 check('a click outside closes the menu', !(await page.$('.ctx-menu')))
 
-await page.evaluate(([w, m]) => { localStorage.removeItem(`duet.canvas.collapsed:${w}:${m}`); localStorage.removeItem('duet.canvas.explore') }, [ws, mapName])
+await page.evaluate(([w, m]) => { localStorage.removeItem(`duet.canvas.collapsed:${w}:${m}`) }, [ws, mapName])
 
 // 8. Order: move a package, then a class, right past its neighbor in the row; the map keeps it as a revision.
 const orderMap = process.env.DUET_ORDER
@@ -257,7 +246,7 @@ if (seq) {
   const actor = await page.$eval('.stage-inner > svg .cv-actor', a => { const b = a.getBoundingClientRect(); return { x: b.left + b.width / 2, y: b.top + b.height / 2, id: a.getAttribute('data-target') } })
   await page.mouse.click(actor.x, actor.y, { button: 'right' }); await sleep(250)
   const aLabels = await menuLabels()
-  check('actor menu: ask, zoom, info card', ['에이전트에게 묻기', 'Zoom to selection', '정보 카드에서 보기'].every(l => aLabels.some(x => x.startsWith(l))), aLabels.join(' | '))
+  check('actor menu: ask, zoom', ['에이전트에게 묻기', 'Zoom to selection'].every(l => aLabels.some(x => x.startsWith(l))), aLabels.join(' | '))
   const k0 = await page.$eval('.zoom-readout', e => parseInt(e.textContent))
   await clickItem('Zoom to selection'); await sleep(600)
   const k1 = await page.$eval('.zoom-readout', e => parseInt(e.textContent))

@@ -28,7 +28,7 @@ const empty = await page.evaluate(() => {
   const r = document.querySelector('.stage-canvas').getBoundingClientRect()
   for (let y = r.top + 60; y < r.bottom - 40; y += 23) for (let x = r.left + 30; x < r.right - 30; x += 29) {
     const el = document.elementFromPoint(x, y)
-    if (el && !el.closest('[data-target],[data-group],.inspector,button')) return { x, y }
+    if (el && !el.closest('[data-target],[data-group],button')) return { x, y }
   }
 })
 await page.mouse.dblclick(empty.x, empty.y); await sleep(900)

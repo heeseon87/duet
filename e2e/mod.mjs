@@ -188,7 +188,7 @@ const shot = async n => { if (shots) await page.screenshot({ path: `${shots}/mod
 // The canvas starts on the other map: picking the terminal brings up the one it is pinned to.
 await page.evaluate(([w, m, other]) => {
   localStorage.setItem('duet.tab', 'canvas'); localStorage.setItem(`duet.canvas.current:${w}`, other); localStorage.removeItem(`duet.canvas.collapsed:${w}:${m}`)
-  localStorage.removeItem('duet.canvas.explore'); localStorage.setItem('duet.sideOpen', '1'); localStorage.setItem(`duet.canvas.seen:${w}:${m}`, '99'); localStorage.setItem(`duet.canvas.seen:${w}:${other}`, '99')
+  localStorage.setItem('duet.sideOpen', '1'); localStorage.setItem(`duet.canvas.seen:${w}:${m}`, '99'); localStorage.setItem(`duet.canvas.seen:${w}:${other}`, '99')
 }, [ws, name, pinName])
 await page.reload({ waitUntil: 'domcontentloaded' })
 await page.waitForSelector('.stage-canvas svg .cv-node', { timeout: 20000 }); await sleep(1200)
@@ -231,20 +231,15 @@ check('the thread shows where it stands: with the terminal, then answered', stat
 check('the comment arrives in the session as a user message', await transcriptHas(comment) && await transcriptHas('[캔버스 코멘트]'))
 const reply = answered?.items.find(i => i.who === 'agent')
 check('the answer lands on the thread, from the terminal', reply?.terminal === session && reply.text.includes('RETRY-OK'), reply?.text.slice(0, 100))
-await page.keyboard.press('Escape'); await sleep(200)
-await page.mouse.click(node.x, node.y); await sleep(500)
-const shown = await page.$$eval('.inspector .thread .delivery', ds => ds.map(d => d.textContent)).catch(() => [])
-check('the info card shows the delivery', shown.some(t => t.startsWith('답함')), JSON.stringify(shown))
 await shot('comment')
 
-// 5. A decision sent with notify goes the same way.
+// 5. A decision made in decision mode goes the same way, when the mode closes.
 await page.keyboard.press('Escape'); await sleep(200)
-const pin = await page.$eval('.stage-inner > svg [data-target="Fast"] .cv-pin[data-pin="D1"] rect', r => { const b = r.getBoundingClientRect(); return { x: b.left + b.width / 2, y: b.top + b.height / 2 } })
-await page.mouse.click(pin.x, pin.y); await sleep(400)
-await page.click('.inspector .decision.open .option.pickable >> nth=1'); await sleep(200)
-check('choosing offers the agent notice, on by default', await page.$eval('.decide-form .toggle input', i => i.checked))
-await page.click('.decide-form button:has-text("b로 결정")')
-const toastSeen = await until('decision toast', () => page.evaluate(() => [...document.querySelectorAll('.toast')].some(t => t.textContent.includes('결정을 터미널에 보냈어'))), 5_000)
+await page.click('.rail-btn.rail-decide'); await sleep(900)
+check('decision mode offers telling Claude, on by default', await page.$eval('.decide .toggle input', i => i.checked))
+await page.keyboard.press('2'); await page.keyboard.press('Enter'); await sleep(800)
+await page.keyboard.press('Escape')
+const toastSeen = await until('decision toast', () => page.evaluate(() => [...document.querySelectorAll('.toast')].some(t => t.textContent.includes('터미널에 보냈어'))), 5_000)
 const decided = await until('decision answered', async () => {
   const { threads, deliveries } = await call('GET', `/api/canvas/${name}/threads?ws=${W}`)
   const t = threads.find(x => x.target === 'D1')

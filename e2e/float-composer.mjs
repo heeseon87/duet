@@ -1,7 +1,8 @@
 // The composer floats over the map while the agent panel is folded: one box at a time, one draft across fold and
-// unfold (a draft set once is not taken again on the next mount), '네 차례 · 결정 n →' opens decision mode, and the box
-// keeps clear of the zoom bar as the card opens and the window narrows. With DUET_WAIT=1 one Haiku turn asks for an
-// approval (ask mode, a shell command that writes stamp.txt, never approved): the box says so and leads to the panel.
+// unfold (a draft set once is not taken again on the next mount), it makes way for decision mode (the rail's 결정),
+// keeps clear of the zoom bar as the window narrows, and can be put away: it stays away through a reload and the panel
+// opening and closing, and ⌘L brings it back to be typed in. With DUET_WAIT=1 one Haiku turn asks for an approval (ask
+// mode, a shell command that writes stamp.txt, never approved): the box says so and leads to the panel.
 //   DUET_PORT=7981 DUET_TOKEN=... DUET_WS=<a scratch repo with README.md> DUET_SHOTS=/dir node e2e/float-composer.mjs
 //   (makes and removes a map named float-composer and a conversation)
 import { open, sleep } from './browser.mjs'
@@ -33,7 +34,7 @@ let failed = 0
 const check = (label, ok, extra = '') => { if (!ok) failed++; console.log(ok ? 'PASS' : 'FAIL', label, extra) }
 await page.evaluate(([w, id, n]) => {
   localStorage.setItem('duet.tab', 'canvas'); localStorage.setItem(`duet.session:${w}`, id); localStorage.setItem('duet.sideOpen', '1')
-  localStorage.setItem(`duet.canvas.current:${w}`, n); localStorage.setItem('duet.canvas.wideInspector', '0')
+  localStorage.setItem(`duet.canvas.current:${w}`, n); localStorage.removeItem('duet.float.hidden')
 }, [ws, session.id, name])
 await page.reload({ waitUntil: 'domcontentloaded' })
 await page.waitForSelector('.stage-inner > svg .cv-node', { timeout: 20000 }); await sleep(800)
@@ -69,24 +70,16 @@ await page.fill('.float-composer textarea', '')
 check('the head names Claude', (await page.$eval('.float-head .float-who', e => e.textContent)) === 'Claude')
 if (shots) await page.screenshot({ path: `${shots}/float-composer.png` })
 
-// 3. Its turn: the open decision, one click into decision mode; the box makes way, esc brings it back.
-check('the open decision is offered', (await page.$eval('.float-turn', e => e.textContent).catch(() => '')) === '네 차례 · 결정 1 →')
-await page.click('.float-turn'); await sleep(500)
+// 3. The rail's 결정 opens decision mode; the box makes way, esc brings it back.
+check('the rail\'s 결정 counts the open decision', (await page.$eval('.rail-btn.rail-decide .badge', e => e.textContent).catch(() => '')) === '1')
+await page.click('.rail-btn.rail-decide'); await sleep(500)
 check('it opens decision mode, without the box', Boolean(await page.$('.decide')) && !(await page.$('.float-composer')))
 await page.keyboard.press('Escape'); await sleep(400)
 check('esc closes the mode and the box is back', !(await page.$('.decide')) && Boolean(await page.$('.float-composer')))
 
-// 4. Clear of the zoom bar: wide, with the info card (narrow and wide), and in a narrow window.
+// 4. Clear of the zoom bar: wide, and in a narrow window.
 let c = await clear()
 check('beside the zoom bar', c.ok && !c.raised, JSON.stringify(c))
-await page.setViewportSize({ width: 1280, height: 800 }); await sleep(500)
-if (!(await page.$('.inspector'))) { await page.click('.insp-open'); await sleep(400) }
-c = await clear()
-check('the info card opens: still clear of the zoom bar', Boolean(await page.$('.inspector')) && c.ok, JSON.stringify(c))
-await page.click('.inspector button[title="넓게 보기"]'); await sleep(400)
-c = await clear()
-check('the card widens: the box refits', c.ok, JSON.stringify(c))
-await page.click('.inspector button[title="좁게 보기"]'); await sleep(200)
 await page.setViewportSize({ width: 620, height: 800 }); await sleep(500)
 c = await clear()
 check('a narrow window puts it above the zoom bar', c.ok && c.raised, JSON.stringify(c))
@@ -99,7 +92,18 @@ const box = await page.$eval('.float-composer', e => e.getBoundingClientRect().t
 check('@ opens the file menu upward, in the window', Boolean(menu) && menu.top >= 0 && menu.bottom <= box + 60, JSON.stringify(menu))
 await page.fill('.float-composer textarea', '')
 
-// 6. A wait shows in the head and leads to the panel, where the card is.
+// 6. Put away: gone, and it stays so through a reload and the panel opening and closing; ⌘L brings it back, focused.
+await page.click('.float-head button[title^="입력창 숨기기"]'); await sleep(300)
+check('the hide button puts the box away', !(await page.$('.float-composer')) && await composers() === 0)
+await page.reload({ waitUntil: 'domcontentloaded' })
+await page.waitForSelector('.stage-inner > svg .cv-node', { timeout: 20000 }); await sleep(800)
+check('it stays away after a reload', !(await page.$('.float-composer')))
+await fold(); await fold()
+check('and after the panel opens and closes', !(await page.$('.float-composer')) && !(await page.$('.side')))
+await page.keyboard.press('Meta+l'); await sleep(400)
+check('⌘L brings it back, ready to type in', Boolean(await page.$('.float-composer')) && await page.evaluate(() => document.activeElement === document.querySelector('.float-composer textarea')))
+
+// 7. A wait shows in the head and leads to the panel, where the card is.
 if (process.env.DUET_WAIT === '1') {
   await call('POST', `/api/sessions/${session.id}/messages`, { text: 'Run exactly this shell command with the Bash tool: date > stamp.txt. Then reply "done".' })
   let wait = null
