@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useImperativeHandle, useLayoutEffect, useRef, useState, forwardRef } from 'react'
-import { ChevronsDownUp, ChevronsUpDown } from 'lucide-react'
+import { Minus, Plus } from 'lucide-react'
 import { flushSync } from 'react-dom'
 import { relationKey, shapedBy, toMermaid, type CanvasMap, type MapDiff } from '../../../shared/canvas.ts'
 import type { CodeMark } from '../../../shared/mapFiles.ts'
@@ -19,12 +19,13 @@ async function getMermaid(): Promise<Mermaid> {
   return mermaidP
 }
 
-function themeVariables() {
+/** A class map reads like code (its names, members and line labels in mono, as the board has them); a sequence map like prose. */
+function themeVariables(diagram: CanvasMap['diagram']) {
   const dark = document.documentElement.dataset.theme === 'dark'
   return {
     darkMode: dark,
-    fontFamily: cssVar('--font-ui'),
-    fontSize: '13px',
+    fontFamily: cssVar(diagram === 'class' ? '--font-mono' : '--font-ui'),
+    fontSize: diagram === 'class' ? '12px' : '13px',
     background: 'transparent',
     primaryColor: cssVar('--cv-keep-fill'),
     primaryBorderColor: cssVar('--cv-keep-line'),
@@ -76,6 +77,8 @@ type Props = {
   threads: CanvasThread[]
   /** How each part stands against the map's code (the review shows the same files). */
   code?: Map<string, CodeMark>
+  /** The boxes the agent's last revision added or changed, marked with a △ and that revision. */
+  revised?: { revision: number; ids: string[] }
   onSelect: (target: string | undefined) => void
   onToggleGroup: (id: string) => void
   /** Right click on a part (or on empty canvas: undefined), at this screen point. */
@@ -89,8 +92,11 @@ type View = { x: number; y: number; k: number }
 /** The camera on the map shown last: back from the review tab it is where it was; any other map opens fitted. */
 let lastView: { key: string; view: View } | undefined
 
-/** A foldable package's frame in drawing units, measured with the drawing it belongs to, and whether that drawing shows it folded. */
-type Fold = { target: string; x: number; y: number; w: number; h: number; folded: boolean }
+/**
+ * A foldable package's frame in drawing units, measured with the drawing it belongs to, and whether that drawing shows
+ * it folded. `title` is how far below the frame's top an open package's title runs along (its middle).
+ */
+type Fold = { target: string; x: number; y: number; w: number; h: number; folded: boolean; title?: number }
 /** A fold button's side in screen pixels at 100% and beyond; zoomed out it shrinks with the drawing, and below FOLD_MIN (its chevrons blur) it is gone. */
 const FOLD_BTN = 22
 const FOLD_MIN = 8
@@ -107,7 +113,7 @@ export function partIds(map: CanvasMap, target: string): string[] {
 }
 
 export const MermaidStage = forwardRef<StageHandle, Props & { viewKey: string }>(function MermaidStage(props, ref) {
-  const { map, collapsed, ghostsFrom, glow, selected, peek, threads, code, onSelect, onToggleGroup, onContext, viewKey } = props
+  const { map, collapsed, ghostsFrom, glow, selected, peek, threads, code, revised, onSelect, onToggleGroup, onContext, viewKey } = props
   const inset = useRef(props.rightInset ?? 0)
   inset.current = props.rightInset ?? 0
   const outer = useRef<HTMLDivElement>(null)
@@ -125,8 +131,8 @@ export const MermaidStage = forwardRef<StageHandle, Props & { viewKey: string }>
   const fitted = useRef(lastView?.key === viewKey)
   const plan = useRef<ReturnType<typeof toMermaid> | null>(null)
   /** The latest selection/glow/threads, for decorating a drawing that finishes rendering later. */
-  const latest = useRef({ selected, peek, glow, threads, compare: ghostsFrom, code })
-  latest.current = { selected, peek, glow, threads, compare: ghostsFrom, code }
+  const latest = useRef({ selected, peek, glow, threads, compare: ghostsFrom, code, revised })
+  latest.current = { selected, peek, glow, threads, compare: ghostsFrom, code, revised }
   const mapRef = useRef(map)
   mapRef.current = map
   /** Parts to frame once the drawing that is on its way has settled. */
@@ -163,10 +169,11 @@ export const MermaidStage = forwardRef<StageHandle, Props & { viewKey: string }>
     // Asked for (double-click, f, the button), the whole drawing fills the stage however small that makes it.
     const margin = readable ? 80 : 48
     let k = Math.min(1.25, Math.max(MIN_ZOOM, Math.min((box.width - margin) / w, (box.height - margin) / h)))
-    // First look: legible text beats seeing everything; what runs over starts at the top left.
+    // First look: legible text beats seeing everything. What runs over starts at the top, in the middle across: a
+    // layered drawing has its first row there, while its top left is often empty.
     if (readable) k = Math.max(k, 0.65)
     else glide()
-    const x = w * k > box.width - 48 ? 24 : (box.width - w * k) / 2
+    const x = (box.width - w * k) / 2
     const y = h * k > box.height - 48 ? 24 : (box.height - h * k) / 2
     setView({ k, x, y })
   }, [])
@@ -233,13 +240,15 @@ export const MermaidStage = forwardRef<StageHandle, Props & { viewKey: string }>
     plan.current = p
     void (async () => {
       const mermaid = await getMermaid()
-      // Mermaid measures text while drawing; with the web font still loading, labels get clipped.
+      // Mermaid measures text while drawing; with the web font still loading, labels get clipped. The mono face may
+      // not be asked for yet (the code pane is closed), and a box's name is in the UI face, bold.
+      await Promise.all([`12px ${cssVar('--font-mono')}`, `700 14px ${cssVar('--font-ui')}`].map(f => document.fonts.load(f).catch(() => [])))
       await document.fonts.ready
       mermaid.initialize({
         startOnLoad: false,
         securityLevel: 'strict',
         theme: 'base',
-        themeVariables: themeVariables(),
+        themeVariables: themeVariables(map.diagram),
         class: { htmlLabels: true },
         sequence: { mirrorActors: true, showSequenceNumbers: false, messageFontWeight: 400 } as never,
         suppressErrorRendering: true,
@@ -280,7 +289,8 @@ export const MermaidStage = forwardRef<StageHandle, Props & { viewKey: string }>
           const target = g.getAttribute('data-group')!
           if (!foldable(target)) return []
           const r = g.getBoundingClientRect()
-          return [{ target, x: (r.left - s.left) / ke, y: (r.top - s.top) / ke, w: r.width / ke, h: r.height / ke, folded: g.classList.contains('cv-node') }]
+          const t = g.querySelector(':scope > .cluster-label')?.getBoundingClientRect()
+          return [{ target, x: (r.left - s.left) / ke, y: (r.top - s.top) / ke, w: r.width / ke, h: r.height / ke, folded: g.classList.contains('cv-node'), title: t && (t.top + t.height / 2 - r.top) / ke }]
         }))
         decorate(el, map, latest.current)
         flowZoom(el, Math.round(viewRef.current.k * 20) / 20)
@@ -391,9 +401,9 @@ export const MermaidStage = forwardRef<StageHandle, Props & { viewKey: string }>
   useLayoutEffect(() => {
     const svg = inner.current?.querySelector('svg')
     if (!svg) return
-    decorate(svg, map, { selected, peek, glow, threads, compare: ghostsFrom, code })
+    decorate(svg, map, { selected, peek, glow, threads, compare: ghostsFrom, code, revised })
     flowZoom(svg, kStep)
-  }, [map, selected, peek, glow, threads, ghostsFrom, code, kStep])
+  }, [map, selected, peek, glow, threads, ghostsFrom, code, revised, kStep])
 
   // Wheel: zoom at the cursor. Shift + wheel, or a sideways swipe, pans; dragging pans too.
   useEffect(() => {
@@ -422,16 +432,18 @@ export const MermaidStage = forwardRef<StageHandle, Props & { viewKey: string }>
     drag.current = { x: e.clientX, y: e.clientY, vx: view.x, vy: view.y, moved: false }
   }
   /**
-   * Where each package's fold button stands, in stage pixels: on its frame's top edge at the right corner, across from
-   * the decision pins at the left, so it stays inside its parent and off its neighbors. Off screen ones stay too (the
-   * stage clips them, the card covers them), so a glide that brings a corner in carries its button along. Zoomed out,
-   * the buttons shrink with the drawing and go once too small to read; a package too small to hold one has none.
+   * Where each package's fold button stands, in stage pixels, at the right: an open package's inside its frame, at the
+   * end of its title's row; a folded one's on its box's top edge, across from the decision pins at the left, so it stays
+   * off the name in the box. Off screen ones stay too (the stage clips them, the card covers them), so a glide that
+   * brings a corner in carries its button along. Zoomed out, the buttons shrink with the drawing and go once too small
+   * to read; a package too small to hold one has none.
    */
   const foldSize = Math.round(FOLD_BTN * Math.min(1, view.k))
   const foldButtons = settling || foldSize < FOLD_MIN ? [] : folds.flatMap(f => {
     const l = view.x + f.x * view.k, t = view.y + f.y * view.k, r = l + f.w * view.k
     const left = r - foldSize * (1 + 8 / FOLD_BTN)
-    return left < l + 4 || f.h * view.k < foldSize ? [] : [{ ...f, left, top: t - foldSize / 2 }]
+    const top = f.folded || f.title === undefined ? t - foldSize / 2 : t + f.title * view.k - foldSize / 2
+    return left < l + 4 || f.h * view.k < foldSize ? [] : [{ ...f, left, top }]
   })
 
   /**
@@ -509,7 +521,7 @@ export const MermaidStage = forwardRef<StageHandle, Props & { viewKey: string }>
         // Its own clicks: not a drag, a pick or a double-click of the stage underneath.
         <button key={f.target} className="stage-fold" data-group={f.target} title={f.folded ? 'Expand' : 'Collapse'} style={{ left: f.left, top: f.top, width: foldSize, height: foldSize }}
           onPointerDown={e => e.stopPropagation()} onPointerUp={e => e.stopPropagation()} onDoubleClick={e => e.stopPropagation()} onClick={() => onToggleGroup(f.target)}>
-          {f.folded ? <ChevronsUpDown size={14} /> : <ChevronsDownUp size={14} />}
+          {f.folded ? <Plus size={14} /> : <Minus size={14} />}
         </button>
       ))}
       {error && <div className="stage-error"><b>그리기 실패</b><pre>{error}</pre></div>}
@@ -534,14 +546,17 @@ function annotate(svg: SVGSVGElement, id: string, map: CanvasMap, p: ReturnType<
       g.setAttribute('data-target', tid)
       if (el?.kind === 'group') g.setAttribute('data-group', tid)
       g.classList.add('cv-node')
+      cardNode(g)
     }
+    // A package inside another (inside another…): Mermaid draws them all side by side, so the depth is the map's.
+    const depth = (id: string) => { let n = 0; for (let p = byId.get(id)?.parent; p; p = byId.get(p)?.parent) n++; return n }
     for (const g of svg.querySelectorAll<SVGGElement>('g.cluster')) {
       const gid = resolve(g.id.startsWith(prefix) ? g.id.slice(prefix.length) : g.id)
       g.setAttribute('data-target', gid)
       g.setAttribute('data-group', gid)
+      g.setAttribute('data-depth', depth(gid) % 2 ? 'odd' : 'even')
       g.classList.add('cv-cluster')
-      const name = byId.get(gid)?.label
-      if (name && name !== gid) titlePackage(g, name)
+      titlePackage(g, byId.get(gid)?.label ?? gid)
     }
     const paths = svg.querySelectorAll<SVGPathElement>('path[id*="-id_"]')
     for (const path of paths) {
@@ -569,6 +584,8 @@ function annotate(svg: SVGSVGElement, id: string, map: CanvasMap, p: ReturnType<
       host?.setAttribute('data-target', keys.split(' ')[0])
       host?.setAttribute('data-keys', keys)
       host?.classList.add('cv-label')
+      const text = label.querySelector('p')
+      if (text) stepCircles(text)
     }
   } else {
     for (const g of svg.querySelectorAll('[data-et="participant"]')) {
@@ -601,14 +618,65 @@ function annotate(svg: SVGSVGElement, id: string, map: CanvasMap, p: ReturnType<
   }
 }
 
-/** How far in from a frame's right edge its fold button reaches (in drawing units, at its largest), with a little room. */
-const FOLD_CLEAR = FOLD_BTN + 8 + 4
+/** Where a box's lines start, in from its left edge: Mermaid's own inset for the members, which the name now shares. */
+const CARD_LEFT = 12
+
+/** The room under each part of a card: none between the stereotype and the name, a little more under the name. */
+const CARD_GAP: Record<string, number> = { 'annotation-group': 0, 'label-group': 6, 'members-group': 4 }
 
 /**
- * Mermaid titles an open package (a namespace) with its id: its grammar has no other name. Put the package's name there
- * instead: centered when it fits clear of the fold button on the corner, else from the left edge up to the button, cut
- * short with an ellipsis (the stage shows it whole by the pointer). Measured once the web font is in: before, it would
- * be cut where it fits.
+ * A box as a card: its stereotype, name, members and methods start at the left edge (Mermaid centers the first two),
+ * one block in the middle of the box instead of spread over Mermaid's sections, whose lines go. The box keeps
+ * its size, so the lines still meet its edges. `foot` asks for room under the block (the code line): the block and it
+ * are centered together, and where the block ends comes back. Nothing comes back when the box has no room for it.
+ */
+function cardNode(g: SVGGElement, foot = 0): { x: number; y: number } | undefined {
+  const m = /^M\s*(-?[\d.]+)\s+(-?[\d.]+)/.exec(g.querySelector('.label-container path')?.getAttribute('d') ?? '')
+  const half = -Number(m?.[1]), height = -2 * Number(m?.[2])
+  if (!(half > 0) || !(height > 0)) return
+  const parts = [...g.querySelectorAll<SVGGElement>(':scope > .annotation-group, :scope > .label-group, :scope > .members-group, :scope > .methods-group')]
+    .map(part => ({ part, box: part.getBBox(), gap: CARD_GAP[part.classList[0]] ?? 0 }))
+    .filter(p => p.box.height > 0)
+  for (const line of g.querySelectorAll(':scope > .divider')) line.remove()
+  const body = parts.reduce((n, p, i) => n + p.box.height + (i < parts.length - 1 ? p.gap : 0), 0)
+  const room = foot > 0 && body + foot <= height - 8
+  const x = CARD_LEFT - half
+  let y = -(body + (room ? foot : 0)) / 2
+  parts.forEach(({ part, box, gap }, i) => {
+    part.setAttribute('transform', `translate(${x}, ${y - box.y})`)
+    for (const div of part.querySelectorAll<HTMLElement>('foreignObject > div')) div.style.textAlign = 'left'
+    y += box.height + (i < parts.length - 1 ? gap : 0)
+  })
+  return room ? { x, y } : undefined
+}
+
+/**
+ * A line label's step marks (①, ② …, with the space after) as outlined circles holding the number, as in the flow list.
+ * Shaped here rather than by the stage's CSS, so a saved SVG keeps them.
+ */
+function stepCircles(p: HTMLElement) {
+  const text = p.textContent ?? ''
+  if (!/[\u2460-\u2473]/.test(text)) return
+  p.replaceChildren(...text.split(/([\u2460-\u2473]) ?/).map((part, i) => {
+    if (i % 2 === 0) return part
+    const n = document.createElement('span')
+    n.className = 'cv-step'
+    n.style.cssText = 'display:inline-flex;align-items:center;justify-content:center;width:15px;height:15px;margin-right:4px;box-sizing:border-box;border:1px solid currentColor;border-radius:50%;font-size:9.5px;line-height:1;vertical-align:1px'
+    n.textContent = String(part.charCodeAt(0) - 0x245f)
+    return n
+  }))
+}
+
+/** How far in from a frame's right edge its fold button reaches (in drawing units, at its largest), with a little room. */
+const FOLD_CLEAR = FOLD_BTN + 8 + 4
+/** Where an open package's title starts, in from its frame's left edge. */
+const TITLE_LEFT = 12
+
+/**
+ * Mermaid titles an open package (a namespace) with its id, centered: its grammar has no other name. Put the package's
+ * name there instead, from the left edge up to the fold button at the row's end, cut short with an ellipsis when it
+ * does not fit (the stage shows it whole by the pointer). Measured once the web font is in: before, it would be cut
+ * where it fits.
  */
 function titlePackage(g: SVGGElement, name: string) {
   const rect = g.querySelector(':scope > rect'), label = g.querySelector(':scope > .cluster-label')
@@ -624,8 +692,8 @@ function titlePackage(g: SVGGElement, name: string) {
     Object.assign(box.style, { display: 'inline-block', width: '' })
     // scrollWidth rounds: a little room, or a name that fits would get an ellipsis for a fraction of a pixel.
     const natural = box.scrollWidth + 2
-    const [left, w] = natural <= frame - 2 * FOLD_CLEAR ? [x + (frame - natural) / 2, natural] : [x + 8, Math.max(40, frame - 8 - FOLD_CLEAR)]
-    Object.assign(box.style, { display: 'block', width: `${w}px`, textAlign: 'center' })
+    const w = Math.min(natural, Math.max(40, frame - TITLE_LEFT - FOLD_CLEAR)), left = x + TITLE_LEFT
+    Object.assign(box.style, { display: 'block', width: `${w}px`, textAlign: 'left' })
     fo.setAttribute('width', String(w))
     label.setAttribute('transform', `translate(${left}, ${y})`)
   })
@@ -633,10 +701,10 @@ function titlePackage(g: SVGGElement, name: string) {
 
 const CHANGE_CLASS = ['cv-add', 'cv-modify', 'cv-delete', 'cv-result', 'cv-keep', 'cv-ghost', 'cv-open', 'cv-sel', 'cv-in', 'cv-rel', 'cv-ctx', 'cv-dim', 'cv-glow', 'cv-glow-mod', 'cv-new', 'cv-changed', 'cv-peek']
 
-/** The zoom, on the few lines that flow, so their width and dashes stay the same on screen, and on the decision pins. Set nowhere else: on an ancestor it would restyle the whole drawing at every zoom step. */
+/** The zoom, on the few lines that flow, so their width and dashes stay the same on screen, and on the decision pins and revision marks. Set nowhere else: on an ancestor it would restyle the whole drawing at every zoom step. */
 function flowZoom(svg: SVGSVGElement, k: number) {
   if (svg.getAttribute('data-k') !== String(k)) svg.setAttribute('data-k', String(k))
-  for (const g of svg.querySelectorAll<SVGGElement>('.cv-pins')) pinZoom(g, k)
+  for (const g of svg.querySelectorAll<SVGGElement>('.cv-pins, .cv-rev')) pinZoom(g, k)
   for (const el of svg.querySelectorAll<SVGElement>('.cv-edge.cv-sel, .cv-edge.cv-rel, .cv-msg.cv-sel, .cv-msg.cv-rel')) {
     if (el.style.getPropertyValue('--k') !== String(k)) el.style.setProperty('--k', String(k))
   }
@@ -695,20 +763,37 @@ const CODE_TEXT: Record<CodeMark['state'], (n: number) => string> = {
   pending: () => '구현 전',
 }
 
+/** A card's code line, with the room over it. */
+const CODE_LINE = 20
+
 /**
- * Where a box stands against the map's code, along its bottom edge from the left (the folded-package count is on the
- * right). Once the review marks all its changed files viewed, a check leads the text.
+ * Where a box stands against the map's code: the card's last line, in mono (a check after it once the review marks all
+ * its changed files viewed). A box with no room for the line has it on its bottom edge from the left instead (the
+ * folded-package count is on the right), a check leading the text.
  */
 function codeBadge(node: SVGGraphicsElement, mark: CodeMark | undefined, b: DOMRect) {
   const text = mark ? CODE_TEXT[mark.state](mark.paths.length) : ''
   const seen = Boolean(mark?.paths.length && mark.viewed === mark.paths.length)
   const old = node.querySelector<SVGGElement>(':scope > .cv-code')
-  if (!text) { old?.remove(); return }
+  if (!text) {
+    if (old) { old.remove(); cardNode(node as SVGGElement) }
+    return
+  }
   if (old?.getAttribute('data-text') === text && old.classList.contains('viewed') === seen) return
   old?.remove()
   const g = document.createElementNS('http://www.w3.org/2000/svg', 'g')
   g.setAttribute('class', `cv-code ${mark!.state}${seen ? ' viewed' : ''}`)
   g.setAttribute('data-text', text)
+  const at = cardNode(node as SVGGElement, CODE_LINE)
+  if (at) {
+    g.classList.add('in-card')
+    g.innerHTML = `<text dy="4">${text}</text>${seen ? '<path class="check" d="M20 6 9 17l-5-5"></path>' : ''}`
+    node.appendChild(g)
+    const tw = g.querySelector('text')!.getComputedTextLength()
+    g.querySelector('.check')?.setAttribute('transform', `translate(${tw + 5}, -5) scale(${10 / 24})`)
+    g.setAttribute('transform', `translate(${at.x}, ${at.y + CODE_LINE - 7})`)
+    return
+  }
   // The review's check (lucide Check), 10px.
   g.innerHTML = `<rect rx="7" ry="7"></rect>${seen ? '<path class="check" d="M20 6 9 17l-5-5"></path>' : ''}<text dy="3.6" text-anchor="middle">${text}</text>`
   node.appendChild(g)
@@ -787,33 +872,75 @@ function pinsByBox(map: CanvasMap) {
 const decisionOrder = (a: string, b: string) => Number(a.slice(1)) - Number(b.slice(1)) || a.localeCompare(b)
 const MAX_PINS = 4
 
-/** "D3" tags along a box's top edge, from its left corner: accent while the decision is open, green once made. A click picks the decision. */
+/** The picked box's ring, a little off its edge, under everything else the box carries. */
+function selRing(node: SVGGraphicsElement, b: DOMRect | undefined) {
+  const old = node.querySelector(':scope > .cv-ring')
+  if (!b) { old?.remove(); return }
+  if (old) return
+  const r = document.createElementNS('http://www.w3.org/2000/svg', 'rect')
+  r.setAttribute('class', 'cv-ring')
+  for (const [k, v] of Object.entries({ x: b.x - 5, y: b.y - 5, width: b.width + 10, height: b.height + 10, rx: 7, ry: 7 })) r.setAttribute(k, String(v))
+  node.insertBefore(r, node.firstChild)
+}
+
+/** How far a decision's disc stands off the left edge it is tied to (the length of its line), and a disc's height. */
+const PIN_OFF = 10
+const PIN_H = 22
+
+/**
+ * "D3" discs left of a box, each tied to the box's left edge by a short line, one under another around its middle (an
+ * open package's: around its title row): accent while the decision is open, green once made. A click picks the decision.
+ */
 function drawPins(node: SVGGraphicsElement, ids: string[], open: Set<string>, b: DOMRect) {
   const key = ids.map(id => (open.has(id) ? `${id}?` : id)).join(' ')
   const old = node.querySelector<SVGGElement>(':scope > .cv-pins')
   if ((old?.getAttribute('data-key') ?? '') === key) return
   old?.remove()
   if (!ids.length) return
+  const title = node.classList.contains('cv-cluster') ? node.querySelector(':scope > .cluster-label') : null
+  const ty = title && Number(/,\s*([-\d.]+)\)/.exec(title.getAttribute('transform') ?? '')?.[1])
+  const row = title && Number.isFinite(ty) ? ty! + Number(title.querySelector('foreignObject')?.getAttribute('height') ?? 0) / 2 : b.y + b.height / 2
   const g = document.createElementNS('http://www.w3.org/2000/svg', 'g')
   g.setAttribute('class', 'cv-pins')
   g.setAttribute('data-key', key)
-  g.setAttribute('data-at', `${b.x + 8},${b.y}`)
+  g.setAttribute('data-at', `${b.x},${row}`)
   node.appendChild(g)
   const shown = ids.length > MAX_PINS ? ids.slice(0, MAX_PINS - 1) : ids
   const labels = [...shown.map(id => ({ id, text: id })), ...(ids.length > shown.length ? [{ id: '', text: `+${ids.length - shown.length}` }] : [])]
-  let x = 0
-  for (const { id, text } of labels) {
+  labels.forEach(({ id, text }, i) => {
     const pin = document.createElementNS('http://www.w3.org/2000/svg', 'g')
     pin.setAttribute('class', `cv-pin ${!id ? 'more' : open.has(id) ? 'open' : 'made'}`)
     if (id) pin.setAttribute('data-pin', id)
-    pin.innerHTML = `<rect rx="4" ry="4" height="16" y="-8"></rect><text dy="3.9" text-anchor="middle">${text}</text>`
+    pin.innerHTML = `<line x1="${-PIN_OFF}" x2="0"></line><rect rx="${PIN_H / 2}" ry="${PIN_H / 2}" height="${PIN_H}" y="${-PIN_H / 2}"></rect><text dy="3.9" text-anchor="middle">${text}</text>`
     g.appendChild(pin)
-    const w = pin.querySelector('text')!.getComputedTextLength() + 10
+    const w = Math.max(PIN_H, pin.querySelector('text')!.getComputedTextLength() + 10)
     pin.querySelector('rect')!.setAttribute('width', String(w))
-    pin.querySelector('text')!.setAttribute('x', String(w / 2))
-    pin.setAttribute('transform', `translate(${x}, 0)`)
-    x += w + 3
-  }
+    pin.querySelector('rect')!.setAttribute('x', String(-PIN_OFF - w))
+    pin.querySelector('text')!.setAttribute('x', String(-PIN_OFF - w / 2))
+    pin.setAttribute('transform', `translate(0, ${(i - (labels.length - 1) / 2) * (PIN_H + 4)})`)
+  })
+  pinZoom(g, Number(node.ownerSVGElement?.getAttribute('data-k')) || 1)
+}
+
+/**
+ * The agent's last revision on a box it added or changed there: a triangle with the revision in it, on the top right
+ * corner (left of a comment count, which has that corner). It grows when zoomed out, as the pins do.
+ */
+function revMark(node: SVGGraphicsElement, rev: number | undefined, b: DOMRect, beside: boolean) {
+  const key = rev ? `${rev}${beside ? ' beside' : ''}` : ''
+  const old = node.querySelector<SVGGElement>(':scope > .cv-rev')
+  if ((old?.getAttribute('data-key') ?? '') === key) return
+  old?.remove()
+  if (!rev) return
+  const text = String(rev)
+  const half = 8 + 3 * text.length
+  const g = document.createElementNS('http://www.w3.org/2000/svg', 'g')
+  g.setAttribute('class', 'cv-rev')
+  g.setAttribute('data-key', key)
+  // Its middle on the top edge; a comment count's circle (r 9) stands on the corner itself.
+  g.setAttribute('data-at', `${b.x + b.width - (beside ? 14 + half : 3)},${b.y}`)
+  g.innerHTML = `<path d="M0 -10 L${half} 9 L${-half} 9 Z"></path><text y="6.5" text-anchor="middle">${text}</text>`
+  node.appendChild(g)
   pinZoom(g, Number(node.ownerSVGElement?.getAttribute('data-k')) || 1)
 }
 
@@ -837,7 +964,7 @@ function plainBox(node: SVGGraphicsElement): DOMRect | undefined {
   return b
 }
 
-function decorate(svg: SVGSVGElement, map: CanvasMap, o: { selected?: string; peek?: string; glow?: MapDiff; compare?: MapDiff; threads: CanvasThread[]; code?: Map<string, CodeMark> }) {
+function decorate(svg: SVGSVGElement, map: CanvasMap, o: { selected?: string; peek?: string; glow?: MapDiff; compare?: MapDiff; threads: CanvasThread[]; code?: Map<string, CodeMark>; revised?: { revision: number; ids: string[] } }) {
   const comparedInside = insideChanges(map, o.compare)
   const glowInside = insideChanges(map, o.glow)
   const byId = new Map(map.elements.map(e => [e.id, e]))
@@ -849,6 +976,7 @@ function decorate(svg: SVGSVGElement, map: CanvasMap, o: { selected?: string; pe
   const { picked, inside, related, holding, context } = neighborhood(map, o.selected)
   const threadCount = new Map<string, number>()
   for (const t of o.threads) if (t.state === 'open') threadCount.set(t.target, (threadCount.get(t.target) ?? 0) + 1)
+  const revised = new Set(o.revised?.ids)
 
   for (const node of svg.querySelectorAll<SVGElement>('[data-target]')) {
     if (node.classList.contains('cv-edge-hit')) continue
@@ -893,14 +1021,19 @@ function decorate(svg: SVGSVGElement, map: CanvasMap, o: { selected?: string; pe
       if (g && !want.has('cv-glow')) add(g.added ? 'cv-glow' : 'cv-glow-mod')
       if (box) insideBadge(node as SVGGraphicsElement, s, box)
     }
-    if (box && node.classList.contains('cv-node')) codeBadge(node as SVGGraphicsElement, o.code?.get(target), box)
+    // Open comments on this part: their count goes on a box's corner (below), and a △ steps aside for it.
+    const count = keys.reduce((n, k) => n + (threadCount.get(k) ?? 0), 0)
+    if (box && node.classList.contains('cv-node')) {
+      codeBadge(node as SVGGraphicsElement, o.code?.get(target), box)
+      revMark(node as SVGGraphicsElement, revised.has(target) ? o.revised!.revision : undefined, box, count > 0)
+    }
     if (box) {
       const ids = new Set([...(pins.own.get(target) ?? []), ...(folded ? pins.inside.get(target) ?? [] : [])])
       drawPins(node as SVGGraphicsElement, [...ids].sort(decisionOrder), openDecisions, box)
     }
     for (const c of CHANGE_CLASS) if (want.has(c) !== node.classList.contains(c)) node.classList.toggle(c)
+    if (box && node.classList.contains('cv-node')) selRing(node as SVGGraphicsElement, want.has('cv-sel') ? box : undefined)
     // Comment badges on boxes and line labels.
-    const count = keys.reduce((n, k) => n + (threadCount.get(k) ?? 0), 0)
     const badge = node.querySelector(':scope > .cv-badge')
     if (count && (node.classList.contains('cv-node') || node.classList.contains('cv-label') || node.classList.contains('cv-actor'))) {
       if (!badge || badge.getAttribute('data-n') !== String(count)) {

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { ChevronDown, ChevronRight, Minus, Plus } from 'lucide-react'
-import { labelOf, relationKey, stepMark, type CanvasMap } from '../../../shared/canvas.ts'
+import { labelOf, relationKey, type CanvasMap } from '../../../shared/canvas.ts'
 import { local } from '../state.ts'
 import { flowSteps } from './flow.ts'
 
@@ -8,8 +8,8 @@ const MIN_SCALE = 0.6
 const MAX_SCALE = 1.4
 
 /**
- * A class map's flow, top left over the map and see-through until the pointer comes: a row under the pointer lights
- * its line, a click picks the step and brings it to the middle. Folded away, it stays a one-line head; its size is set
+ * A class map's flow, top right over the map and see-through until the pointer comes: a row under the pointer lights
+ * its line, a click picks the step and brings it to the middle. A step's number is in a circle, as on the line's label. Folded away, it stays a one-line head; its size is set
  * like the code's (−·+, ⌘ + wheel). Both remembered.
  */
 export function FlowList({ map, selected, onPeek, onPick }: { map: CanvasMap; selected?: string; onPeek: (key: string | undefined) => void; onPick: (key: string) => void }) {
@@ -44,16 +44,15 @@ export function FlowList({ map, selected, onPeek, onPick }: { map: CanvasMap; se
   if (!shown) return null
   const toggle = () => setOpen(o => { local.set('canvas.flow', o ? '0' : '1'); return !o })
   return (
-    <div className="flow-list" ref={box} style={{ '--flow-scale': scale } as React.CSSProperties} onMouseLeave={() => onPeek(undefined)}>
+    <div className={`flow-list${open ? '' : ' folded'}`} ref={box} style={{ '--flow-scale': scale } as React.CSSProperties} onMouseLeave={() => onPeek(undefined)}>
       <div className="flow-head">
         <button className="flow-toggle" onClick={toggle} title={`${open ? '흐름 접기' : '흐름 펼치기'} · n 다음 단계, p 이전 단계`}>
           {open ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
-          <span>흐름</span>
-          <span className="muted">{steps.length}</span>
+          <span>흐름 {steps.length}</span>
         </button>
-        <span className="grow" />
+        {open && <span className="flow-keys" title="n 다음 단계, p 이전 단계">n · p</span>}
         {open && (
-          <div className="seg flow-zoom">
+          <div className="flow-zoom">
             <button onClick={() => step(-1)} disabled={scale <= MIN_SCALE} title="흐름 작게 (⌘ + 휠)"><Minus size={11} /></button>
             <button onClick={() => zoom(1)} title="100%로">{Math.round(scale * 100)}%</button>
             <button onClick={() => step(1)} disabled={scale >= MAX_SCALE} title="흐름 크게 (⌘ + 휠)"><Plus size={11} /></button>
@@ -67,7 +66,7 @@ export function FlowList({ map, selected, onPeek, onPick }: { map: CanvasMap; se
             return (
               <li key={key}>
                 <button className={`flow-step${key === selected ? ' active' : ''}`} onMouseEnter={() => onPeek(key)} onClick={() => onPick(key)}>
-                  <span className="flow-no">{stepMark(r.step!)}</span>
+                  <span className="flow-no">{r.step}</span>
                   <span className="flow-text">
                     <span className="flow-ends">{labelOf(map, r.from)} → {labelOf(map, r.to)}</span>
                     {r.label && <span className="flow-label">{r.label}</span>}

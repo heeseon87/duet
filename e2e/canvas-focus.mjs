@@ -1,8 +1,36 @@
 // Canvas: nested packages select and fold, selection dims lightly, folding animates and cleans up.
-//   DUET_PORT=7981 DUET_TOKEN=... DUET_WS=... DUET_MAP=<map with nested packages> DUET_NESTED=<nested package id> DUET_SHOTS=/dir node e2e/canvas-focus.mjs
+//   DUET_PORT=7981 DUET_TOKEN=... DUET_WS=... DUET_SHOTS=/dir node e2e/canvas-focus.mjs   (makes and removes a map named canvas-focus)
+//   or on a map of yours: DUET_MAP=<map with nested packages, more than three, and a made decision> DUET_NESTED=<nested package id>
 import { open, sleep, toggleFold } from './browser.mjs'
 const port = Number(process.env.DUET_PORT ?? 7979)
-const { DUET_TOKEN: T, DUET_WS: ws, DUET_MAP: mapName, DUET_NESTED: nested, DUET_SHOTS: shots } = process.env
+const { DUET_TOKEN: T, DUET_WS: ws, DUET_SHOTS: shots } = process.env
+const own = !process.env.DUET_MAP
+const mapName = process.env.DUET_MAP ?? 'canvas-focus', nested = process.env.DUET_NESTED ?? 'rules'
+const call = async (method, path, body) => {
+  const r = await fetch(`http://127.0.0.1:${port}${path}`, { method, headers: { 'x-duet-token': T, 'content-type': 'application/json' }, body: body ? JSON.stringify(body) : undefined })
+  const t = await r.text()
+  if (!r.ok) throw new Error(`${method} ${path}: ${r.status} ${t}`)
+  return t ? JSON.parse(t) : undefined
+}
+if (own) {
+  // Four packages, one inside another, a flow through them, and a decision already made.
+  await call('DELETE', `/api/canvas/${mapName}?ws=${encodeURIComponent(ws)}`).catch(() => {})
+  await call('POST', '/api/canvas', { ws, name: mapName, diagram: 'class', title: '포커스 시험' })
+  await call('POST', `/api/canvas/${mapName}/patch`, { ws, note: '시험 지도', patch: {
+    elements: [
+      { id: 'web', kind: 'group' }, { id: 'Ctl', parent: 'web' },
+      { id: 'core', kind: 'group' }, { id: 'Svc', parent: 'core' }, { id: 'rules', kind: 'group', parent: 'core' }, { id: 'Policy', parent: 'rules' }, { id: 'Limit', parent: 'rules' },
+      { id: 'data', kind: 'group' }, { id: 'Repo', parent: 'data' }, { id: 'Db', parent: 'data' },
+      { id: 'ext', kind: 'group' }, { id: 'Mail', parent: 'ext' }, { id: 'Cache', parent: 'data', decision: 'D1', option: 'D1-a' },
+    ],
+    relations: [
+      { from: 'Ctl', to: 'Svc', label: 'handle' }, { from: 'Svc', to: 'Policy' }, { from: 'Policy', to: 'Limit', kind: 'dependency' },
+      { from: 'Svc', to: 'Repo' }, { from: 'Repo', to: 'Db' }, { from: 'Svc', to: 'Mail', kind: 'dependency' }, { from: 'Repo', to: 'Cache' },
+    ],
+    decisions: [{ id: 'D1', question: '캐시를 둘까?', why: { tags: ['tie'], text: '둘 다 맞아.' }, options: [{ id: 'D1-a', text: '둔다' }, { id: 'D1-b', text: '안 둔다' }] }],
+  } })
+  await call('POST', `/api/canvas/${mapName}/choose`, { ws, decision: 'D1', option: 'D1-a' })
+}
 const theme = process.env.DUET_THEME ?? 'light'
 const { browser, page, errors } = await open({ port, token: T, ws, width: 1600, height: 1000, theme })
 let failed = 0
@@ -164,4 +192,5 @@ check('explore off: a click opens the info card again', !(await pressed()) && Bo
 await shot('explore-off')
 if (errors.length) { failed++; console.log('page errors', errors) }
 await browser.close()
+if (own) await call('DELETE', `/api/canvas/${mapName}?ws=${encodeURIComponent(ws)}`)
 process.exit(failed ? 1 : 0)

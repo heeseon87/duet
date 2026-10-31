@@ -3,6 +3,7 @@ import { diffMaps, type CanvasMap, type Delivery, type MapDiff } from '../../../
 import type { CanvasSummary, CanvasThread, MapCode, SessionInfo } from '../../../shared/protocol.ts'
 import { api, q, subscribe } from '../api.ts'
 import { local, useApp } from '../state.ts'
+import { lastAgentRevision, revisedBoxes } from './revised.ts'
 
 export type HistoryItem = { revision: number; by: 'agent' | 'person'; note?: string; ts: number }
 
@@ -28,6 +29,8 @@ type CanvasState = {
   /** What the agent changed since the person last looked. */
   seenRevision?: number
   glow?: MapDiff
+  /** The boxes the agent's last revision added or changed, still as it left them (a △ on each). */
+  revised?: { revision: number; ids: string[] }
   collapsed: Set<string>
   /** Explore: clicking only highlights; the info card stays as it is. Remembered. */
   explore: boolean
@@ -77,6 +80,21 @@ async function showConversation(w: string, sessionId: string) {
   useApp.setState({ sideOpen: true })
 }
 
+/** The two sides of a revision the agent wrote, by workspace, map and revision: fetched once, as they never change. */
+const agentRevs = new Map<string, Promise<[CanvasMap, CanvasMap]>>()
+function revisionSides(w: string, name: string, rev: number, current: { revision: number; map: CanvasMap }): Promise<[CanvasMap, CanvasMap]> {
+  const at = (r: number) => r === current.revision ? Promise.resolve(current.map) : api.get<{ map: CanvasMap }>(`/api/canvas/${name}/rev/${r}${q({ ws: w })}`).then(x => x.map)
+  const key = `${w}\n${name}\n${rev}`
+  let sides = agentRevs.get(key)
+  if (!sides) {
+    sides = Promise.all([at(rev - 1), at(rev)])
+    // A failed fetch is tried again next time.
+    sides.catch(() => agentRevs.delete(key))
+    agentRevs.set(key, sides)
+  }
+  return sides
+}
+
 /** Sent items still with the agent move on with its conversation: refresh them as it goes, at most a few times a second. */
 let refreshing: ReturnType<typeof setTimeout> | undefined
 function followDeliveries() {
@@ -119,7 +137,7 @@ export const useCanvas = create<CanvasState>((set, get) => ({
     local.set(`canvas.current:${w}`, name)
     const collapsed = new Set<string>(JSON.parse(local.get(`canvas.collapsed:${w}:${name}`) ?? '[]'))
     const seen = Number(local.get(`canvas.seen:${w}:${name}`) ?? 0)
-    set({ name, selected: undefined, preview: undefined, compareFrom: undefined, compareMap: undefined, collapsed, loading: true, glow: undefined })
+    set({ name, selected: undefined, preview: undefined, compareFrom: undefined, compareMap: undefined, collapsed, loading: true, glow: undefined, revised: undefined })
     await get().reload()
     const rev = get().revision
     // First visit: nothing is "new". Later visits: show what changed since then.
@@ -141,6 +159,11 @@ export const useCanvas = create<CanvasState>((set, get) => ({
       setTimeout(() => { if (get().glow === d) set({ glow: undefined }) }, 5000)
     }
     if (get().compareFrom) await get().setCompare(get().compareFrom)
+    const rev = lastAgentRevision(data.history)
+    if (!rev) { set({ revised: undefined }); return }
+    // Only marks: if a side will not load, the map shows without them.
+    const sides = await revisionSides(w, name, rev, data).catch(() => undefined)
+    if (get().name === name && get().map === data.map) set({ revised: sides && { revision: rev, ids: revisedBoxes(sides[0], sides[1], data.map) } })
   },
 
   refreshThreads: async () => {

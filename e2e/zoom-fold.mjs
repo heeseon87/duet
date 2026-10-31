@@ -1,6 +1,6 @@
 // Zooming to a part and folding a package without the menu: double-clicking a box or a package frames it (a package no
 // longer folds that way; a line or the empty canvas still fits the map), and every package that can fold shows its fold
-// button on its frame's top edge at the right corner, with no pointer near it; the buttons wait while a fold slides and
+// button at the right end of its title row (a folded one: on its top edge), with no pointer near it; the buttons wait while a fold slides and
 // go with their corners through a wheel, a drag and a glide, shrinking as the map zooms out. With explore off, the info card a click opens narrows the
 // stage, framing centers in what is left, and the card covers the buttons under it.
 //   DUET_PORT=7981 DUET_TOKEN=... DUET_WS=<workspace> DUET_SHOTS=/dir node e2e/zoom-fold.mjs   (makes and removes a map named zoom-fold)
@@ -46,13 +46,15 @@ const node = id => `.stage-inner > svg .cv-node[data-target="${id}"]`
 const cluster = id => `.stage-inner > svg .cv-cluster[data-target="${id}"]`
 const stage = () => rect('.stage-canvas')
 const groups = () => page.$$eval('.stage-fold', bs => bs.map(b => b.dataset.group).sort())
-/** For each fold button, whether it stands on its package's top edge at the right corner (measured at one instant). */
+/** For each fold button, whether it stands at its package's right corner, on its title row or, folded, on its top edge (measured at one instant). */
 const corners = (tol = 2) => page.evaluate(tol => {
   const out = {}
   for (const b of document.querySelectorAll('.stage-fold')) {
-    const f = document.querySelector(`.stage-inner > svg [data-group="${CSS.escape(b.dataset.group)}"]`)?.getBoundingClientRect()
+    const g = document.querySelector(`.stage-inner > svg [data-group="${CSS.escape(b.dataset.group)}"]`)
+    const f = g?.getBoundingClientRect(), t = g?.querySelector(':scope > .cluster-label')?.getBoundingClientRect()
     const r = b.getBoundingClientRect()
-    out[b.dataset.group] = Boolean(f) && Math.abs(r.top + r.height / 2 - f.top) < tol && Math.abs(r.right - (f.right - r.height * 8 / 22)) < tol
+    const y = t && !g.classList.contains('cv-node') ? t.top + t.height / 2 : f?.top
+    out[b.dataset.group] = Boolean(f) && Math.abs(r.top + r.height / 2 - y) < tol && Math.abs(r.right - (f.right - r.height * 8 / 22)) < tol
   }
   return out
 }, tol)
@@ -76,11 +78,11 @@ const pointOn = (k, inside = [], outside = []) => page.evaluate(([k, inside, out
 }, [k, inside, outside])
 const line = 'api2->store1:association'
 
-// 1. Every package that can fold shows its button on its frame's top right corner, with the pointer nowhere near.
+// 1. Every package that can fold shows its button at its right corner, on the title row, with the pointer nowhere near.
 await page.mouse.move(1, 1)
 await page.keyboard.press('f'); await sleep(600)
 check('every foldable package has a button, unhovered', JSON.stringify(await groups()) === '["api","auth","store"]', JSON.stringify(await groups()))
-check('each on its frame\'s top edge at the right corner', allOn(await corners()), JSON.stringify(await corners()))
+check('each at its right corner, on the title row', allOn(await corners()), JSON.stringify(await corners()))
 const inner = await rect('.stage-fold[data-group="auth"]'), outer_ = await rect(cluster('api'))
 check('a nested package\'s button stays inside its parent', inner.left > outer_.left && inner.right < outer_.right && inner.top > outer_.top, JSON.stringify({ inner, outer_ }))
 await shot('package')

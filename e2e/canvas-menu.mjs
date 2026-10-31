@@ -63,7 +63,14 @@ const parents = new Set(map.elements.map(e => e.parent).filter(Boolean))
 const foldable = map.elements.filter(e => e.kind === 'group' && parents.has(e.id))
 const top = foldable.find(g => !g.parent && foldable.some(o => o.id !== g.id && !o.parent))
 await page.keyboard.press('f'); await sleep(600)
-const cl = await page.$eval(`.stage-inner > svg .cv-cluster[data-target="${top.id}"] rect`, r => { const b = r.getBoundingClientRect(); return { x: b.left + 14, y: b.top + 8 } })
+// A point on the package's own area (not on a box, a pin or a line inside it), near its top left.
+const cl = await page.$eval(`.stage-inner > svg .cv-cluster[data-target="${top.id}"]`, g => {
+  const b = g.querySelector(':scope > rect').getBoundingClientRect()
+  for (let y = b.top + 4; y < b.bottom - 4; y += 3) for (let x = b.left + 4; x < b.right - 4; x += 3) {
+    if (document.elementFromPoint(x, y)?.closest('[data-target]') === g) return { x, y }
+  }
+  return { x: b.left + 4, y: b.top + 4 }
+})
 await page.mouse.click(cl.x, cl.y, { button: 'right' }); await sleep(250)
 const pkgLabels = await menuLabels()
 check('package menu adds fold and "unfold this one only"', pkgLabels.some(l => l.startsWith('Collapse')) && pkgLabels.some(l => l.startsWith('이것만 펼치기')), pkgLabels.join(' | '))

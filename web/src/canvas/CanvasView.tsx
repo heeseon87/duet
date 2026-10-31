@@ -18,9 +18,9 @@ import { ContextMenu, FloatAt, type MenuEntry, type Point } from './ContextMenu.
 import { confirmDialog } from '../lib/confirm.tsx'
 import { download, standaloneSvg } from './exportSvg.ts'
 import { useCanvas } from './store.ts'
+import { CHANGE_LABEL } from './words.ts'
 import { useReview } from '../review/store.ts'
 
-const CHANGE_LABEL: Record<string, string> = { add: 'New', modify: 'Modified', delete: 'Deleted', result: 'Result', keep: 'Unchanged' }
 const WHY_TAG_LABEL: Record<DecisionWhyTag, string> = { convention: '관례가 둘', scope: '이 일 밖에 미침', irreversible: '되돌리기 어려움', context: '네가 아는 것', tie: '무게가 비슷' }
 const kindLabel = (kind = 'class') => (kind === 'group' ? 'package' : kind)
 
@@ -360,7 +360,6 @@ function Inspector({ map, readOnly, onHide, wide, onToggleWide, onFrame, onCode 
         <div className="insp-head"><span className="grow" />{widen}<button className="iconbtn" onClick={onHide} title="닫기 (i)"><X size={14} /></button></div>
         <div className="insp-title">{map.title}</div>
         {map.context && <div className="insp-context"><Markdown text={map.context} /></div>}
-        <Legend map={map} />
         {openDecisions.length > 0 && <div className="insp-section" data-decisions><h4>결정할 것 {openDecisions.length}</h4>{openDecisions.map(d => <DecisionCard key={d.id} d={d} map={map} readOnly={readOnly} show={show} />)}</div>}
         {openThreads.length > 0 && (
           <div className="insp-section">
@@ -553,14 +552,22 @@ function RelLink({ r, map, dir }: { r: CanvasMap['relations'][number]; map: Canv
   )
 }
 
-function Legend({ map }: { map: CanvasMap }) {
+/** What the map's colors and marks mean, bottom left over the map: the states it uses, open decisions, the agent's △. */
+function Legend({ map, revised }: { map: CanvasMap; revised?: { revision: number; ids: string[] } }) {
   const used = new Set(map.elements.map(e => e.change ?? 'keep'))
   const items = (['add', 'modify', 'delete', 'result', 'keep'] as const).filter(c => used.has(c))
-  if (items.length <= 1 && !map.decisions?.some(d => !d.chosen)) return null
+  const open = map.decisions?.some(d => !d.chosen)
+  const rev = revised?.ids.length ? revised : undefined
+  if (items.length <= 1 && !open && !rev) return null
   return (
-    <div className="legend">
+    <div className="legend stage-legend">
       {items.map(c => <span key={c} className="legend-item"><i className={`sw cv-sw-${c}`} />{CHANGE_LABEL[c]}</span>)}
-      {map.decisions?.some(d => !d.chosen) && <span className="legend-item"><i className="sw cv-sw-open" />결정 전</span>}
+      {open && <span className="legend-item"><i className="sw cv-sw-open" />결정 전</span>}
+      {rev && (
+        <span className="legend-item" title={`에이전트가 rev ${rev.revision}에서 더하거나 고친 상자 ${rev.ids.length}개. 그 뒤에 네가 고친 상자에서는 빠져.`}>
+          <i className="sw-rev">{rev.revision}</i>에이전트가 rev {rev.revision}에서 고침
+        </span>
+      )}
     </div>
   )
 }
@@ -884,6 +891,7 @@ export function CanvasView() {
           peek={peek}
           threads={s.threads}
           code={code?.marks}
+          revised={s.preview ? undefined : s.revised}
           onSelect={t => { s.select(t); if (!useCanvas.getState().explore && !codeOpen) setInspector(Boolean(t)) }}
           onToggleGroup={s.toggleCollapse}
           onContext={(t, at) => {
@@ -898,6 +906,7 @@ export function CanvasView() {
           ? <Inspector map={shownMap} readOnly={Boolean(s.preview)} onHide={() => setInspector(false)} wide={wideInsp} onToggleWide={toggleWide} onFrame={frameSoon} onCode={f => showCode(true, f)} />
           : <button className="btn sm insp-open" onClick={() => setInspector(true)}><Eye size={13} /> 정보 <kbd>i</kbd></button>}
         <FlowList map={shownMap} selected={s.selected} onPeek={setPeek} onPick={pickStep} />
+        <Legend map={shownMap} revised={s.preview ? undefined : s.revised} />
         {s.explore && <div className="stage-hint muted">탐색 모드 · e로 끄기</div>}
         {menu && <ContextMenu at={menu.at} entries={menuEntries(menu.target, menu.at)} onClose={() => setMenu(undefined)} />}
         {asking && (

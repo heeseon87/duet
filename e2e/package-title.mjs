@@ -1,5 +1,5 @@
-// Package titles: an open package is titled with its name (label), not its id; a name wider than the frame is cut with
-// an ellipsis inside the frame and shown whole by the pointer (only then), even where a line coming into the package
+// Package titles: an open package is titled with its name (label), not its id, from the left, with its fold button at
+// the end of the title's row; a name wider than the frame is cut with an ellipsis inside the frame and shown whole by the pointer (only then), even where a line coming into the package
 // crosses the title; a package with no name keeps its id; a folded package shows its name too.
 //   DUET_PORT=7981 DUET_TOKEN=... DUET_WS=<workspace> DUET_SHOTS=/dir [DUET_THEME=dark] node e2e/package-title.mjs   (makes and removes a map named package-title)
 import { open, sleep } from './browser.mjs'
@@ -40,13 +40,15 @@ const title = id => page.evaluate(id => {
   const g = document.querySelector(`.stage-inner > svg .cv-cluster[data-target="${id}"]`), p = g?.querySelector('.cluster-label p'), frame = g?.querySelector(':scope > rect')
   if (!p || !frame) return null
   const pr = p.getBoundingClientRect(), fr = frame.getBoundingClientRect(), fold = document.querySelector(`.stage-fold[data-group="${id}"]`)?.getBoundingClientRect()
+  const k = Number(/scale\(([\d.]+)\)/.exec(document.querySelector('.stage-inner').style.transform)?.[1] ?? 1)
   // Cut as drawn: the text's own box wider than its line (scrollWidth and clientWidth round, and miss a fraction).
   const range = document.createRange(); range.selectNodeContents(p)
   return { text: p.textContent, cut: range.getBoundingClientRect().width > pr.width + 0.5, ellipsis: getComputedStyle(p).textOverflow, inside: pr.left >= fr.left - 1 && pr.right <= fr.right + 1,
-    clear: !fold || pr.right <= fold.left || pr.bottom <= fold.top, centered: Math.abs((pr.left + pr.right) / 2 - (fr.left + fr.right) / 2) < 2 }
+    clear: !fold || pr.right <= fold.left, atLeft: Math.abs(pr.left - fr.left - 12 * k) < 2,
+    inRow: !fold || Math.abs((fold.top + fold.bottom) / 2 - (pr.top + pr.bottom) / 2) < 3 }
 }, id)
 const api = await title('g_api'), long = await title('g_long'), plain = await title('plain')
-check('an open package shows its name, not its id, centered', api?.text === 'user.group.controller' && !api.cut && api.inside && api.centered && api.clear, JSON.stringify(api))
+check('an open package shows its name, not its id, from the left, its fold button at the end of that row', api?.text === 'user.group.controller' && !api.cut && api.inside && api.atLeft && api.inRow && api.clear, JSON.stringify(api))
 check('a name wider than its frame is cut with an ellipsis, inside the frame and clear of the fold button', long?.text === LONG && long.cut && long.ellipsis === 'ellipsis' && long.inside && long.clear, JSON.stringify(long))
 check('a package with no name keeps its id', plain?.text === 'plain', JSON.stringify(plain))
 await shot('open')

@@ -1,21 +1,23 @@
 /* ---------------------------------------------------------------- canvas
-   Box colors say how an element touches the code: new (green), changed (violet),
-   removed (red), data that comes out (amber), untouched (paper). */
+   Box fills say how an element touches the code: new (green), changed (violet),
+   removed (red), data that comes out (amber), untouched (paper). New and changed boxes keep
+   the untouched gray line, so the fill alone carries the plan; removed and result boxes also
+   take a colored line. */
 :root {
   --cv-keep-fill: #ffffff; --cv-keep-line: #cbc6bc;
   --cv-add-fill: #e9f7ee; --cv-add-line: #2f9e57;
   --cv-modify-fill: #f2eefd; --cv-modify-line: #8466dd;
   --cv-delete-fill: #fdeeee; --cv-delete-line: #d64545;
   --cv-result-fill: #fff6e0; --cv-result-line: #cf9f22;
-  /* Packages: the design-map plugin's own colors (its Mermaid init: clusterBkg #faf6ef, clusterBorder #dcd3c4). */
-  --cv-group-fill: #faf6ef; --cv-group-line: #dcd3c4;
+  /* Packages: a pale area without a frame; one inside another takes the stage's own color, so each level shows.
+     The line outlines a folded package, which is drawn as a box. */
+  --cv-group-fill: #f4f5f8; --cv-group-fill-2: var(--cv-bg); --cv-group-line: #c9cfda;
   --cv-edge: #858b95; --cv-label-bg: #ffffff;
   /* Text on the accent (a picked line's label, an open decision's pin, a comment count): white on the deep light-theme
      accent, dark on the pale dark-theme one. */
   --cv-sel-ink: #ffffff;
-  --cv-bg: #ffffff; --cv-group-ink: #8a7a50;
+  --cv-bg: #ffffff; --cv-group-ink: #626a80;
   --cv-note-fill: #fff8e3; --cv-note-line: #e5d391;
-  --cv-dot: rgba(31, 35, 40, 0.08);
 }
 :root[data-theme='dark'] {
   --cv-keep-fill: #1d1f23; --cv-keep-line: #3b3f47;
@@ -23,12 +25,12 @@
   --cv-modify-fill: #241f38; --cv-modify-line: #a58cf0;
   --cv-delete-fill: #2e1a1b; --cv-delete-line: #ef6b62;
   --cv-result-fill: #2b2412; --cv-result-line: #d8ab3a;
-  --cv-group-fill: rgba(222, 196, 128, 0.06); --cv-group-line: #4a4331;
+  /* Between the stage and a box's fill, or the boxes would melt into their packages. */
+  --cv-group-fill: #17191c; --cv-group-fill-2: var(--cv-bg); --cv-group-line: #3a3e46;
   --cv-edge: #7b818c; --cv-label-bg: #0f1012;
   --cv-sel-ink: #0f1012;
-  --cv-bg: var(--bg); --cv-group-ink: #b6a57a;
+  --cv-bg: var(--bg); --cv-group-ink: #9298a3;
   --cv-note-fill: #2a2614; --cv-note-line: #6b5d2a;
-  --cv-dot: rgba(255, 255, 255, 0.06);
 }
 
 .canvas { display: flex; flex-direction: column; height: 100%; min-height: 0; }
@@ -151,8 +153,6 @@
 .stage-canvas {
   flex: 1; position: relative; overflow: hidden; cursor: grab; touch-action: none; user-select: none;
   background-color: var(--cv-bg);
-  background-image: radial-gradient(var(--cv-dot) 1px, transparent 1px);
-  background-size: 18px 18px;
 }
 .stage-canvas:active { cursor: grabbing; }
 .stage-inner { position: absolute; left: 0; top: 0; transform-origin: 0 0; will-change: transform; }
@@ -170,9 +170,9 @@
 .zoom-readout { position: absolute; left: 12px; bottom: 10px; font-size: 11px; color: var(--ink-4); font-variant-numeric: tabular-nums; pointer-events: none; }
 .stage-hint { position: absolute; left: 50%; transform: translateX(-50%); bottom: 10px; font-size: 11px; pointer-events: none; opacity: .8; }
 /* Every package's fold button: sized by the stage (shrinking as the map zooms out, its hit area kept at 18px), gliding with the drawing (and only then: a drag or the wheel must not lag). */
-.stage-fold { position: absolute; z-index: 3; display: grid; place-items: center; padding: 0; background: var(--panel); color: var(--ink-3); border: 1px solid var(--line-strong); border-radius: 27%; box-shadow: var(--shadow-1); cursor: pointer; animation: fade .12s var(--ease); }
+.stage-fold { position: absolute; z-index: 3; display: grid; place-items: center; padding: 0; background: var(--cv-bg); color: var(--ink-3); border: 1px solid var(--cv-group-line); border-radius: 18%; cursor: pointer; animation: fade .12s var(--ease); }
 .stage-fold::before { content: ''; position: absolute; inset: min(0px, calc((100% - 18px) / 2)); }
-.stage-fold svg { width: 64%; height: 64%; }
+.stage-fold svg { width: 56%; height: 56%; }
 .stage-fold:hover { color: var(--ink); border-color: var(--ink-3); }
 .stage-canvas.gliding .stage-fold { transition: left .3s var(--ease), top .3s var(--ease), width .3s var(--ease), height .3s var(--ease); }
 .empty-canvas .hero-mark { width: 48px; height: 48px; border-radius: 14px; display: grid; place-items: center; background: var(--accent-soft); color: var(--accent); }
@@ -184,11 +184,10 @@
 }
 .stage-inner .cv-node .label-container path:first-child { fill: var(--cv-keep-fill) !important; }
 .stage-inner .cv-node .label-container path:last-child { stroke: var(--cv-keep-line) !important; stroke-width: 1.2 !important; transition: stroke .2s, stroke-width .2s; }
-.stage-inner .cv-node .divider path { stroke: var(--cv-keep-line) !important; }
+/* Flat cards and areas: Mermaid's look casts a shadow under each. */
+.stage-inner .cv-node .outer-path, .stage-inner .cv-node rect, .stage-inner .cv-cluster rect { filter: none !important; }
 .stage-inner .cv-node.cv-add .label-container path:first-child { fill: var(--cv-add-fill) !important; }
-.stage-inner .cv-node.cv-add .label-container path:last-child { stroke: var(--cv-add-line) !important; stroke-width: 1.6 !important; }
 .stage-inner .cv-node.cv-modify .label-container path:first-child { fill: var(--cv-modify-fill) !important; }
-.stage-inner .cv-node.cv-modify .label-container path:last-child { stroke: var(--cv-modify-line) !important; stroke-width: 1.6 !important; }
 .stage-inner .cv-node.cv-delete .label-container path:first-child { fill: var(--cv-delete-fill) !important; }
 .stage-inner .cv-node.cv-delete .label-container path:last-child { stroke: var(--cv-delete-line) !important; stroke-width: 1.6 !important; }
 .stage-inner .cv-node.cv-delete .nodeLabel { text-decoration: line-through; }
@@ -197,10 +196,15 @@
 .stage-inner .cv-node.cv-open .label-container path:last-child { stroke-dasharray: 6 4 !important; }
 .stage-inner .cv-node[data-group] .label-container path:first-child { fill: var(--cv-group-fill) !important; }
 .stage-inner .cv-node[data-group] .label-container path:last-child { stroke: var(--cv-group-line) !important; stroke-dasharray: 3 3 !important; }
-.stage-inner .cv-cluster rect { fill: var(--cv-group-fill) !important; stroke: var(--cv-group-line) !important; stroke-width: 1.2px; rx: 10px; ry: 10px; }
-/* Same weight Mermaid measured with, or the name gets clipped. */
+.stage-inner .cv-cluster rect { fill: var(--cv-group-fill) !important; stroke: transparent !important; stroke-width: 1.2px; rx: 6px; ry: 6px; }
+.stage-inner .cv-cluster[data-depth='odd'] rect { fill: var(--cv-group-fill-2) !important; }
+/* Same weight Mermaid measured with, or the name gets clipped. The family may differ: the title is measured again once drawn. */
 .stage-inner .cv-cluster .cluster-label, .stage-inner .cv-cluster .nodeLabel { color: var(--cv-group-ink) !important; fill: var(--cv-group-ink) !important; }
+.stage-inner .cv-cluster .cluster-label p { font-family: var(--font-mono); font-size: 12px; }
 .stage-inner .nodeLabel, .stage-inner .label { color: var(--ink); }
+/* A box's name in the UI face, bold, over its mono members. Set on the drawing itself (every stage svg is `cv<n>`), so
+   it holds in the hidden copy Mermaid measures, and the box is drawn wide enough for it. */
+svg[id^='cv'] g.node > .label-group p { font-family: var(--font-ui); font-size: 14px; font-weight: 700; }
 .stage-inner .cv-node .annotation-group { color: var(--ink-3); opacity: .9; }
 
 .stage-inner .cv-edge { stroke: var(--cv-edge) !important; stroke-width: 1.3px; transition: stroke .2s, stroke-width .2s, opacity .2s; }
@@ -219,9 +223,8 @@
 .stage-inner .cv-edge.cv-dim, .stage-inner .cv-msg.cv-dim { opacity: 0.33; }
 .stage-inner .cv-label.cv-dim, .stage-inner .cv-msg-text.cv-dim { opacity: 0.44; }
 .stage-inner .cv-cluster.cv-dim { opacity: 0.87; }
-.stage-inner .cv-node.cv-sel .label-container path:first-child { fill: color-mix(in srgb, var(--accent) 10%, var(--cv-keep-fill)) !important; }
-.stage-inner .cv-node.cv-sel .label-container path:last-child { stroke: var(--accent) !important; stroke-width: 3 !important; }
-.stage-inner .cv-node.cv-sel { filter: drop-shadow(0 0 0.5px var(--accent)) drop-shadow(0 6px 18px color-mix(in srgb, var(--accent) 38%, transparent)); }
+/* A picked box keeps its own look inside a ring a little off its edge, 2px on screen at any zoom. */
+.stage-inner .cv-ring { fill: none; stroke: var(--accent); stroke-width: 2px; vector-effect: non-scaling-stroke; pointer-events: none; }
 .stage-inner .cv-node.cv-in .label-container path:last-child { stroke: color-mix(in srgb, var(--accent) 70%, var(--cv-keep-line)) !important; stroke-width: 1.8 !important; }
 .stage-inner .cv-node.cv-rel .label-container path:last-child { stroke-width: 1.8 !important; }
 .stage-inner .cv-cluster.cv-sel rect { stroke: var(--accent) !important; stroke-width: 2.4px; fill: color-mix(in srgb, var(--accent) 7%, var(--cv-group-fill)) !important; }
@@ -278,8 +281,8 @@
 .stage-inner .cv-msg-text.cv-delete { text-decoration: line-through; }
 .stage-inner .cv-msg-text.cv-delete:not(.cv-sel) { fill: var(--del) !important; }
 .stage-inner .cv-actor.cv-sel rect { stroke: var(--accent) !important; stroke-width: 2.4px; }
-.stage-inner .cv-actor.cv-add rect { fill: var(--cv-add-fill) !important; stroke: var(--cv-add-line) !important; }
-.stage-inner .cv-actor.cv-modify rect { fill: var(--cv-modify-fill) !important; stroke: var(--cv-modify-line) !important; }
+.stage-inner .cv-actor.cv-add rect { fill: var(--cv-add-fill) !important; }
+.stage-inner .cv-actor.cv-modify rect { fill: var(--cv-modify-fill) !important; }
 .stage-inner .cv-actor.cv-delete rect { fill: var(--cv-delete-fill) !important; stroke: var(--cv-delete-line) !important; }
 /* While comparing, what is new or changed since the older revision keeps a steady ring. A picked part skips these
    (:not(.cv-sel)), so the selection's colors win whatever the order of the rules; so does a line the flow list lights. */
@@ -304,6 +307,10 @@
    Mermaid styles every rect under its own id, so the colors must win outright. */
 .stage-inner [data-pin] { cursor: pointer; }
 .stage-inner .cv-pin rect { stroke-width: 1.3 !important; transition: stroke-width .15s; }
+.stage-inner .cv-pin line { stroke-width: 1.3; }
+.stage-inner .cv-pin.open line { stroke: var(--accent); }
+.stage-inner .cv-pin.made line { stroke: var(--add); }
+.stage-inner .cv-pin.more line { stroke: var(--line-strong); }
 .stage-inner .cv-pin text { font-size: 11px; font-weight: 700; font-family: var(--font-mono); }
 .stage-inner .cv-pin.open rect { fill: var(--accent) !important; stroke: var(--panel) !important; }
 .stage-inner .cv-pin.open text { fill: var(--cv-sel-ink) !important; }
@@ -312,6 +319,9 @@
 .stage-inner .cv-pin.more rect { fill: var(--panel) !important; stroke: var(--line-strong) !important; }
 .stage-inner .cv-pin.more text { fill: var(--ink-3) !important; }
 .stage-inner .cv-pin[data-pin]:hover rect { stroke-width: 2.4 !important; }
+/* The agent's last revision on a box it changed there, in the agent's color. */
+.stage-inner .cv-rev path { fill: var(--agent) !important; stroke: none !important; }
+.stage-inner .cv-rev text { fill: var(--panel) !important; font-size: 10px; font-weight: 700; font-family: var(--font-mono); }
 
 /* Inspector */
 .inspector {
@@ -324,28 +334,37 @@
 .inspector.wide { width: 560px; max-width: calc(100% - 24px); }
 .insp-open { position: absolute; top: 12px; right: 12px; z-index: 4; box-shadow: var(--shadow-1); }
 
-/* The flow list: a class map's numbered steps, top left over the stage, see-through until the pointer comes. */
+/* The flow list: a class map's numbered steps, top right over the stage, see-through until the pointer comes: below the
+   info card's button, or left of the open card. */
 /* `--flow-scale` is its size (−·+ on its head, ⌘ + wheel): the rows and the width follow it, the head stays as it is. */
 .flow-list {
-  position: absolute; top: 12px; left: 12px; z-index: 4; display: flex; flex-direction: column;
-  min-width: calc(180px * var(--flow-scale, 1)); max-width: min(calc(320px * var(--flow-scale, 1)), calc(100% - 140px)); max-height: calc(100% - 64px);
-  border: 1px solid var(--line); border-radius: 10px; box-shadow: var(--shadow-1);
-  background: color-mix(in srgb, var(--panel) 70%, transparent); backdrop-filter: blur(6px);
-  opacity: .82; transition: opacity .15s, background-color .15s;
+  --flow-top: 12px; --flow-right: 12px;
+  position: absolute; top: var(--flow-top); right: var(--flow-right); z-index: 4; display: flex; flex-direction: column;
+  min-width: calc(180px * var(--flow-scale, 1)); max-width: min(calc(320px * var(--flow-scale, 1)), calc(100% - var(--flow-right) - 12px)); max-height: calc(100% - var(--flow-top) - 52px);
+  border: 1px solid var(--line); border-radius: 4px;
+  background: color-mix(in srgb, var(--panel) 80%, transparent); backdrop-filter: blur(6px);
+  opacity: .86; transition: opacity .15s, background-color .15s;
 }
-.flow-list:hover, .flow-list:focus-within { opacity: 1; background: color-mix(in srgb, var(--panel) 94%, transparent); }
-.flow-head { flex: none; display: flex; align-items: center; gap: 6px; padding: 4px 6px 4px 4px; }
-.flow-toggle { display: flex; align-items: center; gap: 6px; padding: 2px 6px; border: 0; background: none; cursor: pointer; font-size: 12px; font-weight: 600; color: var(--ink-2); }
-.flow-zoom button { height: 20px; padding: 0 5px; font-size: 10.5px; font-variant-numeric: tabular-nums; }
-.flow-list ol { list-style: none; margin: 0; padding: 0 4px 4px; overflow: auto; min-height: 0; }
-.flow-step { display: flex; align-items: baseline; gap: calc(7px * var(--flow-scale, 1)); width: 100%; padding: calc(4px * var(--flow-scale, 1)) 6px; border: 0; border-radius: 6px; background: none; cursor: pointer; text-align: left; font-size: calc(12.5px * var(--flow-scale, 1)); line-height: 1.45; color: var(--ink); }
-.flow-step:hover { background: var(--accent-soft); }
-.flow-step.active { background: var(--accent); color: var(--cv-sel-ink); }
-.flow-no { flex: none; color: var(--accent-ink); }
-.flow-step.active .flow-no, .flow-step.active .flow-label { color: inherit; }
+.insp-open ~ .flow-list { --flow-top: 44px; }
+.inspector ~ .flow-list { --flow-right: 364px; }
+.inspector.wide ~ .flow-list { --flow-right: 584px; }
+.flow-list:hover, .flow-list:focus-within { opacity: 1; background: color-mix(in srgb, var(--panel) 96%, transparent); }
+.flow-head { flex: none; display: flex; align-items: center; gap: 2px; height: 32px; padding: 0 6px 0 10px; border-bottom: 1px solid var(--line); font-family: var(--font-mono); font-size: 10.5px; color: var(--ink-3); }
+.flow-list.folded .flow-head { border-bottom: 0; }
+.flow-toggle { flex: 1; display: flex; align-items: center; gap: 6px; height: 28px; padding: 0; border: 0; background: none; cursor: pointer; font: inherit; color: var(--ink-2); text-align: left; white-space: nowrap; }
+.flow-keys { margin-right: 6px; white-space: nowrap; }
+.flow-zoom { display: flex; }
+.flow-zoom button { height: 24px; min-width: 22px; padding: 0 4px; border: 0; border-radius: 4px; background: none; font: inherit; color: inherit; font-variant-numeric: tabular-nums; display: inline-flex; align-items: center; justify-content: center; }
+.flow-zoom button:hover:not(:disabled) { background: var(--hover); color: var(--ink); }
+.flow-list ol { list-style: none; margin: 0; padding: 4px 0; overflow: auto; min-height: 0; }
+.flow-step { display: flex; align-items: flex-start; gap: calc(8px * var(--flow-scale, 1)); width: 100%; padding: calc(4px * var(--flow-scale, 1)) 12px; border: 0; background: none; cursor: pointer; text-align: left; font-size: calc(12px * var(--flow-scale, 1)); line-height: 1.45; color: var(--ink); }
+.flow-step:hover { background: var(--hover); }
+.flow-step.active { background: var(--accent-soft); }
+.flow-no { flex: none; width: calc(18px * var(--flow-scale, 1)); height: calc(18px * var(--flow-scale, 1)); margin-top: 1px; box-sizing: border-box; display: inline-flex; align-items: center; justify-content: center; border: 1px solid var(--line-strong); border-radius: 50%; font: calc(10px * var(--flow-scale, 1))/1 var(--font-mono); color: var(--ink-2); }
+.flow-step.active .flow-no { background: var(--accent); border-color: var(--accent); color: var(--cv-sel-ink); }
 .flow-text { display: grid; min-width: 0; }
 .flow-ends, .flow-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.flow-label { font-size: calc(11.5px * var(--flow-scale, 1)); color: var(--ink-2); }
+.flow-label { font-family: var(--font-mono); font-size: calc(10.5px * var(--flow-scale, 1)); color: var(--ink-3); }
 .insp-head { display: flex; margin: -6px -6px -4px; }
 .insp-title { font-size: 16px; font-weight: 700; letter-spacing: -0.01em; line-height: 1.35; word-break: break-word; }
 .rel-title { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; font-size: 14px; }
@@ -372,14 +391,22 @@
 .chip.cv-chip-delete { background: var(--del-bg); color: var(--del); }
 .chip.cv-chip-result { background: var(--warn-bg); color: var(--warn); }
 .legend { display: flex; flex-wrap: wrap; gap: 10px; font-size: 11.5px; color: var(--ink-2); }
+/* Bottom left over the stage, above the zoom: the flow list has the top right and may be as wide as it likes, the
+   mode hint has the bottom middle. See-through like the flow list. */
+.stage-legend {
+  position: absolute; bottom: 30px; left: 12px; z-index: 3; max-width: calc(50% - 90px); row-gap: 4px; word-break: keep-all;
+  padding: 5px 9px; border-radius: 8px; background: color-mix(in srgb, var(--cv-bg) 82%, transparent); backdrop-filter: blur(6px);
+}
 .legend-item { display: inline-flex; align-items: center; gap: 5px; }
 .sw { width: 12px; height: 10px; border-radius: 3px; border: 1.5px solid; display: inline-block; }
-.cv-sw-add { background: var(--cv-add-fill); border-color: var(--cv-add-line); }
-.cv-sw-modify { background: var(--cv-modify-fill); border-color: var(--cv-modify-line); }
+.cv-sw-add { background: var(--cv-add-fill); border-color: var(--cv-keep-line); }
+.cv-sw-modify { background: var(--cv-modify-fill); border-color: var(--cv-keep-line); }
 .cv-sw-delete { background: var(--cv-delete-fill); border-color: var(--cv-delete-line); }
 .cv-sw-result { background: var(--cv-result-fill); border-color: var(--cv-result-line); }
 .cv-sw-keep { background: var(--cv-keep-fill); border-color: var(--cv-keep-line); }
 .cv-sw-open { background: transparent; border-style: dashed; border-color: var(--ink-3); }
+/* The △ the agent's last revision puts on a box, with that revision in it. */
+.sw-rev { display: inline-flex; align-items: flex-end; justify-content: center; width: 18px; height: 15px; padding-bottom: 1px; box-sizing: border-box; clip-path: polygon(50% 0, 100% 100%, 0 100%); background: var(--agent); color: var(--panel); font: 700 8px/1 var(--font-mono); font-style: normal; }
 
 .cv-ask { display: grid; gap: 6px; }
 .cv-ask textarea { width: 100%; font-size: 13px; }
@@ -485,6 +512,10 @@ details.insp-section[open] > summary { margin-bottom: 4px; }
 .stage-inner .cv-code.pending rect { stroke-dasharray: 3 2; }
 .stage-inner .cv-code.pending text { fill: var(--ink-3); font-weight: 600; }
 .stage-inner .cv-code .check { fill: none !important; stroke: var(--add) !important; stroke-width: 3.2 !important; stroke-linecap: round; stroke-linejoin: round; }
+/* In a card, the code line reads like the members: mono, quiet; only a box that is not built yet, or not in the plan, takes a color. */
+.stage-inner .cv-code.in-card text { font-size: 11px; font-weight: 500; font-family: var(--font-mono); fill: var(--ink-2); }
+.stage-inner .cv-code.in-card.pending text { fill: var(--warn); font-weight: 500; }
+.stage-inner .cv-code.in-card.unplanned text { fill: var(--agent); }
 
 /* A chip in the bar gives way first; the buttons never wrap their words. */
 .canvas-bar button { white-space: nowrap; }

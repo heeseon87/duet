@@ -3,7 +3,9 @@ export function standaloneSvg(svg: SVGSVGElement, title: string): string {
   const clone = svg.cloneNode(true) as SVGSVGElement
   const src = [svg, ...svg.querySelectorAll<SVGElement | HTMLElement>('*')]
   const dst = [clone, ...clone.querySelectorAll<SVGElement | HTMLElement>('*')]
-  const PROPS = ['fill', 'stroke', 'stroke-width', 'stroke-dasharray', 'opacity', 'color', 'font-weight', 'font-family', 'font-size', 'background-color', 'text-decoration']
+  // `filter` and the corners too: the page takes Mermaid's shadows off and rounds the package areas, and Mermaid's own
+  // style travels with the drawing.
+  const PROPS = ['fill', 'stroke', 'stroke-width', 'stroke-dasharray', 'opacity', 'color', 'font-weight', 'font-family', 'font-size', 'background-color', 'text-decoration', 'filter', 'rx', 'ry']
   const headed: [Element, string][] = []
   // The page eases colors and fades (a selection let go of a moment ago is still fading out): read them where they land.
   svg.classList.add('cv-still')
