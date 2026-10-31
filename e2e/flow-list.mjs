@@ -1,7 +1,8 @@
 // The flow list: a class map with numbered relations lists its steps top left in order; a row under the pointer lights
-// its line and label, a click picks the step and brings it to the middle at the zoom the map is at; ] / n and [ / p walk
-// the steps (n in Hangul input too) and stop at the ends; folding the list keeps a one-line head (remembered) and the keys
-// still walk; folded packages keep every step listed and picking one lights what stands for it; a sequence map has no list.
+// its line and label, a click picks the step and brings it to the middle at the zoom the map is at; n and p walk the steps
+// (n in Hangul input too) and stop at the ends, the brackets do not; the head's −·+ (and ⌘ + wheel) size the list like the
+// code, remembered; folding the list keeps a one-line head (remembered) and the keys still walk; folded packages keep
+// every step listed and picking one lights what stands for it; a sequence map has no list.
 //   DUET_PORT=7981 DUET_TOKEN=... DUET_WS=<workspace> DUET_SHOTS=/dir node e2e/flow-list.mjs   (makes and removes maps named flow-list, flow-list-seq)
 import { open, sleep } from './browser.mjs'
 const port = Number(process.env.DUET_PORT ?? 7979)
@@ -88,33 +89,51 @@ check('a click picks the step and lights its row', (await selected()) === KEYS[2
 check('…and brings it to the middle at the same zoom', Math.abs(mid.dx) < 30 && Math.abs(mid.dy) < 30 && Math.abs(after - before) < 0.01, JSON.stringify({ ...mid, before, after }))
 await shot('picked')
 
-// The keys walk the flow and stop at the ends.
-await page.keyboard.press(']'); await sleep(500)
-check('] goes to the next step', (await selected()) === KEYS[3] && (await active()) === '④')
-await page.keyboard.press(']'); await sleep(500)
+// The keys walk the flow and stop at the ends; the brackets do not walk it.
+await page.keyboard.press('n'); await sleep(500)
+check('n goes to the next step', (await selected()) === KEYS[3] && (await active()) === '④')
+await page.keyboard.press('n'); await sleep(500)
 check('…and stays at the last one', (await selected()) === KEYS[3])
-await page.keyboard.press('['); await sleep(500)
-check('[ goes back', (await selected()) === KEYS[2])
 await page.keyboard.press('p'); await sleep(500)
-check('p goes back too', (await selected()) === KEYS[1])
+check('p goes back', (await selected()) === KEYS[2])
+await page.keyboard.press(']'); await sleep(300); await page.keyboard.press('['); await sleep(300)
+check('the brackets leave the step as it is', (await selected()) === KEYS[2])
 await press('ㅜ', 'KeyN'); await sleep(500)
-check('n goes forward, in Hangul input too (ㅜ)', (await selected()) === KEYS[2])
+check('n goes forward in Hangul input too (ㅜ)', (await selected()) === KEYS[3])
 await page.keyboard.press('Escape'); await sleep(300)
-await page.keyboard.press(']'); await sleep(500)
-check('with nothing picked, ] starts at the first step', (await selected()) === KEYS[0])
+await page.keyboard.press('n'); await sleep(500)
+check('with nothing picked, n starts at the first step', (await selected()) === KEYS[0])
 await page.keyboard.press('Escape'); await sleep(300)
-await page.keyboard.press('['); await sleep(500)
-check('…and [ at the last', (await selected()) === KEYS[3])
+await page.keyboard.press('p'); await sleep(500)
+check('…and p at the last', (await selected()) === KEYS[3])
+check('the head shows no bracket keys', !(await page.$('.flow-list kbd')))
+
+// Sized like the code: −·+ on the head, the percent back to 100%, ⌘ + wheel; remembered.
+const size = () => page.evaluate(() => ({ pct: document.querySelector('.flow-zoom button:nth-child(2)')?.textContent, font: parseFloat(getComputedStyle(document.querySelector('.flow-step')).fontSize), width: Math.round(document.querySelector('.flow-list').getBoundingClientRect().width) }))
+const full = await size()
+await page.click('.flow-zoom button >> nth=0'); await sleep(100); await page.click('.flow-zoom button >> nth=0'); await sleep(200)
+const small = await size()
+check('− makes the list smaller, rows and width with it', small.pct === '80%' && Math.abs(small.font - full.font * 0.8) < 0.2 && small.width < full.width, JSON.stringify({ full, small }))
+await shot('small')
+await page.reload({ waitUntil: 'domcontentloaded' })
+await page.waitForSelector('.stage-inner > svg [data-target]', { state: 'attached' }); await sleep(800)
+check('…and the size is remembered', (await size()).pct === '80%')
+await page.evaluate(() => document.querySelector('.flow-list').dispatchEvent(new WheelEvent('wheel', { deltaY: -100, ctrlKey: true, bubbles: true, cancelable: true })))
+await sleep(200)
+check('⌘ + wheel over the list sizes it too', (await size()).pct === '88%', (await size()).pct)
+await page.click('.flow-zoom button >> nth=1'); await sleep(200)
+check('the percent brings it back to 100%', (await size()).pct === '100%')
 
 // Folded away, the head stays (remembered) and the keys still walk.
-await page.click('.flow-head'); await sleep(200)
-check('clicking the head folds the list to one line', !(await page.$('.flow-list ol')) && Boolean(await page.$('.flow-head')))
+await page.click('.flow-toggle'); await sleep(200)
+check('clicking the head folds the list to one line', !(await page.$('.flow-list ol')) && !(await page.$('.flow-zoom')) && Boolean(await page.$('.flow-head')))
 await page.reload({ waitUntil: 'domcontentloaded' })
 await page.waitForSelector('.stage-inner > svg [data-target]', { state: 'attached' }); await sleep(800)
 check('…and it stays folded after a reload', !(await page.$('.flow-list ol')) && Boolean(await page.$('.flow-head')))
-await page.keyboard.press(']'); await sleep(500)
+await page.keyboard.press('Escape'); await sleep(200)
+await page.keyboard.press('n'); await sleep(500)
 check('…while the keys still walk the flow', (await selected()) === KEYS[0])
-await page.click('.flow-head'); await sleep(200)
+await page.click('.flow-toggle'); await sleep(200)
 
 // Folded packages: every step stays listed; a step inside one folded package lights that package.
 await page.keyboard.press('Escape'); await sleep(200)

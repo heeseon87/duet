@@ -642,12 +642,10 @@ export function CanvasView() {
       else if (k === 'i' && !e.metaKey) setInspector(v => !v)
       else if (k === 'e' && !e.metaKey) s.setExplore(!useCanvas.getState().explore)
       else if (k === 'c' && !e.metaKey && !e.ctrlKey) showCode(!codeOpenRef.current)
-      else if ((k === ']' || k === 'n' || k === '[' || k === 'p') && !e.metaKey && !e.ctrlKey) {
-        // The reader (a long answer open over the canvas) takes the brackets first.
-        if (e.defaultPrevented) return
+      else if ((k === 'n' || k === 'p') && !e.metaKey && !e.ctrlKey) {
         const st = useCanvas.getState()
         const m = st.preview?.map ?? st.map
-        const to = m && stepFrom(flowSteps(m), st.selected, k === ']' || k === 'n' ? 1 : -1)
+        const to = m && stepFrom(flowSteps(m), st.selected, k === 'n' ? 1 : -1)
         if (!to) return
         pickStepRef.current(to)
       }
