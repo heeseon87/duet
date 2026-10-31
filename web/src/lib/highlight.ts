@@ -24,6 +24,54 @@ export function langOf(path: string): string | undefined {
   return EXT[ext]
 }
 
+/** Languages where `@Name` marks an annotation or a decorator. */
+const ANNOTATED = new Set(['java', 'kotlin', 'groovy', 'scala', 'typescript', 'tsx', 'javascript', 'jsx', 'python', 'swift', 'dart'])
+/** IntelliJ's annotation yellow (IntelliJ Light, Darcula), whatever the palette. */
+export const ANNOTATION_STYLE = '--shiki-light:#9E880D;--shiki-dark:#BBB529'
+/**
+ * A theme that only tells strings and comments from the rest, run beside the palette so an `@` inside them is
+ * left alone. Grammar scopes alone won't do: Kotlin's marks `val name: String` after `@field:NotBlank` as annotation.
+ */
+const MASK = 'duet-mask'
+const MASKED = '#000001'
+const maskTheme = {
+  name: MASK, type: 'dark', colors: { 'editor.foreground': '#000000', 'editor.background': '#ffffff' },
+  tokenColors: [{ scope: ['comment', 'string', 'meta.jsx.children'], settings: { foreground: MASKED } }],
+}
+// `@Name`, `@a.b.Name`, Kotlin's `@field:Name`; not `this@Outer`, `return@forEach` or Java's `@interface`.
+const ANNOTATION_RE = /(?<![\w$@.])@(?!interface\b)[A-Za-z_]\w*(?:\.[A-Za-z_]\w*)*(?::[A-Za-z_]\w*(?:\.[A-Za-z_]\w*)*)?/g
+
+/** One line's tokens with every annotation outside strings and comments cut out and painted in its yellow. */
+export function markAnnotations(line: (Token & { masked?: boolean })[]): Token[] {
+  const plainLine = () => line.map(({ content, style }) => ({ content, style }))
+  const text = line.map(t => t.content).join('')
+  if (!text.includes('@')) return plainLine()
+  const starts: number[] = []
+  let at = 0
+  for (const t of line) { starts.push(at); at += t.content.length }
+  const ranges: [number, number][] = []
+  for (const m of text.matchAll(ANNOTATION_RE)) {
+    let k = 0
+    while (k + 1 < line.length && starts[k + 1] <= m.index) k++
+    if (!line[k].masked) ranges.push([m.index, m.index + m[0].length])
+  }
+  if (!ranges.length) return plainLine()
+  const out: Token[] = []
+  line.forEach((t, k) => {
+    const end = starts[k] + t.content.length
+    let cur = starts[k]
+    for (const [a, b] of ranges) {
+      if (b <= cur || a >= end) continue
+      if (a > cur) out.push({ content: text.slice(cur, a), style: t.style })
+      const stop = Math.min(b, end)
+      out.push({ content: text.slice(Math.max(a, cur), stop), style: ANNOTATION_STYLE })
+      cur = stop
+    }
+    if (cur < end) out.push({ content: text.slice(cur, end), style: t.style })
+  })
+  return out
+}
+
 const ALIASES: Record<string, string> = { ts: 'typescript', js: 'javascript', sh: 'bash', shell: 'bash', zsh: 'bash', kt: 'kotlin', py: 'python', yml: 'yaml', console: 'bash', text: 'text', plaintext: 'text', diff: 'diff' }
 
 /** Code color palettes: a light and a dark theme each, so the page's own light/dark switch keeps working. */
@@ -115,13 +163,17 @@ export async function highlight(code: string, langOrPath: string | undefined): P
   if (!(await ensureLang(h, lang))) return plain(code)
   const pal = palette
   await Promise.all([ensureTheme(h, pal.light), ensureTheme(h, pal.dark)])
+  const annotated = ANNOTATED.has(lang) && code.includes('@')
+  if (annotated && !loadedThemes.has(MASK)) { await h.loadTheme(maskTheme as never); loadedThemes.add(MASK) }
   let tokens: ThemedToken[][]
   try {
-    tokens = h.codeToTokens(code, { lang, themes: { light: pal.light, dark: pal.dark }, defaultColor: false }).tokens
+    tokens = h.codeToTokens(code, { lang, themes: { light: pal.light, dark: pal.dark, ...(annotated ? { mask: MASK } : {}) }, defaultColor: false }).tokens
   } catch {
     return plain(code)
   }
-  const out: TokenLines = tokens.map(line => line.map(t => ({ content: t.content, style: styleOf(t) })))
+  const out: TokenLines = annotated
+    ? tokens.map(line => markAnnotations(line.map(t => ({ content: t.content, style: styleOf(t), masked: (t.htmlStyle as Record<string, string> | undefined)?.['--shiki-mask']?.toLowerCase() === MASKED }))))
+    : tokens.map(line => line.map(t => ({ content: t.content, style: styleOf(t) })))
   if (cache.size > 300) cache.delete(cache.keys().next().value as string)
   cache.set(key, out)
   return out
@@ -130,5 +182,5 @@ export async function highlight(code: string, langOrPath: string | undefined): P
 function styleOf(t: ThemedToken): string | undefined {
   const s = t.htmlStyle as Record<string, string> | undefined
   if (!s) return undefined
-  return Object.entries(s).map(([k, v]) => `${k}:${v}`).join(';')
+  return Object.entries(s).filter(([k]) => !k.startsWith('--shiki-mask')).map(([k, v]) => `${k}:${v}`).join(';')
 }
