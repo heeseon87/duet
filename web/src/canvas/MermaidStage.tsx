@@ -362,15 +362,17 @@ export const MermaidStage = forwardRef<StageHandle, Props & { viewKey: string }>
 
   // The stage narrows or widens (the code pane, the agent panel, the window): the drawing keeps its middle, gliding
   // when the change is a jump, and a picked part that was in view stays so.
-  const seen = useRef<{ width: number }>(undefined)
+  const seen = useRef<{ left: number; width: number }>(undefined)
   useEffect(() => {
     const host = outer.current
     if (!host) return
+    // A jump's glide waits a frame; jumps before it add up.
+    let frame = 0, pending = 0
     const obs = new ResizeObserver(() => {
       const box = host.getBoundingClientRect(), was = seen.current
       // Hidden, it has no middle: keep the last size, so coming back applies whatever changed meanwhile.
       if (!box.width) return
-      seen.current = { width: box.width }
+      seen.current = { left: box.left, width: box.width }
       if (!was || box.width === was.width) return
       let dx = (box.width - was.width) / 2
       const sel = latest.current.selected
@@ -384,12 +386,26 @@ export const MermaidStage = forwardRef<StageHandle, Props & { viewKey: string }>
           if (l + dx < 24) dx = 24 - l
         }
       }
-      if (Math.abs(box.width - was.width) > 160) glide()
-      // Before this frame paints, so a dragged edge and the drawing move together.
-      flushSync(() => setView(v => ({ ...v, x: v.x + dx })))
+      if (Math.abs(box.width - was.width) <= 160) {
+        // Before this frame paints, so a dragged edge and the drawing move together.
+        flushSync(() => setView(v => ({ ...v, x: v.x + dx })))
+        return
+      }
+      // A jump (the agent panel on the left, the code pane): the stage's left edge may have moved under the drawing. It
+      // is held where it was on screen for this frame, then glides from there, the way the stage was pushed.
+      const dl = box.left - was.left
+      clearTimeout(glideTimer.current)
+      flushSync(() => { setGliding(false); setView(v => ({ ...v, x: v.x - dl })) })
+      pending += dl + dx
+      frame ||= requestAnimationFrame(() => {
+        const d = pending
+        frame = 0; pending = 0
+        glide()
+        setView(v => ({ ...v, x: v.x + d }))
+      })
     })
     obs.observe(host)
-    return () => obs.disconnect()
+    return () => { obs.disconnect(); cancelAnimationFrame(frame) }
   }, [glide])
 
   // Selection, glow and badges change often; they only touch classes.
