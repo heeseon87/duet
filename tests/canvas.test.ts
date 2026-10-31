@@ -62,6 +62,20 @@ describe('applyPatch', () => {
     expect(reorderedGroups(base(), applyPatch(base(), { elements: [{ id: 'Z', parent: 'grp' }], remove: { elements: ['C'] } }, 'agent').map)).toEqual([])
   })
 
+  it('asks the agent for a why on an open decision, and checks the one it gives', () => {
+    const why = { text: 'two conventions', tags: ['convention' as const] }
+    const bare = applyPatch(base(), { decisions: [{ id: 'D2', question: 'how?', options: [{ id: 'D2-a', text: 'x' }] }] }, 'agent')
+    expect(bare.errors).toEqual([])
+    expect(bare.notes).toContain('D2: add why: what keeps you from settling it yourself (text and tags)')
+    expect(applyPatch(base(), { decisions: [{ id: 'D1', why }] }, 'agent').notes).toEqual([])
+    expect(applyPatch(base(), { decisions: [{ id: 'D1', question: 'which one?' }] }, 'person').notes).toEqual([])
+    expect(applyPatch(chooseOption(base(), 'D1', 'D1-a'), { decisions: [{ id: 'D1', question: 'which one?' }] }, 'agent').notes).toEqual([])
+    const bad = applyPatch(base(), { decisions: [{ id: 'D1', why: { text: ' ', tags: [] } }] }, 'agent').errors
+    expect(bad).toEqual(['D1: why needs a text', 'D1: why needs at least one tag'])
+    // @ts-expect-error a tag outside the list, as an agent might send it
+    expect(applyPatch(base(), { decisions: [{ id: 'D1', why: { text: 'x', tags: ['taste'] } }] }, 'agent').errors).toEqual(['D1: why tag "taste" must be one of convention, scope, irreversible, context, tie'])
+  })
+
   it('reports invalid references instead of writing them', () => {
     const res = applyPatch(base(), { relations: [{ from: 'A', to: 'Nope' }], elements: [{ id: 'bad id' }] }, 'agent')
     expect(res.errors.some(e => e.includes('Nope'))).toBe(true)

@@ -81,10 +81,19 @@ export type CanvasDecisionOption = {
   rejected?: string
 }
 
+/**
+ * What keeps the agent from settling a decision itself: convention (more than one convention, none
+ * says which), scope (it reaches past this task), irreversible (costly to undo once out), context
+ * (only the person knows), tie (the options weigh the same on what can be checked).
+ */
+export type DecisionWhyTag = 'convention' | 'scope' | 'irreversible' | 'context' | 'tie'
+
 export type CanvasDecision = {
   id: string
   question: string
   options: CanvasDecisionOption[]
+  /** Why the agent asks instead of going on: a sentence or two, and the tags it fits. */
+  why?: { text: string; tags: DecisionWhyTag[] }
   /** Set only by the person, never by the agent. */
   chosen?: string
   rationale?: string
@@ -121,6 +130,7 @@ const CHANGES: readonly Change[] = ['keep', 'result', 'modify', 'delete', 'add']
 const MESSAGE_KINDS: readonly MessageKind[] = ['call', 'reply', 'async', 'note']
 const FRAGMENT_KINDS: readonly FragmentKind[] = ['alt', 'opt', 'loop', 'par', 'section']
 const DIRECTIONS: readonly Direction[] = ['TB', 'LR', 'BT', 'RL']
+export const DECISION_WHY_TAGS = ['convention', 'scope', 'irreversible', 'context', 'tie'] as const satisfies readonly DecisionWhyTag[]
 
 /** Words Mermaid's sequence grammar keeps for itself; a participant id must not be one. */
 const SEQUENCE_KEYWORDS = new Set([
@@ -225,6 +235,11 @@ export function validate(map: CanvasMap): string[] {
     if (!d.options?.length) errors.push(`${d.id}: give at least one option`)
     for (const o of d.options ?? []) if (!o.id?.startsWith(`${d.id}-`)) errors.push(`${d.id}: option id "${o.id}" must start with ${d.id}-`)
     if (d.chosen && !d.options?.some(o => o.id === d.chosen)) errors.push(`${d.id}: chosen "${d.chosen}" is not an option`)
+    if (d.why) {
+      if (!d.why.text?.trim()) errors.push(`${d.id}: why needs a text`)
+      if (!d.why.tags?.length) errors.push(`${d.id}: why needs at least one tag`)
+      for (const t of d.why.tags ?? []) if (!DECISION_WHY_TAGS.includes(t)) errors.push(`${d.id}: why tag "${t}" must be one of ${DECISION_WHY_TAGS.join(', ')}`)
+    }
   }
   const checkPath = (what: string, decision?: string, option?: string) => {
     if (!decision && !option) return
@@ -370,6 +385,8 @@ export function applyPatch(map: CanvasMap, patch: CanvasPatch, by: 'agent' | 'pe
     const i = list.findIndex(d => d.id === p.id)
     if (i >= 0) list[i] = merge(list[i], patchCopy)
     else list.push(merge<CanvasDecision>(undefined, patchCopy))
+    const d = list[i >= 0 ? i : list.length - 1]
+    if (by === 'agent' && !d.chosen && !d.why) notes.push(`${p.id}: add why: what keeps you from settling it yourself (text and tags)`)
   }
   return { map: next, errors: validate(next), notes }
 }

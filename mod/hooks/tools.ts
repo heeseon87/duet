@@ -434,6 +434,36 @@ export const TOOLS: { relays: string; spec: ToolSpec }[] = [
                     ],
                     "additionalProperties": false
                   }
+                },
+                "why": {
+                  "description": "why you ask instead of going on; give it with every decision",
+                  "type": "object",
+                  "properties": {
+                    "text": {
+                      "type": "string",
+                      "description": "one or two sentences on what keeps you from settling it yourself, with the facts you found (the two conventions, the other maps it reaches)"
+                    },
+                    "tags": {
+                      "minItems": 1,
+                      "type": "array",
+                      "items": {
+                        "type": "string",
+                        "enum": [
+                          "convention",
+                          "scope",
+                          "irreversible",
+                          "context",
+                          "tie"
+                        ]
+                      },
+                      "description": "convention: the code or the maps follow more than one convention and nothing says which. scope: it reaches past this task (an API others call, another map, shared code). irreversible: costly to undo once it ships. context: it turns on what only the person knows (plans, priorities). tie: the options weigh the same on everything you can check"
+                    }
+                  },
+                  "required": [
+                    "text",
+                    "tags"
+                  ],
+                  "additionalProperties": false
                 }
               },
               "required": [
