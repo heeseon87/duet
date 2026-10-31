@@ -231,8 +231,9 @@
 .float-head { display: flex; align-items: center; gap: 10px; padding: 5px 6px 5px 12px; border-bottom: 1px solid var(--line); font-size: 12.5px; white-space: nowrap; min-width: 0; }
 .float-who { flex: none; font-family: var(--font-mono); font-size: 11px; color: var(--agent); }
 .float-who.waiting { color: var(--warn); }
-.float-said { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; border: 0; background: transparent; padding: 0; text-align: left; font: inherit; color: var(--ink-2); cursor: pointer; }
-.float-said:hover { color: var(--ink); }
+.float-said { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; border: 0; background: transparent; padding: 0; text-align: left; font: inherit; color: var(--ink-2); }
+button.float-said { cursor: pointer; }
+button.float-said:hover { color: var(--ink); }
 .float-said.wait { color: var(--warn); font-weight: 600; }
 .composer.floating { display: grid; grid-template-columns: 1fr auto; align-items: end; column-gap: 6px; border-top: 0; padding: 8px 8px 8px 10px; background: transparent; }
 .composer.floating > :not(textarea):not(.composer-bar) { grid-column: 1 / -1; }
