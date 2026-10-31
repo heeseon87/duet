@@ -9,14 +9,14 @@ export function standaloneSvg(svg: SVGSVGElement, title: string): string {
   svg.classList.add('cv-still')
   src.forEach((el, i) => {
     const out = dst[i]
-    if (!out || el.classList?.contains('cv-edge-hit') || el.classList?.contains('cv-edge-flow') || el.classList?.contains('cv-badge') || el.classList?.contains('cv-pins')) return
+    if (!out || el.classList?.contains('cv-edge-hit') || el.classList?.contains('cv-badge') || el.classList?.contains('cv-pins')) return
     const cs = getComputedStyle(el)
     const style = PROPS.map(p => `${p}:${cs.getPropertyValue(p)}`).join(';')
     out.setAttribute('style', `${out.getAttribute('style') ?? ''};${style}`)
     if (out.hasAttribute('marker-start') || out.hasAttribute('marker-end')) headed.push([out, cs.stroke])
   })
   svg.classList.remove('cv-still')
-  clone.querySelectorAll('.cv-edge-hit, .cv-edge-flow, .cv-badge, .cv-pins').forEach(n => n.remove())
+  clone.querySelectorAll('.cv-edge-hit, .cv-badge, .cv-pins').forEach(n => n.remove())
   // Heads paint with their line's color (context-stroke), which not every viewer reads: each color gets its own copy.
   const copies = new Map<string, string>()
   for (const [line, color] of headed) for (const attr of ['marker-start', 'marker-end']) {

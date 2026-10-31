@@ -220,29 +220,19 @@
 .stage-inner .cv-cluster.cv-sel .cluster-label, .stage-inner .cv-cluster.cv-sel .nodeLabel { color: var(--accent-ink) !important; fill: var(--accent-ink) !important; }
 .stage-inner .cv-cluster.cv-in rect { stroke: color-mix(in srgb, var(--accent) 55%, var(--cv-group-line)) !important; }
 .stage-inner .cv-label.cv-sel p { background: var(--accent) !important; color: var(--cv-sel-ink) !important; }
-/* A lit line keeps its pattern, solid or dashed as its kind says, and only takes the accent and a set width; the flow runs
-   on its twin drawn over it (.cv-edge-flow, right after it): beads moving from → to.
-   Mermaid writes each line's dash pattern into its style attribute and its width into an id rule, so these must win outright.
-   `--k` is the zoom: whatever the zoom, the lines are 1.6px on screen (design-map's width), the dashes 4/3px, the beads 4px. */
+/* Mermaid writes each line's dash pattern into its style attribute and its width into an id rule, so these must win outright.
+   `--k` is the zoom: whatever the zoom, the lines are 1.6px on screen (design-map's width) and the dashes 6/4px. */
 .stage-inner .cv-edge.cv-sel, .stage-inner .cv-edge.cv-rel, .stage-inner .cv-msg.cv-sel, .stage-inner .cv-msg.cv-rel {
   stroke: var(--accent) !important;
   stroke-width: calc(1.6px / var(--k, 1)) !important;
-}
-.stage-inner .cv-edge.cv-sel { stroke-width: calc(2.2px / var(--k, 1)) !important; }
-.stage-inner :is(.cv-edge.edge-pattern-dashed, .cv-msg.messageLine1):is(.cv-sel, .cv-rel) { stroke-dasharray: calc(4px / var(--k, 1)) calc(3px / var(--k, 1)) !important; }
-.stage-inner .cv-edge-flow { display: none; fill: none !important; pointer-events: none; }
-.stage-inner :is(.cv-edge, .cv-msg):is(.cv-sel, .cv-rel) + .cv-edge-flow {
-  display: inline;
-  stroke: var(--accent) !important;
-  stroke-width: calc(4px / var(--k, 1)) !important;
-  stroke-linecap: round;
-  stroke-dasharray: 0 calc(16px / var(--k, 1)) !important;
-  --flow: calc(-16px / var(--k, 1));
+  stroke-dasharray: calc(6px / var(--k, 1)) calc(4px / var(--k, 1)) !important;
+  --flow: calc(-20px / var(--k, 1));
   /* 12 steps per cycle: still reads as flowing, but repaints ~13 times a second instead of every frame. */
   animation: cv-flow .9s steps(12) infinite;
 }
-@keyframes cv-flow { from { stroke-dashoffset: 0; } to { stroke-dashoffset: var(--flow, -16px); } }
-@media (prefers-reduced-motion: reduce) { .stage-inner .cv-edge-flow { display: none !important; } }
+.stage-inner .cv-edge.cv-sel { stroke-width: calc(2.2px / var(--k, 1)) !important; }
+@keyframes cv-flow { from { stroke-dashoffset: 0; } to { stroke-dashoffset: var(--flow, -20px); } }
+@media (prefers-reduced-motion: reduce) { .stage-inner .cv-edge.cv-sel, .stage-inner .cv-edge.cv-rel, .stage-inner .cv-msg.cv-sel, .stage-inner .cv-msg.cv-rel { animation: none; } }
 /* Arrowheads, triangles and diamonds take their line's color, so a lit line's head is lit too. Mermaid colors the marker
    element itself; its shapes only inherit that, so a rule on them wins. Hollow heads keep their transparent fill. */
 .stage-inner marker > * { stroke: context-stroke !important; }

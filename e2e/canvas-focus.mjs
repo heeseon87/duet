@@ -69,13 +69,11 @@ const op = await page.evaluate(async ([w, m]) => {
   }
   return {
     unrelatedNode: o('.cv-node.cv-dim'), unrelatedCluster: o('.cv-cluster.cv-dim'), unrelatedEdge: o('.cv-edge.cv-dim'), sel: o('.cv-node.cv-sel'), selected: sel,
-    // The flow runs on each line's twin; the line itself stays still, so it keeps its pattern (solid or dashed).
-    flowing: flowing.length, animated: flowing.filter(p => p.nextElementSibling?.matches('.cv-edge-flow') && getComputedStyle(p.nextElementSibling).animationName === 'cv-flow').length,
-    still: flowing.filter(p => getComputedStyle(p).animationName === 'none').length, forward, backward,
+    flowing: flowing.length, animated: flowing.filter(p => getComputedStyle(p).animationName === 'cv-flow').length, forward, backward,
   }
 }, [ws, mapName])
 check('selecting dims the rest partly (boxes 0.55, frames 0.87, lines 0.33)', op.unrelatedNode === 0.55 && (op.unrelatedCluster === null || op.unrelatedCluster === 0.87) && (op.unrelatedEdge === null || op.unrelatedEdge === 0.33) && op.sel === 1, JSON.stringify(op))
-check('the lines it touches flow on their twins and keep their own pattern', op.flowing > 0 && op.animated === op.flowing && op.still === op.flowing, JSON.stringify({ flowing: op.flowing, animated: op.animated, still: op.still }))
+check('the lines it touches flow', op.flowing > 0 && op.animated === op.flowing, JSON.stringify({ flowing: op.flowing, animated: op.animated }))
 check('they flow from → to, the way the relation reads', op.forward > 0 && op.backward === 0, JSON.stringify({ forward: op.forward, backward: op.backward }))
 await shot('class-selected')
 await page.keyboard.press('Escape'); await sleep(300)
