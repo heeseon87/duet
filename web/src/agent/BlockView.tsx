@@ -122,7 +122,7 @@ function ReadWide({ sessionId, blockKey }: { sessionId: string; blockKey: string
   const reading = useApp(s => s.reader?.key === blockKey)
   return (
     <button className={`read-wide ${reading ? 'on' : ''}`} onClick={() => openReader(sessionId, blockKey)}>
-      <BookOpen size={12} /> {reading ? '왼쪽에서 읽는 중' : '넓게 읽기'}
+      <BookOpen size={12} /> {reading ? '옆에서 읽는 중' : '넓게 읽기'}
     </button>
   )
 }

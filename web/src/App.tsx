@@ -136,7 +136,9 @@ function Divider() {
       onPointerDown={e => {
         e.preventDefault()
         setDrag(true)
-        const move = (ev: PointerEvent) => setSide(window.innerWidth - ev.clientX)
+        // The panel sits left of the divider, so its width runs from its own left edge to the pointer.
+        const left = e.currentTarget.previousElementSibling?.getBoundingClientRect().left ?? 0
+        const move = (ev: PointerEvent) => setSide(ev.clientX - left)
         const up = () => { setDrag(false); window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', up) }
         window.addEventListener('pointermove', move)
         window.addEventListener('pointerup', up)
@@ -292,13 +294,13 @@ export function App() {
     <div className="app">
       <Rail onHelp={() => setHelp(true)} />
       <div className="main">
+        {sideOpen && <div className="side" style={{ width: sideWidth }}><AgentPanel /></div>}
+        {sideOpen && <Divider />}
         <section className="stage">
           <div className="ws-line"><WorkspaceMenu /><WorkChip /></div>
           {tab === 'canvas' ? <CanvasView /> : <ReviewView />}
           {reading && <Reader />}
         </section>
-        {sideOpen && <Divider />}
-        {sideOpen && <div className="side" style={{ width: sideWidth }}><AgentPanel /></div>}
       </div>
       {paletteOpen && <Palette onClose={() => setPalette(false)} />}
       {help && <Shortcuts onClose={() => setHelp(false)} />}
