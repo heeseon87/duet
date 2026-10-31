@@ -121,12 +121,16 @@ function applyTheme(theme: Theme) {
 
 let toastSeq = 0
 
+/** The agent panel's width until it is dragged (and on a double click of its edge). */
+export const SIDE_WIDTH = 368
+
 export const useApp = create<AppState>((set, get) => ({
   workspaces: [],
   tab: (store.get('tab') as Tab) || 'review',
   theme: (store.get('theme') as Theme) || 'system',
   codePalette: store.get('codePalette') || 'github',
-  sideWidth: Number(store.get('sideWidth')) || 460,
+  // 460 was the default before it narrowed; a width stored at exactly that came from toggling, not a drag.
+  sideWidth: (store.get('sideWidth') !== '460' && Number(store.get('sideWidth'))) || SIDE_WIDTH,
   sideOpen: store.get('sideOpen') !== '0',
   paletteOpen: false,
   toasts: [],
@@ -140,7 +144,7 @@ export const useApp = create<AppState>((set, get) => ({
   setTheme: theme => { store.set('theme', theme); applyTheme(theme); set({ theme }) },
   setCodePalette: id => { store.set('codePalette', id); setPalette(id); set({ codePalette: id }) },
   setSide: (w, open) => {
-    const sideWidth = Math.max(340, Math.min(w, window.innerWidth - 420))
+    const sideWidth = Math.max(300, Math.min(w, window.innerWidth - 420))
     store.set('sideWidth', String(sideWidth))
     if (open !== undefined) store.set('sideOpen', open ? '1' : '0')
     set({ sideWidth, sideOpen: open ?? get().sideOpen })

@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { FileDiff, Keyboard, MessageSquare, Signpost, Monitor, Moon, RotateCw, Search, Shapes, Sun, WifiOff } from 'lucide-react'
 import { connection, subscribe } from './api.ts'
-import { local, useApp } from './state.ts'
+import { local, SIDE_WIDTH, useApp } from './state.ts'
 import { Popover, isTypingTarget, shortcutKey } from './lib/ui.tsx'
 import { PALETTES } from './lib/highlight.ts'
 import { RepoPicker } from './lib/RepoPicker.tsx'
@@ -98,7 +98,7 @@ function Divider() {
         window.addEventListener('pointermove', move)
         window.addEventListener('pointerup', up)
       }}
-      onDoubleClick={() => setSide(460)}
+      onDoubleClick={() => setSide(SIDE_WIDTH)}
     />
   )
 }

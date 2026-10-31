@@ -118,27 +118,27 @@ a:hover { text-decoration: underline; }
 
 /* The left rail: views at the top, the conversation under them, the app's own things at the bottom. */
 .rail {
-  flex: 0 0 56px; display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 12px 0 8px;
+  flex: 0 0 46px; display: flex; flex-direction: column; align-items: center; gap: 3px; padding: 10px 0 6px;
   border-right: 1px solid var(--line); background: var(--panel); position: relative; z-index: 20;
 }
 .rail .grow { flex: 1; }
-.rail-logo { margin: 0 0 10px; }
-.rail .tabs { display: flex; flex-direction: column; gap: 4px; }
+.rail-logo { margin: 0 0 8px; }
+.rail .tabs { display: flex; flex-direction: column; gap: 3px; }
 .rail-btn {
-  width: 46px; min-height: 44px; padding: 6px 0; border: 0; border-radius: var(--r-1); background: transparent; color: var(--ink-2);
-  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; position: relative;
-  font-size: 10.5px; line-height: 1.1; white-space: nowrap; transition: background 0.15s var(--ease), color 0.15s;
+  width: 40px; min-height: 38px; padding: 5px 0; border: 0; border-radius: var(--r-1); background: transparent; color: var(--ink-2);
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px; position: relative;
+  font-size: 10px; line-height: 1.1; white-space: nowrap; transition: background 0.15s var(--ease), color 0.15s;
 }
 .rail-btn:hover { background: var(--hover); color: var(--ink); }
 .rail-btn[aria-selected='true'] { background: var(--accent-soft); color: var(--accent-ink); }
 .rail .count { font-variant-numeric: tabular-nums; }
 .rail-btn .badge { position: absolute; top: 2px; right: 2px; }
-.rail-sep { width: 24px; height: 1px; margin: 6px 0; background: var(--line); flex: none; }
-.rail-btn.rail-decide { margin-top: 4px; }
+.rail-sep { width: 20px; height: 1px; margin: 5px 0; background: var(--line); flex: none; }
+.rail-btn.rail-decide { margin-top: 3px; }
 .rail-btn.rail-decide[aria-pressed='true'] { background: var(--accent-soft); color: var(--accent-ink); }
 .rail-btn.rail-decide:disabled { opacity: .4; background: transparent; color: var(--ink-2); cursor: default; }
-.rail-btn.claude { min-height: 58px; color: var(--agent); }
-.claude-ring { width: 28px; height: 28px; display: grid; place-items: center; border: 1.5px solid currentColor; border-radius: 50%; }
+.rail-btn.claude { min-height: 50px; color: var(--agent); }
+.claude-ring { width: 24px; height: 24px; display: grid; place-items: center; border: 1.5px solid currentColor; border-radius: 50%; }
 .rail-btn.claude[aria-pressed='true'] .claude-ring { background: var(--agent-soft); }
 .rail-btn.claude.running .claude-ring, .rail-btn.claude.starting .claude-ring { border-style: dashed; animation: rail-spin 6s linear infinite; }
 .rail-btn.claude.running .claude-ring > svg, .rail-btn.claude.starting .claude-ring > svg { animation: rail-spin 6s linear infinite reverse; }
@@ -148,8 +148,8 @@ a:hover { text-decoration: underline; }
 @keyframes rail-spin { to { transform: rotate(360deg); } }
 @media (prefers-reduced-motion: reduce) { .rail-btn.claude .claude-ring, .rail-btn.claude .claude-ring > svg { animation: none !important; } }
 .rail-warn {
-  width: 46px; padding: 6px 0; border-radius: var(--r-1); background: var(--warn-bg); color: var(--warn);
-  display: flex; flex-direction: column; align-items: center; gap: 4px; font-size: 10.5px; font-weight: 600; cursor: help;
+  width: 40px; padding: 5px 0; border-radius: var(--r-1); background: var(--warn-bg); color: var(--warn);
+  display: flex; flex-direction: column; align-items: center; gap: 3px; font-size: 10px; font-weight: 600; cursor: help;
 }
 
 /* Between the workspace and what the view shows, on the canvas's and the review's head line. */

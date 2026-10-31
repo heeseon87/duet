@@ -482,9 +482,9 @@ svg[id^='cv'] g.node > .label-group p { font-family: var(--font-ui); font-size: 
    middle, the map or the code it touches on the right. */
 .decide {
   /* --dm-list and --dm-side are the widths dragged by hand; the side never takes the decision's last 360px. */
-  --dm-list-w: var(--dm-list, 228px);
+  --dm-list-w: var(--dm-list, 184px);
   position: absolute; inset: 0; z-index: 30; display: grid;
-  grid-template-columns: var(--dm-list-w) minmax(0, 1fr) minmax(280px, min(var(--dm-side, 40%), calc(100% - var(--dm-list-w) - 360px)));
+  grid-template-columns: var(--dm-list-w) minmax(0, 1fr) minmax(280px, min(var(--dm-side, 32%), calc(100% - var(--dm-list-w) - 360px)));
   background: var(--bg); container-type: inline-size; animation: fade .14s var(--ease);
 }
 .dm-split { position: absolute; top: 0; bottom: 0; width: 8px; cursor: col-resize; z-index: 5; transition: background .15s; }
@@ -586,7 +586,7 @@ svg[id^='cv'] g.node > .label-group p { font-family: var(--font-ui); font-size: 
 .dm-snippet table.diff tr.changed td.no { box-shadow: inset -3px 0 var(--add); }
 
 @container (max-width: 1080px) {
-  .decide { grid-template-columns: minmax(0, 1fr) minmax(280px, min(var(--dm-side, 42%), calc(100% - 360px))); }
+  .decide { grid-template-columns: minmax(0, 1fr) minmax(280px, min(var(--dm-side, 34%), calc(100% - 360px))); }
   .dm-list { display: none; }
 }
 @container (max-width: 720px) {
