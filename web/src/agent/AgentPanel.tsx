@@ -2,7 +2,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import { ArrowDown, Check, ChevronDown, Copy, History, Loader2, Plus, Sparkles, Terminal, Trash2, CircleDot, ListChecks } from 'lucide-react'
 import type { SessionInfo, TerminalInfo } from '../../../shared/protocol.ts'
 import { api, q } from '../api.ts'
-import { transcriptOf, useApp, useTranscript } from '../state.ts'
+import { targetTerminal, transcriptOf, useApp, useTranscript } from '../state.ts'
 import { Popover, relTime, useNow } from '../lib/ui.tsx'
 import { FocusBlocks } from './Focus.tsx'
 import { Composer, modelLabel } from './Composer.tsx'
@@ -15,7 +15,8 @@ import { useCanvas } from '../canvas/store.ts'
 type ClaudeSession = { claudeId: string; title: string; updated: number; branch?: string; liveHint: boolean; imported?: string }
 
 function SessionMenu({ anchor, onClose }: { anchor: HTMLElement | null; onClose: () => void }) {
-  const { sessions, currentSession, selectSession, newSession, workspace, toast, terminals, currentTerminal, selectTerminal } = useApp()
+  const { sessions, currentSession, selectSession, newSession, workspace, toast, terminals, selectTerminal } = useApp()
+  const currentTerminal = useApp(targetTerminal)
   const [claude, setClaude] = useState<ClaudeSession[] | null>(null)
   const [showClaude, setShowClaude] = useState(false)
   const [find, setFind] = useState('')
@@ -175,7 +176,8 @@ const SUGGESTIONS = [
 ]
 
 export function AgentPanel() {
-  const { sessions, currentSession, workspace, toast, setDraft, setTab, terminals, currentTerminal } = useApp()
+  const { sessions, currentSession, workspace, toast, setDraft, setTab, terminals } = useApp()
+  const currentTerminal = useApp(targetTerminal)
   const session = sessions.find(s => s.id === currentSession)
   const terminal = terminals.find(x => x.id === currentTerminal)
   const t = useTranscript(currentSession)

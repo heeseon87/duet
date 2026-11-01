@@ -87,7 +87,12 @@ async function refreshStatus($: EngineInterface) {
   await tellPin($)
 }
 
-const terminalBody = () => ({ id: st.session, workspace: st.workspace, cwd: st.cwd, label: st.label, map: st.pin })
+const terminalBody = () => ({ id: st.session, workspace: st.workspace, cwd: st.cwd, label: st.label, map: st.pin, isWorking: st.isTurnRunning })
+
+/** Each main turn's start and end, the person's own too: Duet's rail shows whether this terminal works. */
+function reportTurn($: EngineInterface, turnId: string, edge: 'start' | 'end') {
+  if (st.isRegistered) void call($, 'POST', `/api/terminals/${st.session}/turns`, { turnId, edge }).catch(() => undefined)
+}
 
 /** Pins a map, or none: for this terminal and in Duet's terminal list. A new session starts with none. */
 async function setPin($: EngineInterface, pin: string | undefined) {
@@ -355,6 +360,7 @@ export const register: Register = on => {
     if (e.agentId !== undefined) return next(e)
     st.lastTurn = e.turnId
     st.isTurnRunning = true
+    reportTurn($, e.turnId, 'start')
     // A compaction (/compact, the threshold) may drop the pin note: the model hears it again before it answers.
     // Read from what the model is sent, not from session.compact, which the built-in cc-plugin-sec-default (seated for Team and Enterprise organizations) keeps from installed plugins.
     if (st.isOn && st.pin !== undefined) {
@@ -380,7 +386,10 @@ export const register: Register = on => {
   // The answer of the message's last turn is the reply: it goes to the canvas thread the message came from, as in Duet.
   on('turn.complete', async ($, e, next) => {
     const result = await next(e)
-    if (e.agentId === undefined) st.isTurnRunning = false
+    if (e.agentId === undefined) {
+      st.isTurnRunning = false
+      reportTurn($, e.turnId, 'end')
+    }
     st.quietAt = Date.now()
     const held = st.held
     const ended = heldEnds(held, e)

@@ -1,5 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { Terminals, workspaceFor } from '../server/terminals.ts'
+import { targetTerminal } from '../web/src/terminalTarget.ts'
+import type { TerminalInfo } from '../shared/protocol.ts'
 
 describe('workspaceFor', () => {
   const ws = (path: string, reaches: string[] = []) => ({ path, reaches })
@@ -65,6 +67,31 @@ describe('Terminals', () => {
     expect(t.register({ id: 'term-0001', workspace: '/w', cwd: '/w', label: 'x' }).holding?.id).toBe('m1')
   })
 
+  it('works while a main turn runs there, by the mod\'s turn reports', () => {
+    const t = make()
+    expect(t.list('/w')[0]?.status).toBe('idle')
+    t.recordTurn('term-0001', 'start')
+    expect(t.list('/w')[0]?.status).toBe('working')
+    // A reloaded mod that leaves the turn out keeps the status; one that says it is reported.
+    t.register({ id: 'term-0001', workspace: '/w', cwd: '/w', label: 'x' })
+    expect(t.list('/w')[0]?.status).toBe('working')
+    t.recordTurn('term-0001', 'end')
+    expect(t.list('/w')[0]?.status).toBe('idle')
+    t.register({ id: 'term-0001', workspace: '/w', cwd: '/w', label: 'x', isWorking: true })
+    expect(t.list('/w')[0]?.status).toBe('working')
+    expect(() => t.recordTurn('term-gone', 'start')).toThrow(/닫혔어/)
+  })
+
+  it('tells the browser only when the status changes', () => {
+    let changes = 0
+    const t = new Terminals(() => { changes++ })
+    t.register({ id: 'term-0001', workspace: '/w', cwd: '/w', label: 'x' })
+    const before = changes
+    t.recordTurn('term-0001', 'start')
+    t.recordTurn('term-0001', 'start')
+    expect(changes - before).toBe(1)
+  })
+
   it('lists the map a terminal pinned, until it registers without one', () => {
     const t = make()
     t.register({ id: 'term-0001', workspace: '/w', cwd: '/w/worktrees/feat', label: 'feat · term-000', map: 'swing' })
@@ -90,5 +117,22 @@ describe('Terminals', () => {
     cut()
     await vi.advanceTimersByTimeAsync(3_100)
     expect(t.list()).toEqual([])
+  })
+})
+
+describe('targetTerminal', () => {
+  const term = (id: string): TerminalInfo => ({ id, workspace: '/w', cwd: '/w', label: id, lastSeen: 0, status: 'idle' })
+
+  it('sends to the picked terminal while it lives, else to the only one live', () => {
+    expect(targetTerminal({ terminals: [term('a'), term('b')], currentTerminal: 'b' })).toBe('b')
+    expect(targetTerminal({ terminals: [term('a')] })).toBe('a')
+    expect(targetTerminal({ terminals: [term('a')], currentTerminal: 'gone' })).toBe('a')
+  })
+
+  it('picks none among several, and keeps a closed pick when no other is alone, so the send fails out loud', () => {
+    expect(targetTerminal({ terminals: [term('a'), term('b')] })).toBeUndefined()
+    expect(targetTerminal({ terminals: [term('a'), term('b')], currentTerminal: 'gone' })).toBe('gone')
+    expect(targetTerminal({ terminals: [], currentTerminal: 'gone' })).toBe('gone')
+    expect(targetTerminal({ terminals: [] })).toBeUndefined()
   })
 })

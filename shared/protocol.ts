@@ -293,6 +293,8 @@ export type CanvasThread = {
 export type TerminalInfo = {
   /** Claude Code's session id. */
   id: string
+  /** From the mod's turn reports: a main turn is running there, whoever started it. */
+  status: 'idle' | 'working'
   workspace: string
   cwd: string
   /** `<cwd folder> · <id8>` */

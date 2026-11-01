@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from 'react'
-import { FileDiff, Keyboard, MessageSquare, Signpost, Monitor, Moon, RotateCw, Search, Shapes, Sun, WifiOff } from 'lucide-react'
+import { FileDiff, Keyboard, Signpost, Monitor, Moon, RotateCw, Search, Shapes, Sun, Terminal, WifiOff } from 'lucide-react'
+import type { TerminalInfo } from '../../shared/protocol.ts'
 import { connection, subscribe } from './api.ts'
-import { local, SIDE_WIDTH, useApp } from './state.ts'
+import { local, SIDE_WIDTH, targetTerminal, useApp } from './state.ts'
 import { Popover, isTypingTarget, shortcutKey } from './lib/ui.tsx'
 import { PALETTES } from './lib/highlight.ts'
 import { RepoPicker } from './lib/RepoPicker.tsx'
@@ -126,17 +127,49 @@ function Stale() {
   return <span className="rail-warn" title="서버 재시작 필요: 서버 코드가 바뀌었는데 서버는 예전 코드로 떠 있어. 터미널에서 duet을 실행하면 다시 떠."><RotateCw size={15} />재시작</span>
 }
 
-/** The conversation's place on the rail: what it is doing, and what waits for you. A click shows or hides the panel. */
-function ClaudeSlot() {
-  const { sideOpen, sideWidth, setSide } = useApp()
-  const status = useApp(s => s.sessions.find(x => x.id === s.currentSession)?.status)
-  const busy = status === 'running' || status === 'starting'
-  const label = status === 'waiting' ? '대기' : busy ? '작업' : 'Claude'
+/** Picking a terminal opens the map it is pinned to. */
+function openPinned(t: TerminalInfo) {
+  const canvas = useCanvas.getState()
+  if (t.map && t.map !== canvas.name && canvas.list.some(m => m.name === t.map)) void canvas.open(t.map)
+}
+
+/** The terminal things go to, on the rail: whether a turn runs there; a click lists the terminals to pick from. */
+function TerminalSlot() {
+  const terminals = useApp(s => s.terminals)
+  const target = useApp(targetTerminal)
+  const selectTerminal = useApp(s => s.selectTerminal)
+  const maps = useCanvas(s => s.list)
+  const ref = useRef<HTMLButtonElement>(null)
+  const [open, setOpen] = useState(false)
+  const t = terminals.find(x => x.id === target)
+  const state = t?.status ?? (terminals.length ? 'pick' : 'none')
+  const label = { working: '작업', idle: '터미널', pick: '고르기', none: '없음' }[state]
+  const title = t ? `${t.label} · ${t.status === 'working' ? '일하는 중' : '쉬는 중'} · 보낼 터미널 고르기`
+    : terminals.length ? `터미널 ${terminals.length}개 · 보낼 터미널을 골라 줘` : '연결된 터미널이 없어 · 터미널에서 /duet을 켜 줘'
   return (
-    <button className={`rail-btn claude ${status ?? 'idle'}`} aria-pressed={sideOpen} onClick={() => setSide(sideWidth, !sideOpen)}
-      title={`Claude · ${status === 'waiting' ? '네 답을 기다려' : busy ? '일하는 중' : '쉬는 중'} · 대화 ${sideOpen ? '접기' : '펼치기'} (⌘3)`}>
-      <span className="claude-ring"><MessageSquare size={14} /></span>{label}
-    </button>
+    <>
+      <button ref={ref} className={`rail-btn term ${state}`} aria-expanded={open} title={title} onClick={() => setOpen(o => !o)}>
+        <span className="term-ring"><Terminal size={14} /></span>{label}
+      </button>
+      {open && (
+        <Popover anchor={ref.current} onClose={() => setOpen(false)} align="side" width={300}>
+          <div className="menu-label">보낼 터미널</div>
+          {terminals.length === 0 && <div className="menu-label term-empty">연결된 터미널이 없어. Claude Code 터미널에서 /duet을 켜면 여기에 나와.</div>}
+          {terminals.map(x => {
+            const pinned = maps.find(m => m.name === x.map)?.title
+            return (
+              <button key={x.id} className="menu-item" data-terminal={x.id} aria-checked={x.id === target} onClick={() => { selectTerminal(x.id); openPinned(x); setOpen(false) }}>
+                <span className={`term-dot ${x.status}`} />
+                <span className="grow ellipsis">
+                  <span className="ellipsis">{x.label}</span>
+                  <span className="meta">{x.status === 'working' ? '일하는 중' : '쉬는 중'}{pinned ? ` · 📌 ${pinned}` : ''}</span>
+                </span>
+              </button>
+            )
+          })}
+        </Popover>
+      )}
+    </>
   )
 }
 
@@ -164,7 +197,7 @@ function DecideSlot() {
   )
 }
 
-/** The app's left rail: the two views, decision mode, the conversation, and what is about the app itself. */
+/** The app's left rail: the two views, decision mode, the terminal things go to, and what is about the app itself. */
 function Rail({ onHelp }: { onHelp: () => void }) {
   const { tab, setTab, setPalette } = useApp()
   const drafts = useReview(s => s.comments.filter(c => c.state === 'draft').length)
@@ -184,7 +217,7 @@ function Rail({ onHelp }: { onHelp: () => void }) {
       </div>
       <DecideSlot />
       <span className="rail-sep" />
-      <ClaudeSlot />
+      <TerminalSlot />
       <span className="grow" />
       <Offline />
       <Stale />

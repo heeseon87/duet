@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { EyeOff } from 'lucide-react'
-import { local, useApp, useTranscript } from '../state.ts'
+import { local, targetTerminal, useApp, useTranscript } from '../state.ts'
 import { shortcutKey } from '../lib/ui.tsx'
 import { useCanvas } from '../canvas/store.ts'
 import { Composer } from './Composer.tsx'
@@ -16,8 +16,8 @@ export function FloatComposer() {
   const sideWidth = useApp(s => s.sideWidth)
   const setSide = useApp(s => s.setSide)
   const session = useApp(s => s.sessions.find(x => x.id === s.currentSession))
-  const terminal = useApp(s => s.terminals.find(x => x.id === s.currentTerminal))
-  const currentTerminal = useApp(s => s.currentTerminal)
+  const currentTerminal = useApp(targetTerminal)
+  const terminal = useApp(s => s.terminals.find(x => x.id === currentTerminal))
   const t = useTranscript(currentTerminal ? undefined : session?.id)
   const deciding = useCanvas(s => s.deciding)
   const box = useRef<HTMLDivElement>(null)

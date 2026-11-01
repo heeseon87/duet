@@ -45,11 +45,15 @@ export class Terminals {
     return [...this.all.values()].map(e => e.info).filter(i => !workspace || i.workspace === workspace).sort((a, b) => a.label.localeCompare(b.label))
   }
 
-  /** A reloaded mod registers again and learns which message it already holds. */
-  register(info: Omit<TerminalInfo, 'lastSeen'>): { holding?: Outgoing } {
+  /**
+   * A reloaded mod registers again and learns which message it already holds. `isWorking`: a turn is running
+   * there now (a mod older than turn reports leaves it out, and the status stands).
+   */
+  register({ isWorking, ...info }: Omit<TerminalInfo, 'lastSeen' | 'status'> & { isWorking?: boolean }): { holding?: Outgoing } {
     const e = this.all.get(info.id)
-    if (e) e.info = { ...info, lastSeen: Date.now() }
-    else this.all.set(info.id, { info: { ...info, lastSeen: Date.now() }, out: [], canvas: false })
+    const status = isWorking === undefined ? e?.info.status ?? 'idle' : isWorking ? 'working' : 'idle'
+    if (e) e.info = { ...info, lastSeen: Date.now(), status }
+    else this.all.set(info.id, { info: { ...info, lastSeen: Date.now(), status }, out: [], canvas: false })
     this.changed()
     return { holding: e?.out.find(m => m.state !== 'queued') }
   }
@@ -121,6 +125,15 @@ export class Terminals {
         setTimeout(() => { if (this.all.get(id) === e && !e.wake && e.info.lastSeen <= at) this.remove(id) }, GRACE_MS)
       })
     })
+  }
+
+  /** The mod reports each main turn's start and end, the person's own too: the rail shows whether the terminal works. */
+  recordTurn(id: string, edge: 'start' | 'end') {
+    const e = this.entry(id)
+    const status = edge === 'start' ? 'working' : 'idle'
+    if (e.info.status === status) return
+    e.info = { ...e.info, status }
+    this.changed()
   }
 
   working(id: string, messageId: string) {

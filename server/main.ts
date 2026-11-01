@@ -646,12 +646,19 @@ const TERMINAL_TOOLS = new Set<CanvasToolName>(['canvas_list', 'canvas_read', 'c
 
 route('GET', '/api/terminals', ({ url }) => terminals.list(knownWorkspace(url.searchParams.get('ws'))))
 route('POST', '/api/terminals', async ({ req }) => {
-  const b = await body<{ id: string; workspace: string; cwd: string; label: string; map?: unknown }>(req)
+  const b = await body<{ id: string; workspace: string; cwd: string; label: string; map?: unknown; isWorking?: unknown }>(req)
   if (!/^[\w-]{8,64}$/.test(b.id ?? '')) throw new HttpError(400, 'bad terminal id')
   const map = typeof b.map === 'string' && b.map !== '' ? b.map : undefined
-  return terminals.register({ id: b.id, workspace: knownWorkspace(b.workspace), cwd: String(b.cwd ?? ''), label: String(b.label ?? b.id.slice(0, 8)), map })
+  const isWorking = typeof b.isWorking === 'boolean' ? b.isWorking : undefined
+  return terminals.register({ id: b.id, workspace: knownWorkspace(b.workspace), cwd: String(b.cwd ?? ''), label: String(b.label ?? b.id.slice(0, 8)), map, isWorking })
 })
 route('DELETE', '/api/terminals/:id', ({ params }) => { terminals.remove(params.id) })
+/** A main turn of the terminal started or ended, whoever started it. */
+route('POST', '/api/terminals/:id/turns', async ({ req, params }) => {
+  const b = await body<{ turnId?: string; edge?: unknown }>(req)
+  if (b.edge !== 'start' && b.edge !== 'end') throw new HttpError(400, 'edge는 start나 end야')
+  terminals.recordTurn(params.id, b.edge)
+})
 /** The mod's heartbeat and inbox: held open until a message or a map change comes, or `wait` ms pass. */
 route('GET', '/api/terminals/:id/poll', ({ url, params, res }) => {
   const wait = Math.min(25_000, Math.max(0, Number(url.searchParams.get('wait') ?? 20_000) || 0))

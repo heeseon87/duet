@@ -2,6 +2,7 @@ import { create } from 'zustand'
 import type { ContextItem, Effort, ImageUpload, PermissionDecision, PermissionMode, ServerEvent, SessionEvent, SessionInfo, TerminalInfo, Workspace } from '../../shared/protocol.ts'
 import { api, q, setReconnectHandler, subscribe } from './api.ts'
 import { Transcript } from './agent/transcript.ts'
+import { targetTerminal } from './terminalTarget.ts'
 import { setPalette } from './lib/highlight.ts'
 
 export type Tab = 'canvas' | 'review'
@@ -46,10 +47,7 @@ type AppState = {
   currentSession?: string
   /** Live terminals (Claude Code sessions running the Duet mod) of this workspace. */
   terminals: TerminalInfo[]
-  /**
-   * The terminal everything the person sends goes to instead of a conversation. It stays picked after the
-   * terminal closes, so a send fails out loud rather than landing in a conversation unasked.
-   */
+  /** The terminal the person picked; what things go to is `targetTerminal`. */
   currentTerminal?: string
   selectTerminal: (id: string) => void
   /** Bumped when any transcript changes, per session id. */
@@ -74,6 +72,8 @@ type AppState = {
 }
 
 const transcripts = new Map<string, Transcript>()
+export { targetTerminal }
+
 export function transcriptOf(id: string | undefined): Transcript | undefined {
   return id ? transcripts.get(id) : undefined
 }
@@ -191,7 +191,7 @@ export const useApp = create<AppState>((set, get) => ({
   },
 
   send: async (text, context, images) => {
-    const terminal = get().currentTerminal
+    const terminal = targetTerminal(get())
     if (terminal) {
       await api.post(`/api/terminals/${terminal}/messages`, { text, context, images })
       return

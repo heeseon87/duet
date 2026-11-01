@@ -137,16 +137,19 @@ a:hover { text-decoration: underline; }
 .rail-btn.rail-decide { margin-top: 3px; }
 .rail-btn.rail-decide[aria-pressed='true'] { background: var(--accent-soft); color: var(--accent-ink); }
 .rail-btn.rail-decide:disabled { opacity: .4; background: transparent; color: var(--ink-2); cursor: default; }
-.rail-btn.claude { min-height: 50px; color: var(--agent); }
-.claude-ring { width: 24px; height: 24px; display: grid; place-items: center; border: 1.5px solid currentColor; border-radius: 50%; }
-.rail-btn.claude[aria-pressed='true'] .claude-ring { background: var(--agent-soft); }
-.rail-btn.claude.running .claude-ring, .rail-btn.claude.starting .claude-ring { border-style: dashed; animation: rail-spin 6s linear infinite; }
-.rail-btn.claude.running .claude-ring > svg, .rail-btn.claude.starting .claude-ring > svg { animation: rail-spin 6s linear infinite reverse; }
-.rail-btn.claude.waiting { color: var(--warn); }
-.rail-btn.claude.idle, .rail-btn.claude.stopped { color: var(--ink-2); }
-.rail-btn.claude.error { color: var(--del); }
+.rail-btn.term { min-height: 50px; color: var(--agent); }
+.term-ring { width: 24px; height: 24px; display: grid; place-items: center; border: 1.5px solid currentColor; border-radius: 50%; }
+.rail-btn.term[aria-expanded='true'] .term-ring { background: var(--agent-soft); }
+.rail-btn.term.working .term-ring { border-style: dashed; animation: rail-spin 6s linear infinite; }
+.rail-btn.term.working .term-ring > svg { animation: rail-spin 6s linear infinite reverse; }
+.rail-btn.term.idle, .rail-btn.term.pick { color: var(--ink-2); }
+.rail-btn.term.none { color: var(--ink-3); }
+.rail-btn.term.none .term-ring { border-style: dotted; }
+.term-empty { font-weight: 400; white-space: normal; }
+.term-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--ink-4); flex: none; }
+.term-dot.working { background: var(--agent); }
 @keyframes rail-spin { to { transform: rotate(360deg); } }
-@media (prefers-reduced-motion: reduce) { .rail-btn.claude .claude-ring, .rail-btn.claude .claude-ring > svg { animation: none !important; } }
+@media (prefers-reduced-motion: reduce) { .rail-btn.term .term-ring, .rail-btn.term .term-ring > svg { animation: none !important; } }
 .rail-warn {
   width: 40px; padding: 5px 0; border-radius: var(--r-1); background: var(--warn-bg); color: var(--warn);
   display: flex; flex-direction: column; align-items: center; gap: 3px; font-size: 10px; font-weight: 600; cursor: help;

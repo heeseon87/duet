@@ -1,7 +1,7 @@
 import { create } from 'zustand'
 import type { DiffFile, DiffResult, DiffSource, GitInfo, MapCode, ReviewComment, ReviewRepo, SessionInfo, TurnRef } from '../../../shared/protocol.ts'
 import { api, q, subscribe } from '../api.ts'
-import { local, useApp } from '../state.ts'
+import { local, targetTerminal, useApp } from '../state.ts'
 import { reanchor } from './anchor.ts'
 import { filesUnder, labelOf, type CanvasMap } from '../../../shared/canvas.ts'
 import { useCanvas } from '../canvas/store.ts'
@@ -425,7 +425,8 @@ export const useReview = create<ReviewState>((set, get) => ({
     // Paths in the comments are relative to the tree under review: name it when it is not the workspace.
     const where = root !== home ? ` · 저장소 ${root}` : ''
     const header = `리뷰: ${sourceLabel(source)}${diff ? ` (${diff.oldLabel} → ${diff.newLabel})` : ''}${where}`
-    const to = newSession ? {} : app.currentTerminal ? { terminalId: app.currentTerminal } : { sessionId: app.currentSession }
+    const terminal = targetTerminal(app)
+    const to = newSession ? {} : terminal ? { terminalId: terminal } : { sessionId: app.currentSession }
     const res = await api.post<{ sessionId?: string; terminalId?: string }>('/api/review/send', { ws: root, source, ids, header, extra, ...to })
       .catch((e: Error) => { app.toast(e.message, 'error') })
     if (!res) return

@@ -2,7 +2,7 @@ import { create } from 'zustand'
 import { diffMaps, type CanvasMap, type Delivery, type MapDiff } from '../../../shared/canvas.ts'
 import type { CanvasSummary, CanvasThread, MapCode, SessionInfo } from '../../../shared/protocol.ts'
 import { ApiError, api, q, subscribe } from '../api.ts'
-import { local, useApp } from '../state.ts'
+import { local, targetTerminal, useApp } from '../state.ts'
 import { lastAgentRevision, revisedBoxes } from './revised.ts'
 import { withDecision } from './decisionQueue.ts'
 
@@ -74,10 +74,11 @@ type CanvasState = {
 
 const ws = () => useApp.getState().workspace?.path
 
-/** Where the agent panel sends: the terminal picked there, else the conversation. */
+/** Where things go: the target terminal, else the conversation. */
 const target = () => {
-  const { currentTerminal, currentSession } = useApp.getState()
-  return currentTerminal ? { terminalId: currentTerminal } : { sessionId: currentSession }
+  const app = useApp.getState()
+  const terminal = targetTerminal(app)
+  return terminal ? { terminalId: terminal } : { sessionId: app.currentSession }
 }
 
 /** What the canvas sent to a conversation shows up in the agent panel: that conversation, opened (`quiet`: picked only). */
