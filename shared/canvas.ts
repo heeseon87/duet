@@ -595,6 +595,19 @@ export function stepMark(n: number): string {
 
 const MEMBER_MARK = { add: '＋ ', modify: '✎ ', delete: '－ ' } as const
 
+/** A kind of arrow a map draws: a class map's relation, or a sequence map's message (a note draws none). */
+export type ArrowKind = RelationKind | Exclude<MessageKind, 'note'>
+
+/** The kinds of arrow a map draws, in the legend's order. */
+export function arrowsOf(map: CanvasMap): ArrowKind[] {
+  if (map.diagram === 'sequence') {
+    const used = new Set((map.messages ?? []).map(m => m.kind ?? 'call'))
+    return (['call', 'reply', 'async'] as const).filter(k => used.has(k))
+  }
+  const used = new Set(map.relations.map(r => r.kind ?? 'association'))
+  return RELATION_KINDS.filter(k => used.has(k))
+}
+
 // UML draws the diamond at the whole, which is `from`: `A *-- B` puts it at A.
 const ARROWS: Record<RelationKind, string> = {
   association: '-->',

@@ -3,7 +3,7 @@ import {
   ChevronDown, ChevronsDownUp, ChevronsUpDown, Clock3, Copy, ListCollapse, ZoomIn, GitCompareArrows, Maximize2, MessageSquare, Plus, Shapes, Sparkles, Undo2, Workflow,
   Check, FileCode2, FileDiff, ArrowLeft, ArrowRight, ArrowUp, ArrowDown, X, Bot, User, Trash2, Share, ImageDown, FolderGit2,
 } from 'lucide-react'
-import { describeDiff, diffMaps, exportMermaid, filesUnder, labelOf, relationKey, type CanvasMap } from '../../../shared/canvas.ts'
+import { arrowsOf, describeDiff, diffMaps, exportMermaid, filesUnder, labelOf, relationKey, type ArrowKind, type CanvasMap } from '../../../shared/canvas.ts'
 import { codeMarks, refBase } from '../../../shared/mapFiles.ts'
 import { api } from '../api.ts'
 import { local, useApp } from '../state.ts'
@@ -123,16 +123,42 @@ function HeadLine() {
   return <div className="canvas-bar map-head"><div className="map-head-row"><span className="head-ws"><WorkspaceMenu /><WorkChip /></span></div></div>
 }
 
-/** What the map's colors and marks mean, over the map's top right corner: the states it uses, open decisions, the agent's △. */
+const ARROW_LABEL: Record<ArrowKind, string> = {
+  association: '연관', dependency: '의존', inheritance: '상속', realization: '실현', composition: '합성', aggregation: '집약',
+  call: '호출', reply: '답', async: '비동기',
+}
+
+/** A short arrow drawn as the map draws its kind: solid or dashed, and its head (a diamond sits at the whole's end). */
+function ArrowGlyph({ kind }: { kind: ArrowKind }) {
+  const dashed = kind === 'dependency' || kind === 'realization' || kind === 'reply'
+  const diamond = kind === 'composition' || kind === 'aggregation'
+  const triangle = kind === 'inheritance' || kind === 'realization'
+  const filled = kind === 'call' || kind === 'reply'
+  return (
+    <svg className="sw-arrow" width="28" height="10" viewBox="0 0 28 10" aria-hidden="true">
+      <line x1={diamond ? 12 : 1} y1="5" x2={triangle ? 20 : 26} y2="5" strokeDasharray={dashed ? '3 2' : undefined} />
+      {diamond && <polygon points="1,5 6.5,1.8 12,5 6.5,8.2" className={kind === 'composition' ? 'solid' : undefined} />}
+      {triangle && <polygon points="20,1.2 26.8,5 20,8.8" />}
+      {filled && <polygon points="21,1.8 27,5 21,8.2" className="solid" />}
+      {!diamond && !triangle && !filled && <polyline points="21.5,1.5 26.5,5 21.5,8.5" />}
+    </svg>
+  )
+}
+
+/** What the map's colors and marks mean, over the map's top right corner: the states it uses, its kinds of arrow, open decisions, the agent's △. */
 function Legend({ map, revised }: { map: CanvasMap; revised?: { revision: number; ids: string[] } }) {
   const used = new Set(map.elements.map(e => e.change ?? 'keep'))
   const items = (['add', 'modify', 'delete', 'result', 'keep'] as const).filter(c => used.has(c))
+  const arrows = arrowsOf(map)
   const open = map.decisions?.some(d => !d.chosen)
   const rev = revised?.ids.length ? revised : undefined
-  if (items.length <= 1 && !open && !rev) return null
+  // The states as before: shown when there is more than one, or beside the decision and △ marks.
+  const states = items.length > 1 || open || rev
+  if (!states && !arrows.length) return null
   return (
     <div className="legend map-legend">
-      {items.map(c => <span key={c} className="legend-item"><i className={`sw cv-sw-${c}`} />{CHANGE_LABEL[c]}</span>)}
+      {states && items.map(c => <span key={c} className="legend-item"><i className={`sw cv-sw-${c}`} />{CHANGE_LABEL[c]}</span>)}
+      {arrows.map(k => <span key={k} className="legend-item" data-arrow={k}><ArrowGlyph kind={k} />{ARROW_LABEL[k]}</span>)}
       {open && <span className="legend-item"><i className="sw cv-sw-open" />결정 전</span>}
       {rev && (
         <span className="legend-item" title={`에이전트가 rev ${rev.revision}에서 더하거나 고친 상자 ${rev.ids.length}개. 그 뒤에 네가 고친 상자에서는 빠져.`}>

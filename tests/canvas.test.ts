@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { applyPatch, chooseOption, deliveryLabel, deliveryOf, describeDiff, diffMaps, emptyMap, labelOf, normalizeDecisions, relationKey, reopenDecision, reorderedGroups, safeText, toMermaid, validate, type CanvasMap } from '../shared/canvas.ts'
+import { applyPatch, arrowsOf, chooseOption, deliveryLabel, deliveryOf, describeDiff, diffMaps, emptyMap, labelOf, normalizeDecisions, relationKey, reopenDecision, reorderedGroups, safeText, toMermaid, validate, type CanvasMap } from '../shared/canvas.ts'
 
 function base(): CanvasMap {
   const m = emptyMap('class', 'test')
@@ -251,5 +251,18 @@ describe('normalizeDecisions', () => {
   it('leaves an open decision open', () => {
     const d = { id: 'D1', question: '고를까', options: [{ id: 'D1-a', text: 'a' }, { id: 'D1-b', text: 'b' }] }
     expect(normalizeDecisions({ ...base, decisions: [d] }).decisions![0].chosen).toBeUndefined()
+  })
+})
+
+describe('arrowsOf', () => {
+  it('lists the kinds of line a class map draws, in the legend\'s order', () => {
+    const map = { ...emptyMap('class', 't'), relations: [{ from: 'A', to: 'B', kind: 'composition' as const }, { from: 'B', to: 'C' }, { from: 'C', to: 'D', kind: 'inheritance' as const }, { from: 'D', to: 'E' }] }
+    expect(arrowsOf(map)).toEqual(['association', 'inheritance', 'composition'])
+    expect(arrowsOf(emptyMap('class', 't'))).toEqual([])
+  })
+
+  it('lists the kinds of message a sequence map draws, and no note', () => {
+    const map = { ...emptyMap('sequence', 't'), messages: [{ id: 'm1', from: 'A', to: 'B', kind: 'reply' as const }, { id: 'm2', from: 'A', to: 'B' }, { id: 'm3', from: 'A', kind: 'note' as const }] }
+    expect(arrowsOf(map)).toEqual(['call', 'reply'])
   })
 })
