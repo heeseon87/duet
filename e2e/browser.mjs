@@ -45,3 +45,40 @@ export const sleep = ms => new Promise(r => setTimeout(r, ms))
 export async function toggleFold(page, id) {
   await page.click(`.stage-fold[data-group="${id}"]`, { timeout: 3000 })
 }
+
+/**
+ * A stand-in for a Claude Code terminal running the Duet mod: it registers in `ws`, keeps polling so the server
+ * keeps it, and finishes each message Duet sends it (with `answer(message)`'s text as its answer, when given),
+ * `workMs` after starting on it. `got` holds what arrived; `hold()` keeps the next message unfinished until `release()`.
+ */
+export async function fakeTerminal({ port = 7981, token, ws, id = `e2e-${Date.now().toString(36)}`, label = 'e2e', answer, workMs = 0 } = {}) {
+  const H = { 'x-duet-token': token, 'content-type': 'application/json' }
+  const url = p => `http://127.0.0.1:${port}${p}`
+  const post = (p, body) => fetch(url(p), { method: 'POST', headers: H, body: JSON.stringify(body) })
+  const r = await post('/api/terminals', { id, workspace: ws, cwd: ws, label })
+  if (!r.ok) throw new Error(`terminal register ${r.status} ${await r.text()}`)
+  const got = []
+  let on = true, hold = false, held
+  const finish = async m => {
+    await post(`/api/terminals/${id}/messages/${m.id}`, { state: 'working' })
+    if (workMs) await sleep(workMs)
+    await post(`/api/terminals/${id}/messages/${m.id}`, { state: 'done', answer: answer?.(m) })
+  }
+  const loop = (async () => {
+    while (on) {
+      const p = await fetch(url(`/api/terminals/${id}/poll?wait=1500`), { headers: H }).then(x => (x.ok ? x.json() : undefined)).catch(() => undefined)
+      if (!on) break
+      if (!p) { await sleep(300); continue }
+      if (!p.message || p.message.id === held?.id) continue
+      got.push(p.message)
+      if (hold) held = p.message
+      else await finish(p.message)
+    }
+  })()
+  return {
+    id, got,
+    hold: () => { hold = true },
+    release: async () => { hold = false; const m = held; held = undefined; if (m) await finish(m) },
+    stop: async () => { on = false; await loop; await fetch(url(`/api/terminals/${id}`), { method: 'DELETE', headers: H }) },
+  }
+}

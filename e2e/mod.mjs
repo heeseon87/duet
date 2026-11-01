@@ -3,10 +3,10 @@
 // shows up registers as a terminal of the workspace, reads and changes
 // a map with its tools (revisions signed by the agent from that
 // terminal), shows the map in its status line, pins a map with /duet (status line, Duet's terminal list, the
-// model's choice of map, again after /compact, the canvas and card in the browser; /duet off disconnects, and the next
+// model's choice of map, again after /compact, the canvas and the rail's terminal list in the browser; /duet off disconnects, and the next
 // session in the folder starts unpinned and off), takes a canvas
 // comment, a decision and a composer message sent to it from the browser, answers on their threads, and once it
-// stops, leaves the menu and a send fails out loud. Asked for a new map, it makes one with duet_map_create and is pinned
+// stops, leaves the rail's list and a send fails out loud. Asked for a new map, it makes one with duet_map_create and is pinned
 // to it unless a pin is set; in a git repository no workspace holds, that map opens the repository as a workspace; in a
 // folder outside every git repository, it says a git repository is needed.
 //   DUET_PORT=7981 DUET_TOKEN=... DUET_HOME=<the server's DUET_HOME> DUET_WS=<workspace> DUET_NESTED=<worktree under it> [DUET_SCRATCH=<folder>] node e2e/mod.mjs
@@ -188,17 +188,18 @@ const shot = async n => { if (shots) await page.screenshot({ path: `${shots}/mod
 // The canvas starts on the other map: picking the terminal brings up the one it is pinned to.
 await page.evaluate(([w, m, other]) => {
   localStorage.setItem('duet.tab', 'canvas'); localStorage.setItem(`duet.canvas.current:${w}`, other); localStorage.removeItem(`duet.canvas.collapsed:${w}:${m}`)
-  localStorage.setItem('duet.sideOpen', '1'); localStorage.setItem(`duet.canvas.seen:${w}:${m}`, '99'); localStorage.setItem(`duet.canvas.seen:${w}:${other}`, '99')
+  localStorage.setItem(`duet.canvas.seen:${w}:${m}`, '99'); localStorage.setItem(`duet.canvas.seen:${w}:${other}`, '99')
 }, [ws, name, pinName])
 await page.reload({ waitUntil: 'domcontentloaded' })
 await page.waitForSelector('.stage-canvas svg .cv-node', { timeout: 20000 }); await sleep(1200)
-await page.click('.session-pick'); await sleep(400)
+await page.click('.rail-btn.term'); await sleep(400)
 const item = await page.$(`.menu-item[data-terminal="${session}"]`)
-check('the conversation menu lists the terminal under 터미널', Boolean(item) && (await item.textContent()).includes(`${folder} · ${id8}`) && (await page.$$eval('.popover .menu-label', ls => ls.some(l => l.textContent.startsWith('터미널')))))
+const itemText = (await item?.textContent()) ?? ''
+check('the rail\'s terminal list names the terminal', Boolean(item) && itemText.includes(`${folder} · ${id8}`) && (await page.$$eval('.popover .menu-label', ls => ls.some(l => l.textContent === '보낼 터미널'))), itemText)
+check('it shows the map the terminal is pinned to', itemText.includes(`📌 ${title}`), itemText)
 await item?.click(); await sleep(400)
-const card = await page.$eval('.agent-panel', p => ({ card: p.querySelector('.terminal-card:not(.gone)')?.textContent ?? '', head: p.querySelector('.session-pick')?.textContent ?? '', transcript: p.querySelectorAll('.transcript .block, .transcript .turn').length })).catch(() => null)
-check('picking it shows the card: label, folder, last seen, where messages go', card?.card.includes(`${folder} · ${id8}`) && card.card.includes('마지막 연락') && card.card.includes('Claude Code 세션으로 가') && card.head.includes(id8), JSON.stringify(card))
-check('the card shows the map the terminal is pinned to', card?.card.includes(`기준 지도${title}`), card?.card)
+const who = await page.$eval('.float-head .float-who', e => e.textContent).catch(() => null)
+check('picked, the box over the map writes to it', who === `${folder} · ${id8}`, String(who))
 const opened = await until('canvas opens the pinned map', () => page.evaluate(([w, m]) => localStorage.getItem(`duet.canvas.current:${w}`) === m && [...document.querySelectorAll('.stage-inner > svg .cv-node[data-target="Worker"]')].some(n => n.textContent.includes('썸네일 워커')), [ws, name]), 10_000)
 check('picking the terminal opens its pinned map on the canvas', Boolean(opened))
 await sleep(800)
@@ -293,14 +294,13 @@ const notes = sinceCompaction.flatMap((r, i) => (r.type === 'user' && r.isMeta &
 const answer = sinceCompaction.findIndex(r => r.type === 'assistant')
 check('the session log has the pin note once after the compaction, before that answer', s1.compactions > 0 && notes.length === 1 && notes[0] < answer, JSON.stringify({ compactions: s1.compactions, notes, answer }))
 
-// 8. The session stops: the terminal leaves the menu, and a send to it fails with a toast.
+// 8. The session stops: the terminal leaves the rail's list, and a send to it fails with a toast.
 await s1.close()
 const gone = await until('terminal gone', async () => !(await call('GET', `/api/terminals?ws=${W}`)).some(t => t.id === session), 60_000)
 check('stopping the session takes the terminal off the list', Boolean(gone))
 await sleep(500)
-const goneCard = await page.$eval('.agent-panel .terminal-card', c => c.classList.contains('gone') && c.textContent.includes('닫혔어')).catch(() => false)
-await page.click('.session-pick'); await sleep(400)
-check('the menu no longer lists it, and the card says it closed', !(await page.$(`.menu-item[data-terminal="${session}"]`)) && goneCard)
+await page.click('.rail-btn.term'); await sleep(400)
+check('the rail\'s list no longer has it, and the box says there is no terminal', !(await page.$(`.menu-item[data-terminal="${session}"]`)) && (await page.$eval('.float-head .float-who', e => e.textContent).catch(() => '')) === '터미널 없음')
 await page.keyboard.press('Escape'); await sleep(200)
 await page.mouse.click(node.x, node.y, { button: 'right' }); await sleep(300)
 await page.click('.ctx-menu .menu-item:has-text("에이전트에게 묻기")'); await sleep(300)

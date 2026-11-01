@@ -70,7 +70,7 @@ const addedLine = storeDecl + 5
 
 const { browser, page, errors } = await open({ port, token: T, ws, width: 1500, height: 940 })
 await page.evaluate(([w, m]) => {
-  localStorage.setItem('duet.tab', 'canvas'); localStorage.setItem(`duet.canvas.current:${w}`, m); localStorage.setItem('duet.sideOpen', '0')
+  localStorage.setItem('duet.tab', 'canvas'); localStorage.setItem(`duet.canvas.current:${w}`, m)
   localStorage.removeItem('duet.canvas.code'); localStorage.removeItem('duet.canvas.codeWidth')
 }, [ws, name])
 await page.reload({ waitUntil: 'domcontentloaded' })

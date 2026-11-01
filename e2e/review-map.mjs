@@ -33,7 +33,7 @@ const made = await call('POST', `/api/canvas/${name}/patch`, { ws, note: 'setup'
 check('the map is set up', made.body?.ok, JSON.stringify(made.body).slice(0, 200))
 const repos = (await call('GET', `/api/review/repos?ws=${encodeURIComponent(ws)}`)).body
 const sideRepo = repos.find(r => r.path === side)
-check('a repo only the map points at is offered too', sideRepo?.maps.includes(name) && sideRepo.sessions.length === 0, JSON.stringify(sideRepo))
+check('a repo only the map points at is offered too', sideRepo?.maps.includes(name), JSON.stringify(sideRepo))
 const made1 = (await call('GET', `/api/canvas/${name}?ws=${encodeURIComponent(ws)}`)).body
 check('a map made in the browser is bound to the workspace from its current commit', made1?.code?.root === ws && made1.code.source.kind === 'branch' && made1.code.source.compare === 'WORKTREE', JSON.stringify(made1?.code))
 const bound = await call('POST', `/api/canvas/${name}/code`, { ws, root: feat, source: { kind: 'working' } })
@@ -42,7 +42,7 @@ check('the map is bound to the code in feat', bound.status === 200 && bound.body
 const { browser, page, errors } = await open({ port, token: T, ws })
 await page.evaluate(([w, f, m]) => {
   localStorage.setItem('duet.tab', 'review'); localStorage.setItem(`duet.review.root:${w}`, f); localStorage.setItem('duet.review.group', 'map')
-  localStorage.setItem(`duet.canvas.current:${w}`, m); localStorage.setItem(`duet.review.source:${f}`, JSON.stringify({ kind: 'working' })); localStorage.setItem('duet.sideOpen', '0')
+  localStorage.setItem(`duet.canvas.current:${w}`, m); localStorage.setItem(`duet.review.source:${f}`, JSON.stringify({ kind: 'working' }))
 }, [ws, feat, name])
 await page.reload({ waitUntil: 'domcontentloaded' })
 await page.waitForSelector('.tree-row.map-pkg', { timeout: 15000 }).catch(() => {})
@@ -107,7 +107,6 @@ await fromCanvas('Side')
 const toast = await page.$$eval('.toast', ts => ts.map(t => t.textContent).join(' ')).catch(() => '')
 const still = await page.$eval('.source-bar .ref-pick', e => e.textContent).catch(() => '')
 check('a box in another repo leaves the review on the map\'s code, and says why', still.includes('feat') && toast.includes('side'), `${still} · ${toast}`)
-check('the hint names only repos a conversation wrote in', !(await page.$$eval('.repo-hint', hs => hs.map(h => h.textContent).join(''))).includes('side'))
 
 // Leave the workspace as it was: the review back on feat, the folders layout.
 await page.evaluate(([w, f]) => { localStorage.setItem(`duet.review.root:${w}`, f); localStorage.setItem('duet.review.group', 'folders') }, [ws, feat])

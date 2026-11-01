@@ -1,11 +1,11 @@
 // Decision mode: the chip opens the open decisions one after another over the canvas, Claude's pick comes chosen, keys
 // pick (1·2·3, also with the Korean input source), put off (l) and ask (q), ⏎ decides and moves on, a choice can be
 // taken back, the summary comes after the last, the side shows the map and the real code an option touches, and esc
-// closes the mode alone. Nothing goes to a conversation unless DUET_SEND=1: then one Haiku conversation (plan mode, told
-// to use no tools) gets the choices, in one prompt at the end and once more after a reload; give it a scratch repo.
+// closes the mode alone. Nothing goes to a terminal unless DUET_SEND=1: then a stand-in terminal gets the choices, in one
+// prompt at the end and once more after a reload.
 //   DUET_PORT=7981 DUET_TOKEN=... DUET_WS=<a repo with README.md and package.json> DUET_SHOTS=/dir node e2e/decision-mode.mjs
 //   (makes and removes a map named decision-mode)
-import { open, sleep } from './browser.mjs'
+import { fakeTerminal, open, sleep } from './browser.mjs'
 const port = Number(process.env.DUET_PORT ?? 7979)
 const { DUET_TOKEN: T, DUET_WS: ws, DUET_SHOTS: shots } = process.env
 if (!T || !ws) { console.error('DUET_TOKEN and DUET_WS are required'); process.exit(2) }
@@ -40,9 +40,8 @@ await call('POST', `/api/canvas/${name}/patch`, { ws, note: '시험 지도', pat
   ],
 } })
 
-// The conversation the agent panel shows: where the choices go.
-const session = sendToo ? await call('POST', '/api/sessions', { ws, model: process.env.DUET_MODEL ?? 'claude-haiku-5-5', permissionMode: 'plan' }) : undefined
-if (session) await call('POST', `/api/sessions/${session.id}/messages`, { text: 'From now on answer every message in this conversation with one short sentence and use no tools at all.' })
+// The terminal picked on the rail: where the choices go.
+const term = sendToo ? await fakeTerminal({ port, token: T, ws, label: 'decision-mode', answer: () => '알겠어.' }) : undefined
 
 const theme = process.env.DUET_THEME ?? 'light'
 const { browser, page, errors } = await open({ port, token: T, ws, width: 1600, height: 1000, theme })
@@ -50,11 +49,11 @@ let failed = 0
 const check = (label, ok, extra = '') => { if (!ok) failed++; console.log(ok ? 'PASS' : 'FAIL', label, extra) }
 const shot = async label => { if (shots) await page.screenshot({ path: `${shots}/${theme}-decide-${label}.png` }) }
 const pendingKey = `duet.canvas.pendingDecisions:${ws}:${name}`
-await page.evaluate(([w, m, send, sid]) => {
-  if (sid) localStorage.setItem(`duet.session:${w}`, sid)
+await page.evaluate(([w, m, send, tid]) => {
+  if (tid) localStorage.setItem(`duet.terminal:${w}`, tid)
   localStorage.setItem('duet.tab', 'canvas'); localStorage.setItem(`duet.canvas.current:${w}`, m); localStorage.setItem('duet.canvas.decideTab', 'map')
   localStorage.setItem('duet.canvas.decideSend', send ? '1' : '0'); localStorage.removeItem(`duet.canvas.pendingDecisions:${w}:${m}`)
-}, [ws, name, sendToo, session?.id])
+}, [ws, name, sendToo, term?.id])
 await page.reload({ waitUntil: 'domcontentloaded' })
 await page.waitForSelector('.stage-canvas svg .cv-cluster', { timeout: 20000 }); await sleep(1200)
 const state = () => page.evaluate(() => {
@@ -158,18 +157,18 @@ await shot('summary')
 
 // 6. A choice reopened before the batch goes out is left out of it, and so is one never chosen.
 const skipped = await call('POST', `/api/canvas/${name}/decided`, { ws, decisions: ['D9'] })
-check('the batch route skips what is not decided, starting no conversation', Array.isArray(skipped.sent) && skipped.sent.length === 0 && !skipped.sessionId, JSON.stringify(skipped))
+check('the batch route skips what is not decided, sending nothing', Array.isArray(skipped.sent) && skipped.sent.length === 0 && !skipped.terminalId, JSON.stringify(skipped))
 
 if (sendToo) {
   // The undo bar goes, then both choices go to Claude in one prompt; each decision's thread shows it.
   await sleep(9000)
   const th = (await call('GET', `/api/canvas/${name}/threads?ws=${W}`)).threads
   // What was sent: the agent may answer on the threads too.
-  const items = th.flatMap(t => t.items.filter(i => i.who === 'person').map(i => ({ target: t.target, text: i.text, messageId: i.messageId, sessionId: i.sessionId })))
-  check('both choices went out together, one prompt for both, to the conversation shown', items.length === 2 && items[0].messageId === items[1].messageId && items.every(i => i.sessionId === session.id) && items.some(i => i.target === 'D1') && items.some(i => i.target === 'D2'), JSON.stringify(items))
+  const items = th.flatMap(t => t.items.filter(i => i.who === 'person').map(i => ({ target: t.target, text: i.text, messageId: i.messageId, terminal: i.terminal })))
+  check('both choices went out together, one prompt for both, to the terminal picked', items.length === 2 && items[0].messageId === items[1].messageId && items.every(i => i.terminal === term.id) && term.got.length === 1 && items.some(i => i.target === 'D1') && items.some(i => i.target === 'D2'), JSON.stringify(items))
   check('nothing waits any more', (await pendingIds()).length === 0)
   check('the summary follows Claude', await page.$eval('.dm-claude', x => x.textContent.includes('Claude ·')))
-  // A choice kept when the tab reloads goes out when the map opens again, to the conversation it was made for.
+  // A choice kept when the tab reloads goes out when the map opens again, to the terminal it was made for.
   await page.keyboard.press('Escape'); await sleep(300)
   await call('POST', `/api/canvas/${name}/choose`, { ws, decision: 'D2', option: null })
   await page.click('.canvas-bar .dec-chip'); await sleep(1000)
@@ -177,7 +176,15 @@ if (sendToo) {
   check('a new choice waits in the tab', (await pendingIds()).join() === 'D2')
   await page.reload({ waitUntil: 'domcontentloaded' }); await sleep(5000)
   const again = (await call('GET', `/api/canvas/${name}/threads?ws=${W}`)).threads.flatMap(t => t.items).filter(i => i.who === 'person' && i.messageId !== items[0].messageId)
-  check('after the reload it went out, to the same conversation', again.length === 1 && again[0].sessionId === session.id && (await pendingIds()).length === 0, JSON.stringify(again))
+  check('after the reload it went out, to the same terminal', again.length === 1 && again[0].terminal === term.id && (await pendingIds()).length === 0, JSON.stringify(again))
+  // A choice kept for a Duet conversation (before there were only terminals) goes to the terminal picked now.
+  await call('POST', `/api/canvas/${name}/choose`, { ws, decision: 'D2', option: null })
+  await call('POST', `/api/canvas/${name}/choose`, { ws, decision: 'D2', option: 'D2-a' })
+  await page.evaluate(k => localStorage.setItem(k, JSON.stringify({ ids: ['D2'], to: { sessionId: 's-gone' } })), pendingKey)
+  await page.reload({ waitUntil: 'domcontentloaded' }); await sleep(5000)
+  const known = new Set([items[0].messageId, ...again.map(i => i.messageId)])
+  const old = (await call('GET', `/api/canvas/${name}/threads?ws=${W}`)).threads.flatMap(t => t.items).filter(i => i.who === 'person' && !known.has(i.messageId))
+  check('a choice kept for an old Duet conversation goes to the terminal picked now', old.length === 1 && old[0].terminal === term.id && (await pendingIds()).length === 0, JSON.stringify(old))
   await page.click('.canvas-bar .dec-chip'); await sleep(800)
 }
 await page.keyboard.press('Escape'); await sleep(300)
@@ -186,5 +193,6 @@ check('esc from the summary returns to the map', !(await state()))
 check('no page errors', errors.length === 0, errors.join('\n'))
 await browser.close()
 await call('DELETE', `/api/canvas/${name}?ws=${W}`).catch(() => {})
+if (term) await term.stop()
 console.log(failed ? `${failed} failed` : 'all passed')
 process.exit(failed ? 1 : 0)

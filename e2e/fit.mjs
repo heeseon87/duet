@@ -9,7 +9,7 @@ let failed = 0
 const check = (name, ok, extra = '') => { if (!ok) failed++; console.log(ok ? 'PASS' : 'FAIL', name, extra) }
 
 const { browser, page, errors } = await open({ port, token: T, ws, width: 1440, height: 900 })
-await page.evaluate(([w, m]) => { localStorage.setItem('duet.tab', 'canvas'); localStorage.setItem(`duet.canvas.current:${w}`, m); localStorage.setItem('duet.sideOpen', '1'); localStorage.setItem('duet.sideWidth', '460') }, [ws, map])
+await page.evaluate(([w, m]) => { localStorage.setItem('duet.tab', 'canvas'); localStorage.setItem(`duet.canvas.current:${w}`, m) }, [ws, map])
 await page.reload({ waitUntil: 'domcontentloaded' }); await page.waitForSelector('.stage-canvas svg', { timeout: 15000 }); await sleep(1500)
 const view = () => page.evaluate(() => {
   const stage = document.querySelector('.stage-canvas').getBoundingClientRect()

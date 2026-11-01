@@ -1,10 +1,10 @@
 // Decisions on the canvas: pins on what each decision shaped (open and made), a pin picks its decision and
 // lights its parts, a folded package carries its children's pins, the head's chip and the rail's 결정 count them and
-// open decision mode, a choice sent there to a busy agent shows where it stands in the summary (대기열 → 작업 중 → 답함)
-// and keeps its tags, and an old revision offers no choosing.
-//   DUET_PORT=7981 DUET_TOKEN=... DUET_WS=<scratch repo> DUET_SHOTS=/dir node e2e/decisions.mjs   (runs one Haiku conversation)
+// open decision mode, a choice sent there to a busy terminal shows where it stands in the summary (대기열 → 작업 중 → 답함)
+// and keeps its tags, and an old revision offers no choosing. A stand-in terminal takes what Duet sends.
+//   DUET_PORT=7981 DUET_TOKEN=... DUET_WS=<scratch repo> DUET_SHOTS=/dir node e2e/decisions.mjs
 import { execFileSync } from 'node:child_process'
-import { open, sleep } from './browser.mjs'
+import { fakeTerminal, open, sleep } from './browser.mjs'
 const port = Number(process.env.DUET_PORT ?? 7979)
 const { DUET_TOKEN: T, DUET_WS: ws, DUET_SHOTS: shots } = process.env
 if (!T || !ws) { console.error('DUET_TOKEN and DUET_WS are required'); process.exit(2) }
@@ -51,15 +51,15 @@ await call('POST', `/api/canvas/${name}/patch`, { ws, note: '시험 지도', pat
   ],
 } })
 await call('POST', `/api/canvas/${name}/choose`, { ws, decision: 'D2', option: 'D2-a', rationale: '단계가 적어서' })
-const s = await call('POST', '/api/sessions', { ws, model: process.env.DUET_MODEL ?? 'claude-haiku-5-5', permissionMode: 'bypassPermissions' })
+const term = await fakeTerminal({ port, token: T, ws, label: 'decisions', answer: () => '알겠어, 그 결정대로 갈게.', workMs: 2500 })
 const treeBefore = gitStatus()
 
 const { browser, page, errors } = await open({ port, token: T, ws, width: 1500, height: 940 })
 const shot = async n => { if (shots) await page.screenshot({ path: `${shots}/decisions-${n}.png` }) }
 await page.evaluate(([w, m, id]) => {
   localStorage.setItem('duet.tab', 'canvas'); localStorage.setItem(`duet.canvas.current:${w}`, m); localStorage.removeItem(`duet.canvas.collapsed:${w}:${m}`)
-  localStorage.setItem(`duet.session:${w}`, id); localStorage.setItem('duet.sideOpen', '0')
-}, [ws, name, s.id])
+  localStorage.setItem(`duet.terminal:${w}`, id)
+}, [ws, name, term.id])
 await page.reload({ waitUntil: 'domcontentloaded' })
 await page.waitForSelector('.stage-canvas svg .cv-cluster', { timeout: 20000 }); await sleep(1200)
 await page.keyboard.press('Escape'); await page.keyboard.press('f'); await sleep(700)
@@ -108,24 +108,23 @@ await shot('rail')
 await page.click('.rail-btn.rail-decide'); await sleep(500)
 check('pressed again, it closes the mode', !(await page.$('.decide')) && (await railBtn()).pressed === 'false')
 
-// Choosing D1 and D3 with Claude told, while the agent is busy: the summary shows where D1 stands.
-await call('POST', `/api/sessions/${s.id}/messages`, { text: 'Run `sleep 20` with Bash, then reply with the one word "done". From then on, answer every message in this conversation with one short sentence and use no tools at all.' })
-for (let i = 0; i < 120; i++) {
-  await sleep(500)
-  const log = (await call('GET', `/api/sessions/${s.id}`)).log
-  if (log.some(e => e.kind === 'sdk' && e.msg.type === 'assistant' && (e.msg.message?.content ?? []).some(c => c.type === 'tool_use' && c.name === 'Bash'))) break
-}
-await sleep(1500)
+// Choosing D1 and D3 with Claude told, while the terminal is busy: the summary shows where D1 stands.
+term.hold()
+await call('POST', `/api/terminals/${term.id}/messages`, { text: '먼저 하던 일' })
+for (let i = 0; i < 40 && !term.got.length; i++) await sleep(250)
 const revBefore = (await call('GET', `/api/canvas/${name}?ws=${W}`)).revision
 await page.click('.rail-btn.rail-decide'); await sleep(900)
 check('sending to Claude is on by default', await page.$eval('.decide .toggle input', i => i.checked))
 await page.keyboard.press('1'); await page.keyboard.press('Enter'); await sleep(900)
 await page.keyboard.press('2'); await page.keyboard.press('Enter'); await sleep(900)
 const seen = []
+let released = false
 const t0 = Date.now()
 while (Date.now() - t0 < 180_000) {
   const text = await page.evaluate(() => document.querySelector('.dm-done[data-decision="D1"] .delivery')?.textContent)
   if (text && seen[seen.length - 1] !== text) seen.push(text)
+  // The terminal finishes what it was doing once the choice is seen waiting behind it.
+  if (text?.startsWith('대기열') && !released) { released = true; void term.release() }
   if (text?.startsWith('답함') || text?.startsWith('끝남')) break
   await sleep(200)
 }
@@ -153,8 +152,8 @@ const ro = { chip: await page.$eval('.canvas-bar .dec-chip', b => b.disabled), r
 check('in an old-rev preview D1 is open again, and neither the chip nor the rail opens decision mode', oldPin && ro.chip && ro.rail, JSON.stringify(ro))
 await page.click('.preview-banner button:has-text("최신으로")'); await sleep(300)
 
-check('the agent left the scratch repo as it was', gitStatus() === treeBefore)
-await call('DELETE', `/api/sessions/${s.id}`)
+check('nothing touched the scratch repo', gitStatus() === treeBefore)
+await term.stop()
 if (errors.length) { failed++; console.log('page errors', errors) }
 await browser.close()
 process.exit(failed ? 1 : 0)

@@ -35,7 +35,8 @@ await call('POST', `/api/canvas/${NAME}/patch`, { ws, note: '시험 지도', pat
 } })
 
 const { browser, page, errors } = await open({ port, token: T, ws, width: 1500, height: 940 })
-await page.evaluate(([w, m]) => { localStorage.setItem('duet.tab', 'canvas'); localStorage.setItem(`duet.canvas.current:${w}`, m); localStorage.removeItem(`duet.canvas.collapsed:${w}:${m}`) }, [ws, NAME])
+// The box over the map is put away: the wheel and the drag below start where it floats.
+await page.evaluate(([w, m]) => { localStorage.setItem('duet.tab', 'canvas'); localStorage.setItem(`duet.canvas.current:${w}`, m); localStorage.removeItem(`duet.canvas.collapsed:${w}:${m}`); localStorage.setItem('duet.float.hidden', '1') }, [ws, NAME])
 await page.reload({ waitUntil: 'domcontentloaded' })
 await page.waitForSelector('.stage-inner > svg [data-target="store2"]', { timeout: 20000 }); await sleep(1200)
 const shot = async n => { if (shots) await page.screenshot({ path: `${shots}/zoom-fold-${n}.png` }) }

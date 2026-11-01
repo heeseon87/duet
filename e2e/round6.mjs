@@ -1,18 +1,16 @@
-// Checks for the round-6 feedback: repo picker, sideways scroll in the review, compaction summary,
-// pickers that reach "default" and work before the first message, "auto" as the default mode.
-//   DUET_PORT=7981 DUET_TOKEN=... DUET_WS=/path/to/demo-repo DUET_SESSION=<id with a summary and a long answer> DUET_SHOTS=/dir node e2e/round6.mjs
+// Checks for the round-6 feedback: repo picker, sideways scroll in the review.
+//   DUET_PORT=7981 DUET_TOKEN=... DUET_WS=/path/to/demo-repo DUET_SHOTS=/dir node e2e/round6.mjs
 import { open, sleep } from './browser.mjs'
 const port = Number(process.env.DUET_PORT ?? 7979)
 const T = process.env.DUET_TOKEN, ws = process.env.DUET_WS, shots = process.env.DUET_SHOTS
 if (!T || !ws) { console.error('DUET_TOKEN and DUET_WS are required'); process.exit(2) }
 const theme = process.env.DUET_THEME ?? 'light'
-const session = process.env.DUET_SESSION
 const { browser, page, errors } = await open({ port, token: T, ws, theme })
 let failed = 0
 const check = (name, ok, extra = '') => { if (!ok) failed++; console.log(ok ? 'PASS' : 'FAIL', name, extra) }
 const shot = async name => { if (shots) await page.screenshot({ path: `${shots}/${theme}-${name}.png` }) }
 
-await page.evaluate(([w, session]) => { localStorage.setItem('duet.tab', 'review'); localStorage.setItem(`duet.review.source:${w}`, JSON.stringify({ kind: 'working' })); localStorage.removeItem('duet.review.wrap'); if (session) localStorage.setItem(`duet.session:${w}`, session) }, [ws, session])
+await page.evaluate(w => { localStorage.setItem('duet.tab', 'review'); localStorage.setItem(`duet.review.source:${w}`, JSON.stringify({ kind: 'working' })); localStorage.removeItem('duet.review.wrap') }, ws)
 await page.reload({ waitUntil: 'domcontentloaded' })
 await page.waitForSelector('.tree-row.file', { timeout: 20000 })
 
@@ -81,35 +79,6 @@ await toggleWrap()
 const wrapped = await page.$eval('.file-diff .file-body', el => el.scrollWidth <= el.clientWidth + 1)
 check('wrap mode has no sideways scroll', wrapped)
 await toggleWrap()
-
-// 3. The compaction summary renders as markdown, without Claude Code's framing.
-await page.waitForSelector('.summary-card', { timeout: 8000 })
-check('compaction summary renders as markdown', Boolean(await page.$('.summary-card .md h3')) && Boolean(await page.$('.summary-card .md table')))
-check('summary drops Claude Code framing', !(await page.$eval('.summary-card', e => /This session is being continued|If you need specific details/.test(e.textContent ?? ''))))
-
-// 4 + 5. Pickers: "default" is reachable; picks before the first message stick; new conversations start in "auto".
-const label = i => page.$eval(`.composer-bar .pick >> nth=${i}`, e => e.textContent?.trim())
-const pickFrom = async (i, text) => {
-  await page.click(`.composer-bar .pick >> nth=${i}`); await sleep(250)
-  await page.click(`.popover .menu-item:has(.grow:text-is("${text}"))`); await sleep(500)
-}
-check('an old "ask" session still shows its own mode', (await label(1)) === 'ask')
-await page.click('.composer-bar .pick >> nth=1'); await sleep(250)
-const modes = await page.$$eval('.popover .menu-item', els => els.map(e => e.textContent.replace('✓', '')).join())
-check('the mode picker offers ask, edit, auto and nothing else', modes === 'ask,edit,auto', modes)
-await page.keyboard.press('Escape'); await sleep(200)
-await pickFrom(0, 'Opus 5.5')
-check('model picks Opus', (await label(0)) === 'Opus 5.5')
-await pickFrom(0, 'default')
-check('model goes back to default', (await label(0)) === 'default')
-await pickFrom(2, 'high')
-check('effort picks high', (await label(2)) === 'high')
-await pickFrom(2, 'default')
-check('effort goes back to default', (await label(2)) === 'default')
-await page.keyboard.press('Meta+Shift+o'); await sleep(1200)
-check('a new conversation starts in auto', (await label(1)) === 'auto')
-const created = await page.evaluate(async () => (await (await fetch('/api/sessions?ws=' + encodeURIComponent(new URLSearchParams(location.search).get('ws')))).json())[0])
-check('the server agrees: permissionMode auto', created.permissionMode === 'auto', created.permissionMode)
 
 if (errors.length) { failed++; console.log('page errors', errors) }
 await browser.close()

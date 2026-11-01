@@ -8,7 +8,7 @@ const { DUET_TOKEN: T, DUET_WS: ws, DUET_MAP: mapName } = process.env
 const { browser, page, errors } = await open({ port, token: T, ws })
 let failed = 0
 const check = (name, ok, extra = '') => { if (!ok) failed++; console.log(ok ? 'PASS' : 'FAIL', name, extra) }
-await page.evaluate(([w, m]) => { localStorage.setItem('duet.tab', 'canvas'); localStorage.setItem(`duet.canvas.current:${w}`, m); localStorage.setItem('duet.sideOpen', '1'); localStorage.setItem('duet.canvas.code', '0') }, [ws, mapName])
+await page.evaluate(([w, m]) => { localStorage.setItem('duet.tab', 'canvas'); localStorage.setItem(`duet.canvas.current:${w}`, m); localStorage.setItem('duet.canvas.code', '0') }, [ws, mapName])
 await page.reload({ waitUntil: 'domcontentloaded' })
 await page.waitForSelector('.stage-inner > svg .cv-node', { timeout: 20000 }); await sleep(800)
 const press = (key, code, o = {}, target = 'body') => page.evaluate(([key, code, o, target]) => document.querySelector(target).dispatchEvent(new KeyboardEvent('keydown', { key, code, bubbles: true, cancelable: true, ...o })), [key, code, o, target])
