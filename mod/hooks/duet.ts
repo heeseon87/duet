@@ -126,3 +126,65 @@ export const notConnected = '[Duet] This terminal is not connected to Duet, so t
 export function noRepo(cwd: string): string {
   return `A Duet workspace is a git repository, and this folder (${cwd}) is not inside one. Make the map from a folder inside a git repository.`
 }
+
+/**
+ * The one message this terminal holds from Duet, followed across the turns it causes.
+ * `turnId`: the main turn running for it now. `spawned`: the background agents its turns started; `running`: those
+ * not ended yet; `reported`: those whose hand-back started a turn of it. `answer`: its last turn's, kept while it waits.
+ */
+export type Held = { id: string; text: string; isWorking: boolean; turnId?: string; spawned?: string[]; running?: string[]; reported?: string[]; answer?: string }
+
+/** How long the session stays quiet, its agents done, before a message ends with no hand-back turn (one folded into a turn, or none). */
+export const QUIET_MS = 3_000
+
+/** The background agent a turn's prompt reports for: a hand-back, or a background task's notice. */
+export function reportFrom(text: string): string | undefined {
+  return /^<agent-message from="([^"]+)">/.exec(text)?.[1] ?? /^<task-notification>\s*<task-id>([^<\s]+)/.exec(text)?.[1]
+}
+
+/** A main turn starts: the message's own (`isNew`: it starts working), or one a hand-back of its agents starts. */
+export function heldStarts(held: Held | undefined, turn: { turnId: string; text: string }): { held: Held | undefined; isNew: boolean } {
+  if (!held || held.turnId) return { held, isNew: false }
+  if (turn.text === held.text) return { held: { ...held, turnId: turn.turnId, isWorking: true }, isNew: true }
+  const from = reportFrom(turn.text)
+  if (!held.isWorking || from === undefined || !held.spawned?.includes(from)) return { held, isNew: false }
+  return { held: { ...held, turnId: turn.turnId, reported: [...(held.reported ?? []), from] }, isNew: false }
+}
+
+/** The spawns the message waits for: a local background subagent of the main loop, whose end this terminal hears (no teammate, no workflow agent). */
+export const followsSpawn = (e: { background: boolean; parentAgentId?: string; isTeammate?: true; workflow?: unknown }) =>
+  e.background && e.parentAgentId === undefined && e.isTeammate === undefined && e.workflow === undefined
+
+/** Agents the engine lists as ended, or no longer lists, stop holding the message: an end this terminal never heard. */
+export function heldPrune(held: Held | undefined, agents: readonly { id: string; status: string }[]): Held | undefined {
+  if (!held?.running?.length) return held
+  const running = held.running.filter(a => agents.some(x => x.id === a && !['completed', 'failed', 'killed'].includes(x.status)))
+  return running.length === held.running.length ? held : { ...held, running }
+}
+
+/** A background agent starts in a turn of the message: the message waits for its hand-back. */
+export function heldSpawned(held: Held | undefined, agentId: string): Held | undefined {
+  if (!held?.turnId) return held
+  return { ...held, spawned: [...(held.spawned ?? []), agentId], running: [...(held.running ?? []), agentId] }
+}
+
+/** A turn ends, an agent's or a main one: `done` carries the answer for the thread (none when it was cut off). */
+export function heldEnds(held: Held | undefined, turn: { turnId: string; agentId?: string; answer: string; isAborted: boolean }): { held: Held | undefined; done?: { answer?: string } } {
+  if (!held) return { held }
+  if (turn.agentId !== undefined) {
+    return held.running?.includes(turn.agentId) ? { held: { ...held, running: held.running.filter(a => a !== turn.agentId) } } : { held }
+  }
+  if (!held.isWorking) return { held }
+  // A message held across a reload knows none of its turns: the next answer is its.
+  if (held.turnId === undefined && !held.spawned?.length) return { held: undefined, done: { answer: turn.isAborted ? undefined : turn.answer } }
+  if (held.turnId !== turn.turnId) return { held }
+  if (turn.isAborted) return { held: undefined, done: {} }
+  const waits = Boolean(held.running?.length) || Boolean(held.spawned?.some(a => !held.reported?.includes(a)))
+  return waits ? { held: { ...held, turnId: undefined, answer: turn.answer } } : { held: undefined, done: { answer: turn.answer } }
+}
+
+/** A message whose agents are all done, and no hand-back turn after `quietFor` ms of quiet, ends with its last answer. */
+export function heldQuiet(held: Held | undefined, quietFor: number): { answer?: string } | undefined {
+  if (!held?.isWorking || held.turnId !== undefined || !held.spawned?.length || held.running?.length) return undefined
+  return quietFor >= QUIET_MS ? { answer: held.answer } : undefined
+}

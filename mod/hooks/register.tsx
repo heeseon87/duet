@@ -1,7 +1,7 @@
 import type { EngineInterface, HttpResponse, Register, Timer } from 'claude-code'
 
-import { argsOf, duetHomeOf, heardPin, labelOf, linkOf, newMapOf, noRepo, notConnected, pinNote, runDuet, statusText, unreachable, unreachableForPerson } from './duet'
-import type { Link, Maps, MapSummary } from './duet'
+import { argsOf, duetHomeOf, followsSpawn, heardPin, heldEnds, heldPrune, heldQuiet, heldSpawned, heldStarts, labelOf, linkOf, newMapOf, noRepo, notConnected, pinNote, runDuet, statusText, unreachable, unreachableForPerson } from './duet'
+import type { Held, Link, Maps, MapSummary } from './duet'
 import { TOOLS } from './tools'
 
 /** How long the server holds a poll open: under the 30 s one `$.http.fetch` may take. */
@@ -13,7 +13,8 @@ type Outgoing = { id: string; text: string; state: 'queued' | 'delivered' | 'wor
 
 /**
  * The module's state; a reload starts it over, and the server tells the new module what it holds.
- * `held` is the one message this terminal has from Duet: submitted, it runs once the session is idle.
+ * `held` is the one message this terminal has from Duet: submitted, it runs once the session is idle, and holds on
+ * through the hand-back turns of the background agents it starts. `quietAt`: when the last turn, a main or an agent's, ended.
  * `isOn`: the person connected this terminal with `/duet`; until then it neither polls nor shows a status line.
  * `pin` is the map `/duet` pinned in this terminal; `told` is the pin this session's model last heard of.
  */
@@ -35,8 +36,11 @@ const st = {
   maps: undefined as MapSummary[] | undefined,
   pin: undefined as string | undefined,
   told: undefined as { session: string; pin: string | undefined } | undefined,
-  held: undefined as { id: string; text: string; turnId?: string; isWorking: boolean } | undefined,
+  held: undefined as Held | undefined,
   lastTurn: '',
+  isTurnRunning: false,
+  quietAt: 0,
+  isPruning: false,
   isPolling: false,
   retryAt: 0,
   timer: undefined as Timer | undefined,
@@ -177,8 +181,31 @@ async function turnOff($: EngineInterface) {
   draw($)
 }
 
+/** An agent of the held message that ended without an end this mod heard lets go of it; the hand-back turn still gets QUIET_MS. */
+async function pruneAgents($: EngineInterface) {
+  if (!st.held?.running?.length || st.isPruning) return
+  st.isPruning = true
+  try {
+    const agents = await $.agent.list()
+    const pruned = heldPrune(st.held, agents)
+    if (pruned !== st.held) {
+      st.held = pruned
+      st.quietAt = Date.now()
+    }
+  } catch {
+    // The next tick asks again.
+  } finally {
+    st.isPruning = false
+  }
+}
+
 /** Long-polls the server: the poll is the heartbeat, the inbox and the wake-up when a map changes. */
 async function pump($: EngineInterface) {
+  // Before the poll's guard: a poll is held open for up to WAIT_MS.
+  const held = st.held
+  const quiet = held && !st.isTurnRunning ? heldQuiet(held, Date.now() - st.quietAt) : undefined
+  if (held && quiet) void letGo($, held.id, quiet.answer)
+  void pruneAgents($)
   if (!st.isOn || st.isPolling || Date.now() < st.retryAt) return
   st.isPolling = true
   try {
@@ -327,6 +354,7 @@ export const register: Register = on => {
   on('turn.start', async ($, e, next) => {
     if (e.agentId !== undefined) return next(e)
     st.lastTurn = e.turnId
+    st.isTurnRunning = true
     // A compaction (/compact, the threshold) may drop the pin note: the model hears it again before it answers.
     // Read from what the model is sent, not from session.compact, which the built-in cc-plugin-sec-default (seated for Team and Enterprise organizations) keeps from installed plugins.
     if (st.isOn && st.pin !== undefined) {
@@ -336,21 +364,28 @@ export const register: Register = on => {
         await tellPin($)
       }
     }
-    const held = st.held
-    if (held && !held.turnId && e.text === held.text) {
-      st.held = { ...held, turnId: e.turnId, isWorking: true }
-      void report($, held.id, { state: 'working' })
-    }
+    const started = heldStarts(st.held, e)
+    st.held = started.held
+    if (started.isNew && started.held) void report($, started.held.id, { state: 'working' })
     return next(e)
   })
 
-  // The turn's answer is the reply: it goes to the canvas thread the message came from, as in Duet.
+  // A background agent started from the message's turn answers in a turn its hand-back starts: the message waits for it.
+  on('agent.spawn', { background: true }, async ($, e, next) => {
+    const result = await next(e)
+    if (followsSpawn(e) && result.agentId !== undefined) st.held = heldSpawned(st.held, result.agentId)
+    return result
+  })
+
+  // The answer of the message's last turn is the reply: it goes to the canvas thread the message came from, as in Duet.
   on('turn.complete', async ($, e, next) => {
     const result = await next(e)
+    if (e.agentId === undefined) st.isTurnRunning = false
+    st.quietAt = Date.now()
     const held = st.held
-    if (e.agentId === undefined && held?.isWorking && (held.turnId === undefined || held.turnId === e.turnId)) {
-      await letGo($, held.id, e.isAborted ? undefined : e.answer)
-    }
+    const ended = heldEnds(held, e)
+    if (held && ended.done) await letGo($, held.id, ended.done.answer)
+    else st.held = ended.held
     return result
   })
 
