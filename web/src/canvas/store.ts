@@ -1,8 +1,9 @@
 import { create } from 'zustand'
 import { diffMaps, type CanvasMap, type Delivery, type MapDiff } from '../../../shared/canvas.ts'
-import type { CanvasSummary, CanvasThread, MapCode, SessionInfo } from '../../../shared/protocol.ts'
+import type { CanvasSummary, CanvasThread, MapCode } from '../../../shared/protocol.ts'
 import { ApiError, api, q, subscribe } from '../api.ts'
-import { local, targetTerminal, useApp } from '../state.ts'
+import { local, useApp } from '../state.ts'
+import { sendingTo } from '../terminalTarget.ts'
 import { lastAgentRevision, revisedBoxes } from './revised.ts'
 import { withDecision } from './decisionQueue.ts'
 
@@ -74,31 +75,25 @@ type CanvasState = {
 
 const ws = () => useApp.getState().workspace?.path
 
-/** Where things go: the target terminal, else the conversation. */
-const target = () => {
-  const app = useApp.getState()
-  const terminal = targetTerminal(app)
-  return terminal ? { terminalId: terminal } : { sessionId: app.currentSession }
-}
-
-/** What the canvas sent to a conversation shows up in the agent panel: that conversation, opened (`quiet`: picked only). */
-async function showConversation(w: string, sessionId: string, quiet = false) {
-  const app = useApp.getState()
-  if (sessionId !== app.currentSession) {
-    useApp.setState({ sessions: await api.get<SessionInfo[]>(`/api/sessions${q({ ws: w })}`) })
-    await app.selectSession(sessionId)
-  }
-  if (!quiet) useApp.setState({ sideOpen: true })
+/** The terminal things go to; with none, it throws why in the person's words, before anything is sent. */
+const target = (): { terminalId: string } => {
+  const to = sendingTo(useApp.getState())
+  if ('refused' in to) throw new Error(to.refused)
+  return { terminalId: to.terminal }
 }
 
 /**
- * Choices made in decision mode that Claude has not heard of yet, per map, and where they were made to go (the
- * conversation or terminal the agent panel showed then): they outlive a reload or a closed tab.
+ * Choices made in decision mode that Claude has not heard of yet, per map, and the terminal they were made to go to
+ * (none when none was connected): they outlive a reload or a closed tab.
  */
-type Pending = { ids: string[]; to?: ReturnType<typeof target> }
+type Pending = { ids: string[]; to?: { terminalId: string } }
 const pendingKey = (w: string, name: string) => `canvas.pendingDecisions:${w}:${name}`
 export const pendingOf = (w: string, name: string): Pending => {
-  try { return { ids: [], ...JSON.parse(local.get(pendingKey(w, name)) ?? '{}') } } catch { return { ids: [] } }
+  try {
+    const p = { ids: [], ...JSON.parse(local.get(pendingKey(w, name)) ?? '{}') } as Pending
+    // Kept for a Duet conversation (before there were only terminals): they go to the terminal picked now.
+    return p.to?.terminalId ? p : { ids: p.ids }
+  } catch { return { ids: [] } }
 }
 const setPending = (w: string, name: string, p: Pending) => local.set(pendingKey(w, name), JSON.stringify(p))
 
@@ -117,7 +112,7 @@ function revisionSides(w: string, name: string, rev: number, current: { revision
   return sides
 }
 
-/** Sent items still with the agent move on with its conversation: refresh them as it goes, at most a few times a second. */
+/** Sent items still with a terminal move on with it: refresh them as it goes, at most a few times a second. */
 let refreshing: ReturnType<typeof setTimeout> | undefined
 function followDeliveries() {
   if (refreshing) return
@@ -256,9 +251,7 @@ export const useCanvas = create<CanvasState>((set, get) => ({
     const w = ws(), name = get().name
     if (!w || !name) return false
     try {
-      const res = await api.post<{ sessionId?: string; thread: CanvasThread }>(`/api/canvas/${name}/comment`, { ws: w, target: part, text, threadId, ...target() })
-      if (res.sessionId) await showConversation(w, res.sessionId)
-      else useApp.setState({ sideOpen: true })
+      await api.post<{ thread: CanvasThread }>(`/api/canvas/${name}/comment`, { ws: w, target: part, text, threadId, ...target() })
     } catch (e) {
       useApp.getState().toast((e as Error).message, 'error')
       return false
@@ -277,14 +270,13 @@ export const useCanvas = create<CanvasState>((set, get) => ({
   choose: async (decision, option, rationale, notify) => {
     const w = ws(), name = get().name
     if (!w || !name) return
-    const sent = await api.post<{ sessionId?: string; terminalId?: string }>(`/api/canvas/${name}/choose`, { ws: w, decision, option, rationale, notify, ...target() })
+    // Told to Claude: refused, with nothing chosen, when no terminal takes it.
+    const sent = await Promise.resolve()
+      .then(() => api.post<{ terminalId?: string }>(`/api/canvas/${name}/choose`, { ws: w, decision, option, rationale, notify, ...(notify ? target() : {}) }))
       .catch((e: Error) => { useApp.getState().toast(e.message, 'error') })
     if (!sent) return
     get().acknowledge()
     if (sent.terminalId) useApp.getState().toast('결정을 터미널에 보냈어')
-    if (!sent.sessionId) return
-    await showConversation(w, sent.sessionId)
-    useApp.getState().toast('결정을 보냈어')
   },
 
   deciding: false,
@@ -297,7 +289,8 @@ export const useCanvas = create<CanvasState>((set, get) => ({
       .catch((e: Error) => { useApp.getState().toast(e.message, 'error') })
     if (!cur) return undefined
     const p = pendingOf(w, name)
-    setPending(w, name, { ids: withDecision(p.ids, decision, send), to: send ? target() : p.to })
+    const to = sendingTo(useApp.getState())
+    setPending(w, name, { ids: withDecision(p.ids, decision, send), to: send && 'terminal' in to ? { terminalId: to.terminal } : p.to })
     get().acknowledge()
     return cur.revision
   },
@@ -317,16 +310,22 @@ export const useCanvas = create<CanvasState>((set, get) => ({
     if (!w || !name) return
     const { ids, to } = pendingOf(w, name)
     if (!ids.length) return
+    const now = sendingTo(useApp.getState())
+    // No terminal to take them: they wait, unsent, for the next time this map closes decision mode or opens.
+    if (!to && 'refused' in now) {
+      if (!quiet) useApp.getState().toast(`결정을 보내지 못했어: ${now.refused} 다음에 이 지도를 열 때 다시 보낼게`, 'error')
+      return
+    }
     // Taken off before the request, so a second flush (the mode closing as the map reopens) does not send them twice.
     setPending(w, name, { ids: [] })
-    type Sent = { sent: string[]; sessionId?: string; terminalId?: string }
-    const post = (t: ReturnType<typeof target>) => api.post<Sent>(`/api/canvas/${name}/decided`, { ws: w, decisions: ids, ...t }).catch((e: Error) => e)
-    let sent = await post(to ?? target())
-    // The conversation or terminal they were made for is gone: the one the panel shows now gets them.
-    if (sent instanceof ApiError && sent.status < 500 && to) sent = await post(target())
+    type Sent = { sent: string[]; terminalId?: string }
+    const post = (t: { terminalId: string }) => api.post<Sent>(`/api/canvas/${name}/decided`, { ws: w, decisions: ids, ...t }).catch((e: Error) => e)
+    let sent = await post(to ?? { terminalId: (now as { terminal: string }).terminal })
+    // The terminal they were made for is gone: the target now gets them.
+    if (sent instanceof ApiError && sent.status < 500 && sent.status !== 409 && to && 'terminal' in now && now.terminal !== to.terminalId) sent = await post({ terminalId: now.terminal })
     if (sent instanceof Error) {
-      // Refused for good (4xx): the map keeps the choices, and saying so beats failing on every open of this map.
-      if (sent instanceof ApiError && sent.status < 500) useApp.getState().toast(`결정을 Claude에게 보내지 못했어: ${sent.message}. 지도에는 남아 있어`, 'error')
+      // Refused for good (4xx but no terminal): the map keeps the choices, and saying so beats failing on every open of this map.
+      if (sent instanceof ApiError && sent.status < 500 && sent.status !== 409 && sent.status !== 410) useApp.getState().toast(`결정을 Claude에게 보내지 못했어: ${sent.message}. 지도에는 남아 있어`, 'error')
       else {
         setPending(w, name, { ids: [...new Set([...pendingOf(w, name).ids, ...ids])], to })
         useApp.getState().toast(`결정을 보내지 못했어: ${sent.message}. 다음에 이 지도를 열 때 다시 보낼게`, 'error')
@@ -334,9 +333,7 @@ export const useCanvas = create<CanvasState>((set, get) => ({
       return
     }
     if (!sent.sent.length) return
-    const app = useApp.getState()
-    if (sent.sessionId) await showConversation(w, sent.sessionId, quiet)
-    if (!quiet) app.toast(sent.terminalId ? `결정 ${sent.sent.length}개를 터미널에 보냈어` : `결정 ${sent.sent.length}개를 Claude에게 보냈어`)
+    if (!quiet) useApp.getState().toast(`결정 ${sent.sent.length}개를 터미널에 보냈어`)
     if (get().name === name) await get().refreshThreads()
   },
 
@@ -377,10 +374,6 @@ subscribe(ev => {
   // After a reconnect (the server may have restarted), what was in flight has ended or been answered.
   if (ev.topic === 'hello' && s.name) void s.refreshThreads()
   const pending = Object.values(s.deliveries).some(d => d.state === 'queued' || d.state === 'delivered' || d.state === 'working')
-  if (ev.topic === 'session' && pending) {
-    const e = ev.event
-    if (e.kind === 'turn-start' || e.kind === 'turn-end' || e.kind === 'status' || e.kind === 'user' || (e.kind === 'sdk' && e.msg.type === 'command_lifecycle')) followDeliveries()
-  }
   // A terminal took a message, started on it, or closed with it.
   if (ev.topic === 'terminals' && pending) followDeliveries()
   if (ev.topic === 'canvas-list' && ev.workspace === ws()) void s.loadList()

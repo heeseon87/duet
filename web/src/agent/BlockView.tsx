@@ -40,7 +40,7 @@ const Summary = memo(function Summary({ b }: { b: UserBlock; rev: number }) {
   )
 }, (a, b) => a.rev === b.rev)
 
-const User = memo(function User({ b, sessionId }: { b: UserBlock; rev: number; sessionId?: string }) {
+const User = memo(function User({ b }: { b: UserBlock; rev: number }) {
   const [open, setOpen] = useState(false)
   const long = b.text.length > 700 || b.text.split('\n').length > 14
   const isReview = /코멘트 \d+개/.test(b.text.split('\n')[0] ?? '') && b.context?.some(c => c.kind === 'review')
@@ -60,13 +60,6 @@ const User = memo(function User({ b, sessionId }: { b: UserBlock; rev: number; s
       {b.context && b.context.length > 0 && !isReview && !isCanvas && (
         <div className="ctx-chips">
           {b.context.map((c, i) => <span key={i} className="chip"><MessageSquareQuote size={11} />{c.label}</span>)}
-        </div>
-      )}
-      {b.images && b.images.length > 0 && sessionId && (
-        <div className="msg-images">
-          {b.images.map(img => (
-            <a key={img.file} href={`/api/sessions/${sessionId}/files/${img.file}`} target="_blank" rel="noreferrer"><img src={`/api/sessions/${sessionId}/files/${img.file}`} alt="붙인 이미지" /></a>
-          ))}
         </div>
       )}
       {b.queued && <div className="queued-tag"><Clock size={11} /> 대기열</div>}
@@ -111,7 +104,7 @@ export function BlockView({ block, ctx, nested, onReviewTurn }: { block: Block; 
   switch (block.kind) {
     case 'user':
       if (nested) return null
-      return block.summary ? <Summary b={block} rev={block.rev} /> : <User b={block} rev={block.rev} sessionId={ctx.sessionId} />
+      return block.summary ? <Summary b={block} rev={block.rev} /> : <User b={block} rev={block.rev} />
     case 'text':
       return block.text.trim() || block.streaming
         ? (

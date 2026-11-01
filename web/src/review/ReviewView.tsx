@@ -1,22 +1,22 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
-  ChevronDown, ChevronRight, Columns2, FolderGit2, Package, Box, Shapes, GitBranch, GitCommitHorizontal, GitPullRequest, Bot, Check, Loader2, MessageSquare, RefreshCw,
+  ChevronDown, ChevronRight, Columns2, FolderGit2, Package, Box, Shapes, GitBranch, GitCommitHorizontal, GitPullRequest, Check, Loader2, MessageSquare, RefreshCw,
   Rows3, Search, Settings2, X, FilePen, Folder, ArrowLeft, Copy, Map as MapIcon,
 } from 'lucide-react'
-import type { DiffFile, DiffSource, GitInfo, TurnRef } from '../../../shared/protocol.ts'
+import type { DiffFile, DiffSource, GitInfo } from '../../../shared/protocol.ts'
 import { api, q } from '../api.ts'
 import { Popover, relTime, isTypingTarget, shortcutKey, useNow } from '../lib/ui.tsx'
-import { local, useApp } from '../state.ts'
+import { useApp } from '../state.ts'
 import { DiffView, STATUS_LETTER } from './DiffView.tsx'
 import { CommentsDock } from './Comments.tsx'
 import { FileView } from './FileView.tsx'
 import { PrPanel, PrPicker } from './PullRequest.tsx'
 import { FindBar } from './FindBar.tsx'
-import { changedFiles, sourceLabel, turnRefs, useReview } from './store.ts'
+import { sourceLabel, useReview } from './store.ts'
 import { listedFiles, mapGroups, type MapNode } from './mapGroups.ts'
 import { refBase } from '../../../shared/mapFiles.ts'
 import { useCanvas } from '../canvas/store.ts'
-import { WorkChip, WorkspaceMenu } from '../WorkspaceMenu.tsx'
+import { WorkspaceMenu } from '../WorkspaceMenu.tsx'
 import { CHANGE_LABEL } from '../canvas/words.ts'
 
 type LogEntry = { sha: string; short: string; subject: string; author: string; date: number; refs: string }
@@ -43,26 +43,9 @@ function SearchList<T>({ items, render, onPick, placeholder, keyOf, filter }: {
   )
 }
 
-/** A conversation's turns as seen from a tree, fetched again after each turn it finishes. */
-function useTurns(sessionId: string | undefined, root: string | undefined, on = true): TurnRef[] | undefined {
-  const done = useApp(s => s.sessions.find(x => x.id === sessionId)?.turns)
-  const where = `${sessionId}\0${root}`
-  const [got, setGot] = useState<{ where: string; turns: TurnRef[] }>()
-  useEffect(() => {
-    if (!on || !sessionId || !root) return
-    let alive = true
-    void turnRefs(sessionId, root).then(turns => { if (alive) setGot({ where, turns }) }).catch(() => undefined)
-    return () => { alive = false }
-  }, [where, done, on]) // eslint-disable-line react-hooks/exhaustive-deps
-  return got?.where === where ? got.turns : undefined
-}
-
-function RefPicker({ value, info, onPick, allowWorktree, label, turns }: { value: string; info?: GitInfo; onPick: (v: string) => void; allowWorktree?: boolean; label: string; turns?: TurnRef[] }) {
+function RefPicker({ value, info, onPick, allowWorktree, label }: { value: string; info?: GitInfo; onPick: (v: string) => void; allowWorktree?: boolean; label: string }) {
   const ref = useRef<HTMLButtonElement>(null)
   const [open, setOpen] = useState(false)
-  // The commits this conversation's turns started on here, newest first.
-  const starts = (turns ?? []).filter(t => t.base).reverse()
-  const turn = starts.find(t => t.base!.sha === value)
   const items = useMemo(() => {
     const list: { name: string; sub: string }[] = []
     if (allowWorktree) list.push({ name: 'WORKTREE', sub: `${info?.branch ?? 'HEAD'} + uncommitted changes` })
@@ -73,23 +56,11 @@ function RefPicker({ value, info, onPick, allowWorktree, label, turns }: { value
     <>
       <button ref={ref} className="ref-pick" onClick={() => setOpen(o => !o)}>
         <span className="muted">{label}</span>
-        <b>{value === 'WORKTREE' ? 'Working tree' : turn ? `턴 ${turn.n} 직전 · ${value.slice(0, 7)}` : /^[0-9a-f]{40}$/.test(value) ? value.slice(0, 7) : value}</b>
+        <b>{value === 'WORKTREE' ? 'Working tree' : /^[0-9a-f]{40}$/.test(value) ? value.slice(0, 7) : value}</b>
         <ChevronDown size={11} />
       </button>
       {open && (
-        <Popover anchor={ref.current} onClose={() => setOpen(false)} width={starts.length ? 420 : 340}>
-          {starts.length > 0 && <>
-            <div className="menu-label">이 대화의 턴 시작 직전</div>
-            {starts.map(t => (
-              <button key={t.turnId} className="menu-item" aria-checked={t.base!.sha === value} onClick={() => { onPick(t.base!.sha); setOpen(false) }}>
-                <span className="grow ellipsis">
-                  <span className="ellipsis">턴 {t.n} 시작 직전 <code className="muted">{t.base!.sha.slice(0, 7)}</code> {t.base!.subject}</span>
-                  <span className="meta">{relTime(t.base!.date)}</span>
-                </span>
-              </button>
-            ))}
-            <div className="menu-sep" />
-          </>}
+        <Popover anchor={ref.current} onClose={() => setOpen(false)} width={340}>
           <SearchList items={items} placeholder="브랜치 찾기" keyOf={t => t.name}
             filter={(t, s) => t.name.toLowerCase().includes(s)}
             render={t => <span className="grow"><span>{t.name === 'WORKTREE' ? 'Working tree' : t.name}</span><span className="meta">{t.sub}</span></span>}
@@ -134,45 +105,6 @@ function CommitPicker({ root, source, onPick }: { root: string; source: Extract<
   )
 }
 
-function TurnPicker({ source, onPick }: { source: Extract<DiffSource, { kind: 'turn' }>; onPick: (s: DiffSource) => void }) {
-  const { sessions } = useApp()
-  const { root, showLastTurn } = useReview()
-  const ref = useRef<HTMLButtonElement>(null)
-  const [open, setOpen] = useState(false)
-  const session = sessions.find(s => s.id === source.sessionId)
-  const turns = useTurns(source.sessionId, root)
-  const turn = turns?.find(t => t.turnId === source.turnId)
-  const last = (id: string) => { void showLastTurn(id); setOpen(false) }
-  return (
-    <>
-      <button ref={ref} className="ref-pick" onClick={() => setOpen(o => !o)}>
-        <span className="muted">대화</span>
-        <b className="ellipsis" style={{ maxWidth: 200 }}>{session?.title ?? '선택'}</b>
-        {(turn || !source.turnId) && <span className="muted">· {turn ? `턴 ${turn.n}` : '마지막 턴'}</span>}
-        <ChevronDown size={11} />
-      </button>
-      {open && (
-        <Popover anchor={ref.current} onClose={() => setOpen(false)} width={360}>
-          <div className="menu-label">대화</div>
-          {sessions.map(s => (
-            <button key={s.id} className="menu-item" aria-checked={s.id === source.sessionId} onClick={() => last(s.id)}>
-              <span className={`dot ${s.status}`} /><span className="grow ellipsis">{s.title}</span><span className="sub">{s.turns}턴</span>
-            </button>
-          ))}
-          <div className="menu-sep" />
-          <div className="menu-label">이 대화의 턴</div>
-          <button className="menu-item" onClick={() => last(source.sessionId)}>파일을 바꾼 마지막 턴</button>
-          {turns?.map(t => (
-            <button key={t.turnId} className={`menu-item ${changedFiles(t) ? '' : 'quiet'}`} aria-checked={t.turnId === source.turnId} onClick={() => { onPick({ kind: 'turn', sessionId: source.sessionId, turnId: t.turnId }); setOpen(false) }}>
-              턴 {t.n}<span className="sub">{t.files !== undefined ? `파일 ${t.files}개 · ` : t.wrote ? '기록 없음 · ' : ''}{relTime(t.ended ?? t.started)}</span>
-            </button>
-          ))}
-        </Popover>
-      )}
-    </>
-  )
-}
-
 function RootPicker({ info }: { info?: GitInfo }) {
   const { root, home, repos, setRoot } = useReview()
   const ref = useRef<HTMLButtonElement>(null)
@@ -203,7 +135,7 @@ function RootPicker({ info }: { info?: GitInfo }) {
           {repos.length > 0 && <div className="menu-label">관련 저장소</div>}
           {repos.map(r => (
             <button key={r.path} className="menu-item" aria-checked={r.path === root} onClick={() => pick(r.path)}>
-              <span className="grow ellipsis"><span>{r.label}</span><span className="meta">{[r.branch, r.name, r.sessions.length ? `대화 ${r.sessions.length}개` : '', r.maps.length ? `지도 ${r.maps.length}개` : ''].filter(Boolean).join(' · ')}</span></span>
+              <span className="grow ellipsis"><span>{r.label}</span><span className="meta">{[r.branch, r.name, r.maps.length ? `지도 ${r.maps.length}개` : ''].filter(Boolean).join(' · ')}</span></span>
             </button>
           ))}
           {others.length > 0 && <div className="menu-label">다른 워크트리</div>}
@@ -218,34 +150,10 @@ function RootPicker({ info }: { info?: GitInfo }) {
   )
 }
 
-/** On the workspace while its conversations changed code in another repo: say so, one click away. */
-function RepoHint() {
-  const { root, home, setRoot } = useReview()
-  const repos = useReview(s => s.repos).filter(r => r.sessions.length > 0)
-  const key = `review.repoHint:${home}`
-  const seen = repos.map(r => r.path).join('|')
-  const [dismissed, setDismissed] = useState(() => local.get(key))
-  if (!home || root !== home || !repos.length || dismissed === seen) return null
-  return (
-    <div className="repo-hint">
-      <FolderGit2 size={13} />
-      <span>대화가 고친 저장소</span>
-      {repos.slice(0, 3).map(r => (
-        <button key={r.path} className="btn sm" onClick={() => void setRoot(r.path)}>
-          <b>{r.label}</b>{r.branch && <span className="muted">{r.branch}</span>}
-        </button>
-      ))}
-      <span className="grow" />
-      <button className="iconbtn" title="닫기" onClick={() => { local.set(key, seen); setDismissed(seen) }}><X size={13} /></button>
-    </div>
-  )
-}
-
 const KINDS: { kind: DiffSource['kind']; label: string; icon: React.ReactNode }[] = [
   { kind: 'working', label: 'Changes', icon: <FilePen size={13} /> },
   { kind: 'branch', label: 'Compare', icon: <GitBranch size={13} /> },
   { kind: 'commits', label: 'Commits', icon: <GitCommitHorizontal size={13} /> },
-  { kind: 'turn', label: 'Turns', icon: <Bot size={13} /> },
   { kind: 'pr', label: 'PR', icon: <GitPullRequest size={13} /> },
 ]
 
@@ -277,8 +185,7 @@ function ViewMenu() {
 
 /** A bound map holds the review on its code: what it shows, and the way to change it (on the map, not here). */
 function BoundBar() {
-  const { bound, root, source, loading, refresh, editCode, setSource, showMapCode, showLastTurn } = useReview()
-  const currentSession = useApp(s => s.currentSession)
+  const { bound, root, source, loading, refresh, editCode } = useReview()
   if (!bound) return null
   return (
     <div className="source-bar bound">
@@ -286,20 +193,7 @@ function BoundBar() {
         <MapIcon size={13} /><span className="ellipsis">지도 <b>{bound.title}</b>의 코드</span>
       </span>
       <span className="ref-pick static" title={root}><FolderGit2 size={13} /><b className="ellipsis">{root?.split('/').pop()}</b></span>
-      {source.kind === 'turn' ? (
-        // One turn of the map's code: the same tree, narrowed to what the turn changed there.
-        <span className="narrow-turn">
-          <span className="muted">에서</span>
-          <TurnPicker source={source} onPick={setSource} />
-          <span className="muted">만</span>
-          <button className="iconbtn" title="지도의 코드 전체 보기" onClick={showMapCode}><X size={12} /></button>
-        </span>
-      ) : (
-        <>
-          <span className="bound-source">{source.kind === 'branch' && source.compare === 'WORKTREE' ? `${sourceLabel(source).split(' ← ')[1]} 이후 지금까지(커밋 안 한 것 포함)` : sourceLabel(source)}</span>
-          {currentSession && <button className="btn sm" title="이 대화에서 지도의 코드를 바꾼 마지막 턴의 변경만" onClick={() => void showLastTurn(currentSession)}><Bot size={13} /> 턴만 보기</button>}
-        </>
-      )}
+      <span className="bound-source">{source.kind === 'branch' && source.compare === 'WORKTREE' ? `${sourceLabel(source).split(' ← ')[1]} 이후 지금까지(커밋 안 한 것 포함)` : sourceLabel(source)}</span>
       <button className="btn sm" onClick={editCode}>코드 기준 바꾸기</button>
       <span className="grow" />
       <ViewMenu />
@@ -321,7 +215,7 @@ function ReviewHead() {
   return (
     <div className="review-head">
       <div className="review-head-line">
-        <WorkspaceMenu /><WorkChip />
+        <WorkspaceMenu />
         <span className="head-sep" />
         <h1 className="review-title ellipsis" title={root}>{name}</h1>
         <div className="review-meta">
@@ -333,43 +227,37 @@ function ReviewHead() {
           {root && <button className="link-btn" title={`${root}\n경로 복사`} onClick={() => { void navigator.clipboard.writeText(root); toast('경로를 복사했어') }}><Copy size={11} /></button>}
         </div>
       </div>
-      <RepoHint />
     </div>
   )
 }
 
 function SourceBar() {
-  const { source, setSource, info, root, loading, refresh, showLastTurn, bound, editing, saveCode, cancelCode } = useReview()
-  const currentSession = useApp(s => s.currentSession)
-  const turns = useTurns(currentSession, root, source.kind === 'branch')
+  const { source, setSource, info, root, loading, refresh, bound, editing, saveCode, cancelCode } = useReview()
   const pick = (kind: DiffSource['kind']) => {
     if (kind === source.kind) return
     if (kind === 'working') setSource({ kind: 'working' })
     else if (kind === 'branch') setSource({ kind: 'branch', base: info?.defaultBase ?? 'main', compare: 'WORKTREE' })
     else if (kind === 'commits') setSource({ kind: 'commits', to: 'HEAD' })
     else if (kind === 'pr') setSource({ kind: 'pr' })
-    else if (currentSession) void showLastTurn(currentSession)
-    else useApp.getState().toast('먼저 에이전트와 대화를 시작해 줘', 'error')
   }
   if (bound && !editing) return <BoundBar />
   return (
     <div className={`source-bar ${editing ? 'editing' : ''}`}>
       {editing && <span className="bound-chip"><MapIcon size={13} /><span className="ellipsis">지도 <b>{bound?.title}</b>의 기준 바꾸는 중</span></span>}
       <div className="seg kinds">
-        {KINDS.filter(k => !editing || k.kind !== 'turn').map(k => (
+        {KINDS.map(k => (
           <button key={k.kind} aria-pressed={source.kind === k.kind} onClick={() => pick(k.kind)} title={k.label}>{k.icon}<span className="kind-label">{k.label}</span></button>
         ))}
       </div>
       <RootPicker info={info} />
       {source.kind === 'branch' && (
         <>
-          <RefPicker label="base" value={source.base} info={info} turns={turns} onPick={v => setSource({ ...source, base: v })} />
+          <RefPicker label="base" value={source.base} info={info} onPick={v => setSource({ ...source, base: v })} />
           <span className="muted">←</span>
           <RefPicker label="compare" value={source.compare} info={info} allowWorktree onPick={v => setSource({ ...source, compare: v })} />
         </>
       )}
       {source.kind === 'commits' && root && <CommitPicker root={root} source={source} onPick={setSource} />}
-      {source.kind === 'turn' && <TurnPicker source={source} onPick={setSource} />}
       {source.kind === 'pr' && root && <PrPicker root={root} source={source} onPick={setSource} />}
       <span className="grow" />
       {editing && (
@@ -537,7 +425,7 @@ function MapTree({ model }: { model: ReturnType<typeof mapGroups> }) {
 
 export function ReviewView() {
   const workspace = useApp(s => s.workspace)
-  const { home, root, init, diff, loading, error, selected, select, fileView, toggleViewed, viewed, setMode, toggle, refresh, closeFile, source, comments, group, setGroup, scope, setScope, filter, setFilter, sinceTurn } = useReview()
+  const { home, root, init, diff, loading, error, selected, select, fileView, toggleViewed, viewed, setMode, toggle, refresh, closeFile, source, comments, group, setGroup, scope, setScope, filter, setFilter } = useReview()
   const map = useCanvas(s => s.map), mapCode = useCanvas(s => s.code)
   const [navTab, setNavTab] = useState<'files' | 'comments'>('files')
   const [finding, setFinding] = useState(false)
@@ -608,10 +496,6 @@ export function ReviewView() {
   }, [selected])
 
   const viewedCount = files.filter(f => viewed[f.path]).length
-  // A turn that kept no record of this tree can still be seen from the commit it started on.
-  const unrecorded = source.kind === 'turn' && /이 저장소의 변경 기록이 없어/.test(error ?? '')
-  const turns = useTurns(source.kind === 'turn' ? source.sessionId : undefined, root, unrecorded)
-  const stand = unrecorded && source.kind === 'turn' ? turns?.find(t => t.turnId === source.turnId && t.base) : undefined
 
   return (
     <div className="review">
@@ -664,14 +548,13 @@ export function ReviewView() {
           ) : error ? (
             <div className="empty">
               <h3>{source.kind === 'pr' ? 'PR을 보여 줄 수 없어' : 'diff를 만들지 못했어'}</h3><p>{error}</p>
-              {stand && <button className="btn primary" onClick={() => sinceTurn(stand)}>턴 {stand.n} 시작 직전 커밋부터 지금까지 보기</button>}
               <button className="btn" onClick={() => void refresh()}>다시 시도</button>
             </div>
           ) : !diff ? (
             <div className="empty"><Loader2 className="spin" size={18} /></div>
           ) : !files.length ? (
             <div className="empty">
-              <h3>{scope && diff.files.length ? `${scope.label}에는 바뀐 파일이 없어` : source.kind === 'turn' ? (useReview.getState().bound ? '이 턴은 지도의 코드에서 파일을 바꾸지 않았어' : '이 턴은 파일을 바꾸지 않았어') : '바뀐 파일이 없어'}</h3>
+              <h3>{scope && diff.files.length ? `${scope.label}에는 바뀐 파일이 없어` : '바뀐 파일이 없어'}</h3>
               <p>{sourceLabel(source)}</p>
             </div>
           ) : file ? (

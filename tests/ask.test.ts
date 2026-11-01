@@ -1,6 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { answersOf } from '../web/src/agent/askModel.ts'
-import { Transcript, type ToolBlock } from '../web/src/agent/transcript.ts'
+import { Transcript, answersOf, type ToolBlock } from '../web/src/agent/transcript.ts'
 import type { SessionEvent } from '../shared/protocol.ts'
 
 const questions = [

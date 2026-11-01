@@ -223,12 +223,6 @@ textarea.input { height: auto; padding: 8px 10px; resize: vertical; line-height:
 .seg button + button { border-left: 1px solid var(--line); }
 .seg button[aria-pressed='true'] { background: var(--accent-soft); color: var(--accent-ink); }
 
-.dot { width: 7px; height: 7px; border-radius: 50%; background: var(--ink-4); flex: none; }
-.dot.running { background: var(--agent); box-shadow: 0 0 0 3px var(--agent-soft); animation: pulse 1.4s var(--ease) infinite; }
-.dot.waiting { background: var(--warn); box-shadow: 0 0 0 3px var(--warn-bg); }
-.dot.idle { background: var(--add); }
-.dot.error { background: var(--del); }
-.dot.starting { background: var(--accent); animation: pulse 1s infinite; }
 @keyframes pulse { 50% { box-shadow: 0 0 0 5px transparent; opacity: 0.7; } }
 
 .muted { color: var(--ink-3); }

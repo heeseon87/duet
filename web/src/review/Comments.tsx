@@ -1,9 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { Check, CornerDownLeft, MessageSquare, Pencil, Send, Trash2, Undo2, X, ArrowUpRight } from 'lucide-react'
+import { Check, CornerDownLeft, MessageSquare, Pencil, Send, Trash2, Undo2, X } from 'lucide-react'
 import type { ReviewComment } from '../../../shared/protocol.ts'
 import { Markdown } from '../lib/Markdown.tsx'
 import { relTime } from '../lib/ui.tsx'
-import { useApp } from '../state.ts'
 import { useReview, type Draft } from './store.ts'
 
 /** Drops the indentation every line shares, so a short excerpt starts at the code. */
@@ -55,10 +54,7 @@ export function CommentEditor({ draft }: { draft: Draft }) {
 
 export function CommentCard({ c, compact }: { c: ReviewComment; compact?: boolean }) {
   const { setDraft, updateComment, removeComment, send, openFile } = useReview()
-  const selectSession = useApp(s => s.selectSession)
   const state = c.outdated ? 'Outdated' : c.state === 'draft' ? 'Pending' : c.state === 'sent' ? 'Sent' : 'Resolved'
-  // Sent to a terminal: there is no Duet conversation to open.
-  const sentSession = c.state === 'sent' && c.sentTo && 'sessionId' in c.sentTo ? c.sentTo.sessionId : undefined
   return (
     <div className={`comment-card ${c.state}${c.outdated ? ' outdated' : ''}`}>
       <div className="comment-meta">
@@ -67,7 +63,6 @@ export function CommentCard({ c, compact }: { c: ReviewComment; compact?: boolea
         <span className="muted">{relTime(c.created)}</span>
         <span className="grow" />
         {c.state === 'draft' && <button className="iconbtn" title="보내기" onClick={() => void send([c.id])}><Send size={13} /></button>}
-        {sentSession && <button className="iconbtn" title="보낸 대화 보기" onClick={() => void selectSession(sentSession)}><ArrowUpRight size={13} /></button>}
         {c.state !== 'resolved'
           ? <button className="iconbtn" title="Resolve" onClick={() => void updateComment(c.id, { state: 'resolved' })}><Check size={13} /></button>
           : <button className="iconbtn" title="Reopen" onClick={() => void updateComment(c.id, { state: 'draft' })}><Undo2 size={13} /></button>}
@@ -85,7 +80,6 @@ export function CommentsDock() {
   const { comments, send } = useReview()
   const [extra, setExtra] = useState('')
   const [showResolved, setShowResolved] = useState(false)
-  const [newSession, setNewSession] = useState(false)
   const drafts = comments.filter(c => c.state === 'draft')
   const [picked, setPicked] = useState<Set<string>>(() => new Set(drafts.map(c => c.id)))
   useEffect(() => { setPicked(new Set(useReview.getState().comments.filter(c => c.state === 'draft').map(c => c.id))) }, [comments.length])
@@ -99,7 +93,7 @@ export function CommentsDock() {
   const pickedDrafts = drafts.filter(c => picked.has(c.id))
   const go = async () => {
     if (!pickedDrafts.length) return
-    await send(pickedDrafts.map(c => c.id), extra, newSession)
+    await send(pickedDrafts.map(c => c.id), extra)
     setExtra('')
   }
   return (
@@ -133,7 +127,6 @@ export function CommentsDock() {
         <textarea className="input" rows={2} placeholder="덧붙일 말 (선택)" value={extra} onChange={e => setExtra(e.target.value)}
           onKeyDown={e => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); void go() } }} />
         <div className="row">
-          <label className="toggle"><input type="checkbox" checked={newSession} onChange={e => setNewSession(e.target.checked)} /> 새 대화로</label>
           <span className="grow" />
           <button className="btn agent" disabled={!pickedDrafts.length} onClick={() => void go()} title="⌘⏎">
             <CornerDownLeft size={13} /> {pickedDrafts.length}개 보내기

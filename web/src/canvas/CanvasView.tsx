@@ -21,7 +21,7 @@ import { useReview } from '../review/store.ts'
 import { FloatComposer } from '../agent/FloatComposer.tsx'
 import { Ask } from './DecisionParts.tsx'
 import { DecisionMode } from './DecisionMode.tsx'
-import { WorkChip, WorkspaceMenu } from '../WorkspaceMenu.tsx'
+import { WorkspaceMenu } from '../WorkspaceMenu.tsx'
 
 const kindLabel = (kind = 'class') => (kind === 'group' ? 'package' : kind)
 
@@ -120,7 +120,7 @@ function Timeline() {
 
 /** The head line with only the workspace in it: no map yet, or one still loading. */
 function HeadLine() {
-  return <div className="canvas-bar map-head"><div className="map-head-row"><span className="head-ws"><WorkspaceMenu /><WorkChip /></span></div></div>
+  return <div className="canvas-bar map-head"><div className="map-head-row"><span className="head-ws"><WorkspaceMenu /></span></div></div>
 }
 
 const ARROW_LABEL: Record<ArrowKind, string> = {
@@ -211,10 +211,10 @@ export function CanvasView() {
   const shownMap = s.preview?.map ?? s.map
   // The same files the review lists, matched to the parts the same way: what is built, what is not yet.
   const bound = useReview(r => r.bound), editing = useReview(r => r.editing), diff = useReview(r => r.diff), root = useReview(r => r.root), home = useReview(r => r.home)
-  const oneTurn = useReview(r => r.source.kind === 'turn'), viewed = useReview(r => r.viewed)
+  const viewed = useReview(r => r.viewed)
   const code = useMemo(
-    () => (shownMap?.diagram === 'class' && bound && bound.map === s.mapName && !editing && diff && root && home ? codeMarks(shownMap, diff.files, root, refBase(home, s.code?.root), { pending: !oneTurn, viewed: new Set(Object.keys(viewed)) }) : undefined),
-    [shownMap, bound, s.mapName, s.code, editing, diff, root, home, oneTurn, viewed],
+    () => (shownMap?.diagram === 'class' && bound && bound.map === s.mapName && !editing && diff && root && home ? codeMarks(shownMap, diff.files, root, refBase(home, s.code?.root), { pending: true, viewed: new Set(Object.keys(viewed)) }) : undefined),
+    [shownMap, bound, s.mapName, s.code, editing, diff, root, home, viewed],
   )
   const foldable = useMemo(() => {
     const parents = new Set((shownMap?.elements ?? []).map(e => e.parent).filter(Boolean))
@@ -402,7 +402,7 @@ export function CanvasView() {
     <div className="canvas">
       <div className="canvas-bar map-head">
         <div className="map-head-row">
-          <span className="head-ws"><WorkspaceMenu /><WorkChip /></span>
+          <span className="head-ws"><WorkspaceMenu /></span>
           <span className="head-sep" />
           <MapPicker />
           <div className="map-head-meta">
@@ -561,7 +561,7 @@ function NewMapInline() {
 
 /** What the map's code holds against the map, one click from the review that lists it. */
 function CodeChip({ marks }: { marks?: ReturnType<typeof codeMarks> }) {
-  const bound = useReview(r => r.bound), diff = useReview(r => r.diff), loading = useReview(r => r.loading), oneTurn = useReview(r => r.source.kind === 'turn')
+  const bound = useReview(r => r.bound), diff = useReview(r => r.diff), loading = useReview(r => r.loading)
   const mapName = useCanvas(c => c.mapName), hasCode = useCanvas(c => Boolean(c.code)), preview = useCanvas(c => Boolean(c.preview))
   if (mapName && !hasCode && !preview) {
     return <button className="chip code-chip" title="리뷰가 이 지도의 코드를 보여 주게 연결해" onClick={() => void bindMapCode(false)}><FolderGit2 size={13} /> 코드 연결</button>
@@ -571,7 +571,6 @@ function CodeChip({ marks }: { marks?: ReturnType<typeof codeMarks> }) {
   const pending = all.filter(m => m.state === 'pending').length
   const unplanned = all.filter(m => m.state === 'unplanned').length
   const parts = !diff ? [loading ? '불러오는 중' : '코드 없음'] : [
-    ...(oneTurn ? ['한 턴만'] : []),
     `바뀐 파일 ${diff.files.length}`,
     pending ? `구현 전 ${pending}` : '',
     unplanned ? `계획 밖 ${unplanned}` : '',

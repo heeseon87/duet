@@ -1,7 +1,8 @@
 import { create } from 'zustand'
-import type { DiffFile, DiffResult, DiffSource, GitInfo, MapCode, ReviewComment, ReviewRepo, SessionInfo, TurnRef } from '../../../shared/protocol.ts'
+import type { DiffFile, DiffResult, DiffSource, GitInfo, MapCode, ReviewComment, ReviewRepo } from '../../../shared/protocol.ts'
 import { api, q, subscribe } from '../api.ts'
-import { local, targetTerminal, useApp } from '../state.ts'
+import { local, useApp } from '../state.ts'
+import { sendingTo } from '../terminalTarget.ts'
 import { reanchor } from './anchor.ts'
 import { filesUnder, labelOf, type CanvasMap } from '../../../shared/canvas.ts'
 import { useCanvas } from '../canvas/store.ts'
@@ -49,8 +50,6 @@ type ReviewState = {
   /** Follows the map on the canvas (none: the review is free again). */
   bind: (b: ReviewState['bound']) => Promise<void>
   editCode: () => void
-  /** Back from one turn to the whole of the map's code. */
-  showMapCode: () => void
   /** Saves what the review shows now as the map's code. */
   saveCode: () => Promise<void>
   cancelCode: () => Promise<void>
@@ -59,7 +58,7 @@ type ReviewState = {
   /** Opens the review of a workspace, on the tree the current conversation calls for. */
   init: (home: string) => Promise<void>
   open: (root: string) => Promise<void>
-  /** The person picks the tree to review (for the current conversation). */
+  /** The person picks the tree to review. */
   setRoot: (root: string) => Promise<void>
   loadRepos: () => Promise<void>
   setGroup: (g: 'folders' | 'map') => void
@@ -68,12 +67,6 @@ type ReviewState = {
   /** From the canvas: review only the files of this part, in the repo that holds them. */
   showPart: (map: CanvasMap, target: string) => Promise<void>
   setSource: (s: DiffSource) => void
-  /** A turn's changes; `root` picks the repo to show them in (the one the turn wrote in). */
-  setTurnSource: (sessionId: string, turnId?: string, root?: string) => void
-  /** The last turn of a conversation that changed files in the tree under review; `move` first goes to the tree the conversation works in. */
-  showLastTurn: (sessionId: string, move?: boolean) => Promise<void>
-  /** For a turn that kept no record of the tree: everything since the commit it started on. */
-  sinceTurn: (turn: TurnRef) => void
   refresh: (quiet?: boolean) => Promise<void>
   select: (path: string | undefined) => void
   setMode: (m: ViewMode) => void
@@ -88,7 +81,7 @@ type ReviewState = {
   saveComment: (body: string) => Promise<ReviewComment | undefined>
   updateComment: (id: string, patch: Partial<ReviewComment>) => Promise<void>
   removeComment: (id: string) => Promise<void>
-  send: (ids: string[], extra?: string, newSession?: boolean) => Promise<void>
+  send: (ids: string[], extra?: string) => Promise<void>
 }
 
 /**
@@ -97,7 +90,7 @@ type ReviewState = {
  */
 function held(source?: DiffSource): boolean {
   const { bound, editing } = useReview.getState()
-  if (!bound || editing || source?.kind === 'turn') return false
+  if (!bound || editing) return false
   useApp.getState().toast(`지도 «${bound.title}»의 코드를 보는 중이야. 다른 걸 보려면 '코드 기준 바꾸기'로 지도의 기준을 바꿔 줘`)
   return true
 }
@@ -118,43 +111,19 @@ function sourceLabel(s: DiffSource): string {
 let refreshTimer: ReturnType<typeof setTimeout> | undefined
 let generation = 0
 
-const pickKey = (home: string, sessionId?: string) => (sessionId ? `review.root:${home}:${sessionId}` : `review.root:${home}`)
+const pickKey = (home: string) => `review.root:${home}`
 
-/** The tree the review shows for a conversation: the one picked for it, else where it works, else the workspace's last pick, else the workspace. */
-function treeFor(home: string, repos: ReviewRepo[], session?: SessionInfo): string {
-  const known = (p?: string | null) => (p && (p === home || repos.some(r => r.path === p)) ? p : undefined)
-  return known(session && local.get(pickKey(home, session.id))) ?? known(session?.workTree) ?? known(local.get(pickKey(home))) ?? home
+/** The tree the review shows: the workspace's last pick, else the workspace. */
+function treeFor(home: string, repos: ReviewRepo[]): string {
+  const p = local.get(pickKey(home))
+  return p && (p === home || repos.some(r => r.path === p)) ? p : home
 }
-
-function conversation(home?: string): SessionInfo | undefined {
-  const app = useApp.getState()
-  return app.sessions.find(s => s.id === app.currentSession && s.workspace === home)
-}
-
-export const turnRefs = (sessionId: string, root: string) => api.get<TurnRef[]>(`/api/sessions/${sessionId}/turns${q({ root })}`)
-
-/** A turn that changed files in the tree: per its snapshots, or, where it kept none, per what its edit tools wrote. */
-export const changedFiles = (t: TurnRef) => (t.files ?? 0) > 0 || (t.files === undefined && t.wrote)
-
-const since = (t: TurnRef): DiffSource | undefined => (t.base ? { kind: 'branch', base: t.base.sha, compare: 'WORKTREE' } : undefined)
-
-/** Says the view stands in for a turn that kept no record of the tree, or that there is nothing to stand in with. */
-function tellSince(t: TurnRef) {
-  const { toast } = useApp.getState()
-  if (t.base) toast(`턴 ${t.n} 기록이 없어 시작 직전 커밋 기준으로 보는 중 (추정)`)
-  else toast(`턴 ${t.n}의 시작 커밋을 찾지 못했어`, 'error')
-}
-
-/** The home whose repos are loaded: until then the rule has nothing to check picks against. */
-let ready: string | undefined
 
 /** Moves the review where the rule says; this is not the person's pick. */
 async function follow() {
-  const { home, repos, loadRepos, bound } = useReview.getState()
+  const { home, repos, bound } = useReview.getState()
   if (!home || bound) return
-  const session = conversation(home)
-  if (session?.workTree && session.workTree !== home && !repos.some(r => r.path === session.workTree)) await loadRepos()
-  const tree = treeFor(home, useReview.getState().repos, session)
+  const tree = treeFor(home, repos)
   if (tree !== useReview.getState().root) await useReview.getState().open(tree)
 }
 
@@ -187,22 +156,12 @@ export const useReview = create<ReviewState>((set, get) => ({
   editCode: () => {
     const b = get().bound
     if (!b) return
-    // Changing the map's code starts from the map's code, not from one turn of it.
-    if (get().source.kind === 'turn') get().showMapCode()
     set({ editing: true })
-  },
-
-  showMapCode: () => {
-    const b = get().bound
-    if (!b) return
-    set({ source: b.code.source, diff: undefined, selected: undefined, draft: undefined, fileView: undefined })
-    void get().refresh()
   },
 
   saveCode: async () => {
     const { bound, root, source, home } = get()
     if (!bound || !root || !home) return
-    if (source.kind === 'turn') { useApp.getState().toast('한 턴은 지도의 기준으로 저장할 수 없어. 다른 비교를 골라 줘', 'error'); return }
     await api.post(`/api/canvas/${bound.map}/code`, { ws: home, root, source })
     set({ editing: false })
   },
@@ -219,7 +178,6 @@ export const useReview = create<ReviewState>((set, get) => ({
     const repos = await api.get<ReviewRepo[]>(`/api/review/repos${q({ ws: home })}`).catch(() => [] as ReviewRepo[])
     if (get().home !== home) return
     set({ repos })
-    ready = home
     await follow()
   },
 
@@ -268,53 +226,16 @@ export const useReview = create<ReviewState>((set, get) => ({
     if (!known()) await get().loadRepos()
     // Another worktree of the workspace opens as a workspace of its own; a repo the conversations wrote in is reviewed from here.
     if (!known()) await api.post('/api/workspaces', { path: root })
-    if (home) local.set(pickKey(home, useApp.getState().currentSession), root)
+    if (home) local.set(pickKey(home), root)
     await get().open(root)
   },
 
   setSource: source => {
     if (held(source)) return
     const root = get().root
-    if (root && source.kind !== 'turn' && !get().bound) local.set(`review.source:${root}`, JSON.stringify(source))
+    if (root && !get().bound) local.set(`review.source:${root}`, JSON.stringify(source))
     set({ source, diff: undefined, selected: undefined, draft: undefined, fileView: undefined })
     void get().refresh()
-  },
-
-  setTurnSource: (sessionId, turnId, root) => {
-    // A bound map: that turn within the map's code, in its tree.
-    if (get().bound && !get().editing) { get().setSource({ kind: 'turn', sessionId, turnId }); return }
-    const source: DiffSource = { kind: 'turn', sessionId, turnId }
-    if (!get().root || (root && root !== get().root)) {
-      set({ pending: source })
-      if (root && get().home) void get().setRoot(root)
-      return
-    }
-    get().setSource(source)
-  },
-
-  showLastTurn: async (sessionId, move) => {
-    const { sessions, toast } = useApp.getState()
-    // A bound map: the last turn that changed files in the map's tree, whichever tree the conversation works in.
-    const within = Boolean(get().bound && !get().editing)
-    const root = (!within && move && sessions.find(s => s.id === sessionId)?.workTree) || get().root
-    if (!root) return
-    const turns = await turnRefs(sessionId, root).catch((e: Error) => { toast(e.message, 'error'); return undefined })
-    if (!turns) return
-    const last = turns.filter(changedFiles).pop()
-    if (within && !last) { toast('이 대화에는 지도의 코드에서 파일을 바꾼 턴이 없어'); return }
-    if (within && last && last.files === undefined) { toast(`턴 ${last.n}은 기록이 없는 옛 턴이라 지도의 코드 안에서 좁혀 볼 수 없어`); return }
-    const source = last && (last.files === undefined ? since(last) : { kind: 'turn', sessionId, turnId: last.turnId } as DiffSource)
-    if (root !== get().root) { set({ pending: source }); await get().setRoot(root) }
-    else if (source) get().setSource(source)
-    if (!last) toast('이 대화에는 이 저장소의 파일을 바꾼 턴이 없어')
-    else if (last.files === undefined) tellSince(last)
-  },
-
-  sinceTurn: turn => {
-    if (held()) return
-    const source = since(turn)
-    if (source) get().setSource(source)
-    tellSince(turn)
   },
 
   refresh: async quiet => {
@@ -418,39 +339,27 @@ export const useReview = create<ReviewState>((set, get) => ({
     if (root) await api.post('/api/review/comments/put', { ws: root, source, comments: next })
   },
 
-  send: async (ids, extra, newSession) => {
+  send: async (ids, extra) => {
     const { root, home, source, diff } = get()
     if (!root) return
     const app = useApp.getState()
+    const to = sendingTo(app)
+    // No terminal to take them: the comments stay drafts.
+    if ('refused' in to) { app.toast(to.refused, 'error'); return }
     // Paths in the comments are relative to the tree under review: name it when it is not the workspace.
     const where = root !== home ? ` · 저장소 ${root}` : ''
     const header = `리뷰: ${sourceLabel(source)}${diff ? ` (${diff.oldLabel} → ${diff.newLabel})` : ''}${where}`
-    const terminal = targetTerminal(app)
-    const to = newSession ? {} : terminal ? { terminalId: terminal } : { sessionId: app.currentSession }
-    const res = await api.post<{ sessionId?: string; terminalId?: string }>('/api/review/send', { ws: root, source, ids, header, extra, ...to })
+    const res = await api.post<{ terminalId: string }>('/api/review/send', { ws: root, source, ids, header, extra, terminalId: to.terminal })
       .catch((e: Error) => { app.toast(e.message, 'error') })
     if (!res) return
-    if (res.terminalId) {
-      await get().refresh(true)
-      app.toast(`코멘트 ${ids.length}개를 터미널에 보냈어`)
-      return
-    }
-    if (res.sessionId && res.sessionId !== app.currentSession) {
-      const sessions = await api.get<import('../../../shared/protocol.ts').SessionInfo[]>(`/api/sessions${q({ ws: app.workspace?.path })}`)
-      // The new conversation is about this tree: the review stays on it when that conversation becomes current.
-      if (home) local.set(pickKey(home, res.sessionId), root)
-      useApp.setState({ sessions })
-      await app.selectSession(res.sessionId)
-    }
-    useApp.setState({ sideOpen: true })
     await get().refresh(true)
-    app.toast(`코멘트 ${ids.length}개를 에이전트에게 보냈어`)
+    app.toast(`코멘트 ${ids.length}개를 터미널에 보냈어`)
   },
 }))
 
 export { sourceLabel }
 
-// The tree changed on disk, or a turn ended: refresh what is on screen without a spinner.
+// The tree changed on disk: refresh what is on screen without a spinner.
 subscribe(ev => {
   const s = useReview.getState()
   if (!s.root) return
@@ -460,27 +369,10 @@ subscribe(ev => {
     for (const p of ev.paths) if (!p.startsWith('.git/')) recent[p] = now
     useReview.setState({ recent })
   }
-  // A turn that ended may have written in a new repo.
-  if (ev.topic === 'session' && ev.event.kind === 'turn-end' && ev.event.summary?.repos?.some(r => !s.repos.some(x => x.path === r.path))) void s.loadRepos()
-  const live = s.source.kind === 'working' || (s.source.kind === 'branch' && s.source.compare === 'WORKTREE') || s.source.kind === 'turn'
-  const relevant = (ev.topic === 'repo-changed' && ev.workspace === s.root && live) ||
-    (ev.topic === 'session' && s.source.kind === 'turn' && ev.sessionId === s.source.sessionId && (ev.event.kind === 'turn-end' || ev.event.kind === 'turn-start'))
-  if (!relevant) return
+  const live = s.source.kind === 'working' || (s.source.kind === 'branch' && s.source.compare === 'WORKTREE')
+  if (!(ev.topic === 'repo-changed' && ev.workspace === s.root && live)) return
   clearTimeout(refreshTimer)
   refreshTimer = setTimeout(() => void useReview.getState().refresh(true), 250)
-})
-
-// The review follows the conversation: when another one becomes current, and when the current one starts working
-// somewhere new while the person has not picked a tree for it.
-let seen: { id?: string; workTree?: string } = {}
-useApp.subscribe(app => {
-  const home = useReview.getState().home
-  if (!home || ready !== home || app.workspace?.path !== home) return
-  const now = { id: app.currentSession, workTree: conversation(home)?.workTree }
-  if (now.id === seen.id && now.workTree === seen.workTree) return
-  const switched = now.id !== seen.id
-  seen = now
-  if (switched || !(now.id && local.get(pickKey(home, now.id)))) void follow()
 })
 
 /** The review follows the map on the canvas: a map bound to code holds the review on that code. */

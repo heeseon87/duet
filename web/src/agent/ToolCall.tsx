@@ -1,20 +1,15 @@
-import { memo, useEffect, useMemo, useState, type ReactNode } from 'react'
+import { memo, useMemo, useState, type ReactNode } from 'react'
 import {
   Bot, Check, ChevronRight, CircleAlert, FilePlus2, FileText, FolderSearch, Globe, ListChecks, Loader2, MessageCircleQuestion,
   NotebookPen, PencilLine, Search, Shapes, ShieldQuestion, SquareTerminal, Wrench, ClipboardList, X,
 } from 'lucide-react'
-import type { PermissionDecision } from '../../../shared/protocol.ts'
-import { partialInput, type Block, type PermissionState, type ToolBlock } from './transcript.ts'
-import { answersOf, type Answer, type Question } from './askModel.ts'
+import { answersOf, partialInput, type Answer, type Block, type PermissionState, type Question, type ToolBlock } from './transcript.ts'
 import { CodeBlock, CodeText, Line, useTokens, type WordSeg } from '../lib/Code.tsx'
 import { withWords } from '../review/diffModel.ts'
 import type { DiffLine } from '../../../shared/protocol.ts'
 import { Markdown } from '../lib/Markdown.tsx'
 import { duration, relPath, useNow } from '../lib/ui.tsx'
-import { useApp } from '../state.ts'
-import { useCanvas } from '../canvas/store.ts'
 import { Blocks } from './Blocks.tsx'
-import { modeLabel } from './Composer.tsx'
 
 type Ctx = { root?: string; sessionId?: string; onOpenPath?: (path: string, line?: number) => void; onOpenCanvas?: (name: string) => void }
 
@@ -125,44 +120,8 @@ function ReadResult({ text, path }: { text: string; path: string }) {
   )
 }
 
-function ruleText(s: Record<string, unknown>): string {
-  if (s.type === 'setMode') return `이 대화를 ${modeLabel(String(s.mode))} 모드로`
-  if (s.type === 'addRules' && Array.isArray(s.rules)) {
-    return (s.rules as { toolName: string; ruleContent?: string }[]).map(r => (r.ruleContent ? `${r.toolName}(${r.ruleContent})` : r.toolName)).join(', ')
-  }
-  if (s.type === 'addDirectories' && Array.isArray(s.directories)) return `폴더 접근: ${(s.directories as string[]).join(', ')}`
-  return String(s.type)
-}
-
-const DEST: Record<string, string> = { session: '이 대화', localSettings: '.claude/settings.local.json', projectSettings: '.claude/settings.json', userSettings: '~/.claude/settings.json' }
-
+/** A request the terminal holds: the person answers it there, so the browser only says it waits, or how it went. */
 export function PermissionCard({ p, tool, children }: { p: PermissionState; tool?: ToolBlock; children?: ReactNode }) {
-  const decide = useApp(s => s.decide)
-  const [denying, setDenying] = useState(false)
-  const [reason, setReason] = useState('')
-  const [busy, setBusy] = useState(false)
-  const suggestion = p.request.suggestions?.[0] as Record<string, unknown> | undefined
-  const act = async (d: PermissionDecision) => {
-    setBusy(true)
-    try { await decide(p.request.id, d) } finally { setBusy(false) }
-  }
-  useEffect(() => {
-    if (p.state !== 'pending') return
-    const key = (e: KeyboardEvent) => {
-      const el = e.target as HTMLElement
-      if (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA') return
-      if (e.metaKey || e.ctrlKey || e.altKey) return
-      // Decision mode over the canvas has its own 1, 2, 3 (its options).
-      if (useCanvas.getState().deciding && useApp.getState().tab === 'canvas') return
-      // With several requests open, the keys answer the first one on screen.
-      if (document.querySelector('.perm-card')?.getAttribute('data-waiting') !== p.request.id) return
-      if (e.key === '1') { e.preventDefault(); void act({ behavior: 'allow' }) }
-      else if (e.key === '2' && suggestion) { e.preventDefault(); void act({ behavior: 'allow', always: true }) }
-      else if (e.key === '3') { e.preventDefault(); setDenying(true) }
-    }
-    window.addEventListener('keydown', key)
-    return () => window.removeEventListener('keydown', key)
-  })
   if (p.state !== 'pending') {
     const label = p.state === 'allow' ? (p.always ? 'Always allowed' : 'Allowed') : p.state === 'deny' ? `Denied${p.message ? ` · “${p.message}”` : ''}` : 'Cancelled'
     return <div className={`perm-done ${p.state}`}>{p.state === 'allow' ? <Check size={12} /> : <X size={12} />}{label}</div>
@@ -171,38 +130,11 @@ export function PermissionCard({ p, tool, children }: { p: PermissionState; tool
     <div className="perm-card fade-in" data-waiting={p.request.id}>
       <div className="perm-head">
         <ShieldQuestion size={15} />
-        <span className="grow">{tool ? '이 작업을 허용할까?' : `${p.request.toolName} 실행을 허용할까?`}</span>
+        <span className="grow">{tool ? '이 작업의 허용을 터미널에서 기다려' : `${p.request.toolName} 실행의 허용을 터미널에서 기다려`}</span>
         {p.request.blockedPath && <span className="chip warn" title={p.request.blockedPath}>작업 폴더 밖</span>}
       </div>
       {p.request.reason && <div className="perm-reason">{p.request.reason}</div>}
       {children}
-      {denying ? (
-        <div className="perm-actions">
-          <input
-            autoFocus
-            className="input grow"
-            placeholder="이유나 다른 방법 (선택)"
-            value={reason}
-            onChange={e => setReason(e.target.value)}
-            onKeyDown={e => {
-              if (e.key === 'Enter' && !e.nativeEvent.isComposing) void act({ behavior: 'deny', message: reason })
-              if (e.key === 'Escape') { e.stopPropagation(); setDenying(false) }
-            }}
-          />
-          <button className="btn sm danger" disabled={busy} onClick={() => void act({ behavior: 'deny', message: reason })}>Deny</button>
-          <button className="btn sm ghost" onClick={() => setDenying(false)}>취소</button>
-        </div>
-      ) : (
-        <div className="perm-actions">
-          <button className="btn sm primary" disabled={busy} onClick={() => void act({ behavior: 'allow' })}>Allow <kbd>1</kbd></button>
-          {suggestion && (
-            <button className="btn sm" disabled={busy} title={`${DEST[String(suggestion.destination)] ?? ''}에 저장`} onClick={() => void act({ behavior: 'allow', always: true })}>
-              <span className="ellipsis" style={{ maxWidth: 260 }}>Always allow · {ruleText(suggestion)}</span> <kbd>2</kbd>
-            </button>
-          )}
-          <button className="btn sm ghost" disabled={busy} onClick={() => setDenying(true)}>Deny <kbd>3</kbd></button>
-        </div>
-      )}
     </div>
   )
 }
@@ -237,82 +169,32 @@ function Answered({ answers }: { answers: Answer[] }) {
   )
 }
 
-/** AskUserQuestion: the agent asks; the person answers right here. */
+/** AskUserQuestion: the agent asks, the person answers in the terminal; here the questions, then how they were answered. */
 function QuestionCard({ tool, p }: { tool: ToolBlock; p?: PermissionState }) {
-  const decide = useApp(s => s.decide)
-  const input = partialInput(tool)
-  const questions = (input.questions as Question[] | undefined) ?? []
-  const [answers, setAnswers] = useState<Record<string, string[]>>({})
-  const [other, setOther] = useState<Record<string, string>>({})
-  const pending = p?.state === 'pending'
-  const done = pending ? undefined : answersOf(tool)
+  const questions = (partialInput(tool).questions as Question[] | undefined) ?? []
+  const done = p?.state === 'pending' ? undefined : answersOf(tool)
   if (done) return <Answered answers={done} />
-  const submit = () => {
-    if (!p) return
-    const out: Record<string, string> = {}
-    for (const q of questions) {
-      const picked = [...(answers[q.question] ?? [])]
-      if (other[q.question]?.trim()) picked.push(other[q.question].trim())
-      out[q.question] = picked.join(', ')
-    }
-    void decide(p.request.id, { behavior: 'allow', updatedInput: { ...input, answers: out } })
-  }
   return (
     <div className="ask-card">
       {questions.map(q => (
         <div key={q.question} className="ask-q">
           <div className="ask-title">{q.header && <span className="chip accent">{q.header}</span>}<span>{q.question}</span></div>
           <div className="ask-options">
-            {q.options.map(o => {
-              const on = answers[q.question]?.includes(o.label)
-              return (
-                <button
-                  key={o.label}
-                  disabled={!pending}
-                  className={`ask-opt${on ? ' on' : ''}`}
-                  onClick={() => setAnswers(a => {
-                    const cur = a[q.question] ?? []
-                    const next = q.multiSelect ? (on ? cur.filter(x => x !== o.label) : [...cur, o.label]) : [o.label]
-                    return { ...a, [q.question]: next }
-                  })}
-                >
-                  <b>{o.label}</b>
-                  {o.description && <span>{o.description}</span>}
-                </button>
-              )
-            })}
+            {q.options.map(o => <div key={o.label} className="ask-opt"><b>{o.label}</b>{o.description && <span>{o.description}</span>}</div>)}
           </div>
-          {pending && <input className="input" placeholder="직접 답하기" value={other[q.question] ?? ''} onChange={e => setOther(o => ({ ...o, [q.question]: e.target.value }))} />}
         </div>
       ))}
-      {pending && (
-        <div className="perm-actions">
-          <button className="btn sm primary" onClick={submit}>답 보내기</button>
-          <button className="btn sm ghost" onClick={() => p && void decide(p.request.id, { behavior: 'deny', message: '답하지 않고 넘어갈게.' })}>건너뛰기</button>
-        </div>
-      )}
+      {p?.state === 'pending' && <div className="perm-reason">터미널에서 답해 줘.</div>}
     </div>
   )
 }
 
 function PlanCard({ tool, p }: { tool: ToolBlock; p?: PermissionState }) {
-  const decide = useApp(s => s.decide)
-  const configure = useApp(s => s.configure)
-  const plan = str(partialInput(tool).plan)
-  const [note, setNote] = useState('')
-  const pending = p?.state === 'pending'
   return (
     <div className="plan-card">
       <div className="plan-head"><ClipboardList size={14} /> 계획</div>
-      <Markdown text={plan} streaming={tool.state === 'input'} />
-      {pending && p && (
-        <div className="perm-actions">
-          <button className="btn sm primary" onClick={() => { void decide(p.request.id, { behavior: 'allow' }); void configure({ permissionMode: 'auto' }) }}>Approve · {modeLabel('auto')}</button>
-          <button className="btn sm" onClick={() => { void decide(p.request.id, { behavior: 'allow' }); void configure({ permissionMode: 'acceptEdits' }) }}>Approve · {modeLabel('acceptEdits')}</button>
-          <button className="btn sm" onClick={() => { void decide(p.request.id, { behavior: 'allow' }); void configure({ permissionMode: 'default' }) }}>Approve · {modeLabel('default')}</button>
-          <input className="input grow" placeholder="더 다듬을 점" value={note} onChange={e => setNote(e.target.value)} onKeyDown={e => { if (e.key === 'Enter' && !e.nativeEvent.isComposing && note.trim()) void decide(p.request.id, { behavior: 'deny', message: note }) }} />
-        </div>
-      )}
+      <Markdown text={str(partialInput(tool).plan)} streaming={tool.state === 'input'} />
+      {p?.state === 'pending' && <div className="perm-reason">터미널에서 승인을 기다려.</div>}
     </div>
   )
 }

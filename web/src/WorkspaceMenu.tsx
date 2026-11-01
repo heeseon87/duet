@@ -1,5 +1,5 @@
 import { useRef, useState } from 'react'
-import { ChevronDown, FolderGit2, GitBranch } from 'lucide-react'
+import { ChevronDown, GitBranch } from 'lucide-react'
 import { useApp } from './state.ts'
 import { Popover } from './lib/ui.tsx'
 import { RepoPicker } from './lib/RepoPicker.tsx'
@@ -31,21 +31,5 @@ export function WorkspaceMenu() {
         </Popover>
       )}
     </>
-  )
-}
-
-/** Where the current conversation works, when that is not the workspace; a click reviews it there. */
-export function WorkChip() {
-  const workspace = useApp(s => s.workspace?.path)
-  const tree = useApp(s => s.sessions.find(x => x.id === s.currentSession)?.workTree)
-  const branch = useReview(s => s.repos.find(r => r.path === tree)?.branch)
-  if (!tree || tree === workspace) return null
-  return (
-    <button className="work-chip" title={`${tree}\n이 대화가 일하는 저장소`} onClick={() => {
-      useApp.getState().setTab('review')
-      void useReview.getState().setRoot(tree)
-    }}>
-      <FolderGit2 size={13} /><b>{tree.split('/').pop()}</b>{branch && <span className="muted">{branch}</span>}
-    </button>
   )
 }

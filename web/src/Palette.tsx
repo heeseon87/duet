@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { FileCode2, FileDiff, MessageSquarePlus, Moon, PanelRight, Search, Shapes, TextSearch, Loader2, CornerDownLeft } from 'lucide-react'
+import { FileCode2, FileDiff, Moon, Search, Shapes, TextSearch, Loader2, CornerDownLeft } from 'lucide-react'
 import { api, q } from './api.ts'
 import { useApp } from './state.ts'
 import { useReview } from './review/store.ts'
@@ -42,16 +42,9 @@ export function Palette({ onClose }: { onClose: () => void }) {
   const commands: Item[] = useMemo(() => [
     { id: 'tab-canvas', icon: <Shapes size={14} />, label: '캔버스로 가기', hint: '⌘1', run: () => app.setTab('canvas') },
     { id: 'tab-review', icon: <FileDiff size={14} />, label: '리뷰로 가기', hint: '⌘2', run: () => app.setTab('review') },
-    { id: 'new-session', icon: <MessageSquarePlus size={14} />, label: '새 대화', hint: '⌘⇧O', run: () => void app.newSession() },
-    { id: 'toggle-side', icon: <PanelRight size={14} />, label: '에이전트 패널 열고 닫기', hint: '⌘3', run: () => app.setSide(app.sideWidth, !app.sideOpen) },
     { id: 'theme', icon: <Moon size={14} />, label: '테마 바꾸기', run: () => app.setTheme(app.theme === 'system' ? 'light' : app.theme === 'light' ? 'dark' : 'system') },
     { id: 'src-working', icon: <FileDiff size={14} />, label: '리뷰: Changes', run: () => { app.setTab('review'); review.setSource({ kind: 'working' }) } },
     { id: 'src-branch', icon: <FileDiff size={14} />, label: '리뷰: Compare', run: () => { app.setTab('review'); review.setSource({ kind: 'branch', base: review.info?.defaultBase ?? 'main', compare: 'WORKTREE' }) } },
-    { id: 'src-turn', icon: <FileDiff size={14} />, label: '리뷰: 파일을 바꾼 마지막 턴', run: () => {
-      if (!app.currentSession) { app.toast('먼저 에이전트와 대화를 시작해 줘', 'error'); return }
-      app.setTab('review')
-      void review.showLastTurn(app.currentSession, true)
-    } },
     ...(canvas.map?.diagram === 'class' && canvas.map.elements.some(e => e.kind === 'group') ? [
       { id: 'fold-all', icon: <Shapes size={14} />, label: '캔버스: Collapse all', run: () => { app.setTab('canvas'); canvas.setAllCollapsed(true) } },
       { id: 'unfold-all', icon: <Shapes size={14} />, label: '캔버스: Expand all', run: () => { app.setTab('canvas'); canvas.setAllCollapsed(false) } },
@@ -59,7 +52,6 @@ export function Palette({ onClose }: { onClose: () => void }) {
     ...(canvas.map ? [
     ] : []),
     ...canvas.list.map(m => ({ id: `map-${m.name}`, icon: <Shapes size={14} />, label: `지도 열기: ${m.title}`, hint: m.name, run: () => { app.setTab('canvas'); void canvas.open(m.name) } })),
-    ...app.sessions.slice(0, 12).map(s => ({ id: `ses-${s.id}`, icon: <MessageSquarePlus size={14} />, label: `대화: ${s.title}`, run: () => void app.selectSession(s.id) })),
   ], [app, review, canvas])
 
   const items: Item[] = useMemo(() => {

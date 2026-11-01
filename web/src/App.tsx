@@ -2,11 +2,10 @@ import { useEffect, useRef, useState } from 'react'
 import { FileDiff, Keyboard, Signpost, Monitor, Moon, RotateCw, Search, Shapes, Sun, Terminal, WifiOff } from 'lucide-react'
 import type { TerminalInfo } from '../../shared/protocol.ts'
 import { connection, subscribe } from './api.ts'
-import { local, SIDE_WIDTH, targetTerminal, useApp } from './state.ts'
+import { local, targetTerminal, useApp } from './state.ts'
 import { Popover, isTypingTarget, shortcutKey } from './lib/ui.tsx'
 import { PALETTES } from './lib/highlight.ts'
 import { RepoPicker } from './lib/RepoPicker.tsx'
-import { AgentPanel } from './agent/AgentPanel.tsx'
 import { ReviewView } from './review/ReviewView.tsx'
 import { CanvasView } from './canvas/CanvasView.tsx'
 import { Palette } from './Palette.tsx'
@@ -80,27 +79,6 @@ const SWATCH: Record<string, string[]> = {
   vscode: ['#569cd6', '#ce9178', '#dcdcaa', '#4ec9b0'], min: ['#d73a49', '#22863a', '#6f42c1', '#005cc5'],
   'tokyo-night': ['#bb9af7', '#9ece6a', '#7aa2f7', '#e0af68'], nord: ['#81a1c1', '#a3be8c', '#88c0d0', '#ebcb8b'],
   dracula: ['#ff79c6', '#f1fa8c', '#50fa7b', '#8be9fd'], monokai: ['#f92672', '#e6db74', '#a6e22e', '#66d9ef'],
-}
-
-function Divider() {
-  const setSide = useApp(s => s.setSide)
-  const [drag, setDrag] = useState(false)
-  return (
-    <div
-      className={`divider ${drag ? 'dragging' : ''}`}
-      onPointerDown={e => {
-        e.preventDefault()
-        setDrag(true)
-        // The panel sits left of the divider, so its width runs from its own left edge to the pointer.
-        const left = e.currentTarget.previousElementSibling?.getBoundingClientRect().left ?? 0
-        const move = (ev: PointerEvent) => setSide(ev.clientX - left)
-        const up = () => { setDrag(false); window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', up) }
-        window.addEventListener('pointermove', move)
-        window.addEventListener('pointerup', up)
-      }}
-      onDoubleClick={() => setSide(SIDE_WIDTH)}
-    />
-  )
 }
 
 function Toasts() {
@@ -229,23 +207,12 @@ function Rail({ onHelp }: { onHelp: () => void }) {
 }
 
 export function App() {
-  const { workspace, tab, setTab, sideOpen, sideWidth, setSide, paletteOpen, setPalette, openWorkspace, toast } = useApp()
+  const { workspace, tab, setTab, paletteOpen, setPalette, openWorkspace, toast } = useApp()
   const [booted, setBooted] = useState(false)
   const [help, setHelp] = useState(false)
-  const sessions = useApp(s => s.sessions)
 
-  // A turn that ends, or waits for a yes, while the tab is in the background says so in the tab title.
   useEffect(() => {
-    const waiting = sessions.some(s => s.status === 'waiting')
-    const running = sessions.some(s => s.status === 'running' || s.status === 'starting')
-    const base = workspace ? `${workspace.name.split(' / ').pop()} · Duet` : 'Duet'
-    if (!document.hidden) { document.title = running ? `● ${base}` : base; return }
-    document.title = waiting ? `⏸ 입력 대기 · ${base}` : running ? `● ${base}` : `✓ 끝남 · ${base}`
-  }, [sessions, workspace])
-  useEffect(() => {
-    const vis = () => { if (!document.hidden && workspace) document.title = `${workspace.name.split(' / ').pop()} · Duet` }
-    document.addEventListener('visibilitychange', vis)
-    return () => document.removeEventListener('visibilitychange', vis)
+    document.title = workspace ? `${workspace.name.split(' / ').pop()} · Duet` : 'Duet'
   }, [workspace])
 
   useEffect(() => {
@@ -270,20 +237,11 @@ export function App() {
       if (mod && shortcutKey(e).toLowerCase() === 'k') { e.preventDefault(); setPalette(!useApp.getState().paletteOpen) }
       else if (mod && e.key === '1') { e.preventDefault(); setTab('canvas') }
       else if (mod && e.key === '2') { e.preventDefault(); setTab('review') }
-      else if (mod && e.key === '3') { e.preventDefault(); setSide(useApp.getState().sideWidth, !useApp.getState().sideOpen) }
-      else if (mod && e.shiftKey && shortcutKey(e).toLowerCase() === 'o') { e.preventDefault(); void useApp.getState().newSession() }
       else if (e.key === '?' && !isTypingTarget(e.target)) { e.preventDefault(); setHelp(h => !h) }
-      else if (e.key === 'Escape' && !isTypingTarget(e.target)) {
-        const s = useApp.getState()
-        // Esc closes decision mode; the conversation goes on.
-        if (useCanvas.getState().deciding && s.tab === 'canvas') return
-        const cur = s.sessions.find(x => x.id === s.currentSession)
-        if (cur && (cur.status === 'running' || cur.status === 'waiting')) void s.interrupt()
-      }
     }
     window.addEventListener('keydown', key)
     return () => window.removeEventListener('keydown', key)
-  }, [setPalette, setTab, setSide])
+  }, [setPalette, setTab])
 
   if (!booted) return <div className="app" />
   if (!workspace) return <><Welcome /><Toasts /></>
@@ -292,8 +250,6 @@ export function App() {
     <div className="app">
       <Rail onHelp={() => setHelp(true)} />
       <div className="main">
-        {sideOpen && <div className="side" style={{ width: sideWidth }}><AgentPanel /></div>}
-        {sideOpen && <Divider />}
         <section className="stage">
           {tab === 'canvas' ? <CanvasView /> : <ReviewView />}
         </section>

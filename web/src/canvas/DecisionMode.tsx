@@ -285,11 +285,10 @@ function Summary({ decisions, waiting, onReopen, onClose }: { decisions: CanvasD
       <div className="dm-claude">
         {waiting > 0 ? <><b>Claude에게 보낼 결정 {waiting}개</b><span>되돌리기가 사라지면 한 번에 보내.</span></>
           : told ? <><b>Claude · {deliveryLabel(deliveries[told.id])}</b><span>정한 결정을 받아서 지도와 코드를 고쳐. 끝나면 지도에 새 rev가 생기고, 바뀐 상자에 △ 표시가 붙어.</span></>
-          : <><b>Claude에게 보내지 않았어</b><span>정한 결정은 지도에만 남았어. 이어서 맡기려면 채팅에서 알려 줘.</span></>}
+          : <><b>Claude에게 보내지 않았어</b><span>정한 결정은 지도에만 남았어. 이어서 맡기려면 터미널에서 알려 줘.</span></>}
       </div>
       <div className="dm-actions">
         <button className="btn primary" onClick={onClose}>지도로 돌아가기 <kbd>esc</kbd></button>
-        <button className="btn" onClick={() => useApp.setState({ sideOpen: true })}>Claude 진행 보기</button>
       </div>
     </div>
   )

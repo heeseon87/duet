@@ -1,24 +1,18 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { EyeOff } from 'lucide-react'
-import { local, targetTerminal, useApp, useTranscript } from '../state.ts'
+import { local, targetTerminal, useApp } from '../state.ts'
 import { shortcutKey } from '../lib/ui.tsx'
 import { useCanvas } from '../canvas/store.ts'
 import { Composer } from './Composer.tsx'
-import { lastWords, waitLabel } from './transcript.ts'
 
 /**
- * The conversation over the map while the panel is folded: what Claude said last (or what it waits for) and the same
- * draft as the panel's composer. Bottom left, clear of the zoom bar; above it when narrow. It can be put away (and stays
- * so, the panel opening and closing or not); ⌘L brings it back.
+ * The box over the map that writes to the terminal picked on the rail. Bottom left, clear of the zoom bar; above it
+ * when narrow. It can be put away (and stays so); ⌘L brings it back.
  */
 export function FloatComposer() {
-  const sideOpen = useApp(s => s.sideOpen)
-  const sideWidth = useApp(s => s.sideWidth)
-  const setSide = useApp(s => s.setSide)
-  const session = useApp(s => s.sessions.find(x => x.id === s.currentSession))
   const currentTerminal = useApp(targetTerminal)
   const terminal = useApp(s => s.terminals.find(x => x.id === currentTerminal))
-  const t = useTranscript(currentTerminal ? undefined : session?.id)
+  const count = useApp(s => s.terminals.length)
   const deciding = useCanvas(s => s.deciding)
   const box = useRef<HTMLDivElement>(null)
   const [place, setPlace] = useState<{ width: number; raised: boolean }>()
@@ -27,7 +21,7 @@ export function FloatComposer() {
 
   // Put away, ⌘L (which focuses the box when it is there) brings it back to be typed in.
   useEffect(() => {
-    if (!hidden || sideOpen || deciding) return
+    if (!hidden || deciding) return
     const key = (e: KeyboardEvent) => {
       if (!(e.metaKey || e.ctrlKey) || shortcutKey(e).toLowerCase() !== 'l') return
       e.preventDefault()
@@ -37,7 +31,7 @@ export function FloatComposer() {
     }
     window.addEventListener('keydown', key)
     return () => window.removeEventListener('keydown', key)
-  }, [hidden, sideOpen, deciding])
+  }, [hidden, deciding])
   useEffect(() => {
     if (hidden || !focusNext.current) return
     focusNext.current = false
@@ -61,23 +55,19 @@ export function FloatComposer() {
     const bar = host.querySelector('.zoom-bar')
     if (bar) ro.observe(bar)
     return () => ro.disconnect()
-  }, [sideOpen, deciding, hidden])
+  }, [deciding, hidden])
 
-  if (sideOpen || deciding || hidden) return null
-  const waits = t?.waiting() ?? []
-  const said = waits.length ? undefined : t && lastWords(t.blocks)
-  const unfold = () => setSide(sideWidth, true)
-  const status = currentTerminal ? 'terminal' : session?.status ?? 'idle'
+  if (deciding || hidden) return null
+  const status = terminal?.status ?? 'none'
+  const said = terminal ? (terminal.status === 'working' ? '일하는 중' : '쉬는 중') : count ? '레일의 터미널 칸에서 보낼 터미널을 골라 줘' : 'Claude Code 터미널에서 /duet을 켜 줘'
   return (
     <div ref={box} className={`float-composer ${place?.raised ? 'raised' : ''}`} style={{ width: place?.width }}>
       <div className="float-head">
-        <span className={`float-who ${status}`}>{currentTerminal ? terminal?.label ?? '터미널' : 'Claude'}</span>
-        {waits.length
-          ? <button className="float-said wait" title="대화를 펼쳐서 답하기 (⌘3)" onClick={unfold}>{waitLabel(waits)}</button>
-          : <span className="float-said" title={said?.text}>{said?.text ?? (session?.title || '새 대화')}</span>}
+        <span className={`float-who ${status}`}>{terminal?.label ?? '터미널 없음'}</span>
+        <span className="float-said" title={said}>{said}</span>
         <button className="iconbtn" title="입력창 숨기기 (⌘L로 다시 열기)" onClick={() => { local.set('float.hidden', '1'); setHidden(true); useApp.getState().toast('입력창을 숨겼어 · ⌘L로 다시 열어') }}><EyeOff size={14} /></button>
       </div>
-      {currentTerminal ? <Composer terminal floating /> : <Composer session={session} transcript={t} floating />}
+      <Composer floating />
     </div>
   )
 }

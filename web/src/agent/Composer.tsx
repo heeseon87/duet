@@ -1,102 +1,32 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { create } from 'zustand'
-import { ArrowUp, ChevronDown, Square, X, ListPlus, Gauge, Cpu, ShieldCheck } from 'lucide-react'
-import type { ContextItem, Effort, PermissionMode, SessionInfo } from '../../../shared/protocol.ts'
+import { ArrowUp, X } from 'lucide-react'
+import type { ContextItem } from '../../../shared/protocol.ts'
 import { useApp } from '../state.ts'
-import { Popover, compact, shortcutKey } from '../lib/ui.tsx'
-import type { Transcript } from './transcript.ts'
+import { shortcutKey } from '../lib/ui.tsx'
 import { fuzzy, repoFiles } from '../lib/files.ts'
 
-const MODELS: { id: string | null; label: string }[] = [
-  { id: null, label: 'default' },
-  { id: 'claude-opus-5-5', label: 'Opus 5.5' },
-  { id: 'claude-sonnet-5-5', label: 'Sonnet 5.5' },
-  { id: 'claude-haiku-5-5', label: 'Haiku 5.5' },
-  { id: 'claude-fable-5-1', label: 'Fable 5.1' },
-]
-
-const MODE_LABEL: Record<PermissionMode, string> = { default: 'ask', acceptEdits: 'edit', auto: 'auto', plan: 'plan', bypassPermissions: 'bypass', dontAsk: 'dontAsk' }
-// plan and bypass are not offered; a conversation the API or the agent put there still shows its mode.
-const MODES: PermissionMode[] = ['default', 'acceptEdits', 'auto']
-
-const EFFORTS: (Effort | null)[] = [null, 'low', 'medium', 'high', 'xhigh', 'max']
-
-export function modelLabel(id?: string | null): string {
-  if (!id) return 'default'
-  return MODELS.find(m => m.id === id)?.label ?? id.replace(/^claude-/, '')
-}
-
-export const modeLabel = (mode: string): string => MODE_LABEL[mode as PermissionMode] ?? mode
-
-function Picker<T>({ icon, label, items, current, onPick, render }: {
-  icon: React.ReactNode; label: string; items: T[]; current: T; onPick: (v: T) => void; render: (v: T) => string
-}) {
-  const ref = useRef<HTMLButtonElement>(null)
-  const [open, setOpen] = useState(false)
-  return (
-    <>
-      <button ref={ref} className="pick" onClick={() => setOpen(o => !o)}>{icon}<span>{label}</span><ChevronDown size={11} /></button>
-      {open && (
-        <Popover anchor={ref.current} onClose={() => setOpen(false)} width={250}>
-          {items.map((it, i) => (
-            <button key={i} className="menu-item" aria-checked={it === current} onClick={() => { onPick(it); setOpen(false) }}>
-              <span className="grow">{render(it)}</span>
-              {it === current && <span className="sub">✓</span>}
-            </button>
-          ))}
-        </Popover>
-      )}
-    </>
-  )
-}
-
-type Img = { mediaType: string; data: string; url: string; name: string }
-type Typed = { text: string; context: ContextItem[]; images: Img[] }
-/** What is being typed, apart from the box: the panel's composer and the one floating over the map hold one draft. */
-const useTyped = create<Typed>(() => ({ text: '', context: [], images: [] }))
+type Typed = { text: string; context: ContextItem[] }
+/** What is being typed, apart from the box: it outlives the box while the box is away (decision mode, put away). */
+const useTyped = create<Typed>(() => ({ text: '', context: [] }))
 function setter<K extends keyof Typed>(k: K) {
   return (v: Typed[K] | ((cur: Typed[K]) => Typed[K])) =>
     useTyped.setState(s => ({ [k]: typeof v === 'function' ? (v as (cur: Typed[K]) => Typed[K])(s[k]) : v }) as Pick<Typed, K>)
 }
-const setText = setter('text'), setContext = setter('context'), setImages = setter('images')
-// The last draft taken in: a composer mounting later (the panel reopened, or the floating one) must not take it again.
+const setText = setter('text'), setContext = setter('context')
+// The last draft taken in: a box mounting later must not take it again.
 let takenDraft = 0
 
-/**
- * `terminal`: what is typed goes to a terminal, whose model and mode are its own.
- * `floating`: the box over the map while the panel is folded; one line, without the model, mode and effort pickers.
- */
-export function Composer({ session, transcript, terminal, floating }: { session?: SessionInfo; transcript?: Transcript; terminal?: boolean; floating?: boolean }) {
+/** What goes to the terminal picked on the rail: words, and files picked with `@`. `floating`: the box over the map. */
+export function Composer({ floating }: { floating?: boolean }) {
   const send = useApp(s => s.send)
-  const interrupt = useApp(s => s.interrupt)
-  const configure = useApp(s => s.configure)
   const toast = useApp(s => s.toast)
   const draft = useApp(s => s.draft)
-  const prefs = useApp(s => s.prefs)
-  // No conversation yet: the pickers show (and set) what the first one will start with.
-  const model = session ? session.model ?? null : prefs.model
-  const mode = session ? session.permissionMode : prefs.permissionMode
-  const effort = session ? session.effort ?? null : prefs.effort
+  const workspace = useApp(s => s.workspace?.path)
   const text = useTyped(s => s.text)
   const context = useTyped(s => s.context)
-  const images = useTyped(s => s.images)
-  const [dragging, setDragging] = useState(false)
-  const addFiles = async (files: FileList | File[]) => {
-    const picked = [...files].filter(f => /^image\/(png|jpeg|gif|webp)$/.test(f.type))
-    if (!picked.length) return
-    const big = picked.find(f => f.size > 5 * 1024 * 1024)
-    if (big) { toast(`5MB가 넘어: ${big.name}`, 'error'); return }
-    const read = await Promise.all(picked.map(f => new Promise<Img>(resolve => {
-      const r = new FileReader()
-      r.onload = () => { const url = String(r.result); resolve({ mediaType: f.type, data: url.split(',')[1] ?? '', url, name: f.name || '붙인 이미지' }) }
-      r.readAsDataURL(f)
-    })))
-    setImages(cur => [...cur, ...read].slice(0, 6))
-    ref.current?.focus()
-  }
-  const [slashIndex, setSlashIndex] = useState(0)
+  const [menuIndex, setMenuIndex] = useState(0)
   const ref = useRef<HTMLTextAreaElement>(null)
-  const running = session?.status === 'running' || session?.status === 'waiting' || session?.status === 'starting'
 
   useEffect(() => {
     if (!draft || draft.nonce === takenDraft) return
@@ -125,22 +55,15 @@ export function Composer({ session, transcript, terminal, floating }: { session?
     return () => window.removeEventListener('keydown', key)
   }, [])
 
-  const commands = useMemo(() => {
-    const list = (transcript?.init?.slash_commands as string[] | undefined) ?? ['compact', 'clear', 'review', 'init']
-    return list
-  }, [transcript?.init])
-  const slash = /^\/(\S*)$/.exec(text)
-  const slashMatches = slash ? commands.filter(c => c.startsWith(slash[1])).slice(0, 8) : []
-
   // `@part` right before the caret: offer repo files.
   const [caret, setCaret] = useState(0)
   const [files, setFiles] = useState<string[]>([])
   const [dismissed, setDismissed] = useState<string | null>(null)
   const mention = dismissed === text ? null : /(^|\s)@([^\s@]*)$/.exec(text.slice(0, caret))
   useEffect(() => {
-    if (mention && session) void repoFiles(session.workspace).then(setFiles).catch(() => undefined)
-  }, [Boolean(mention), session?.workspace]) // eslint-disable-line react-hooks/exhaustive-deps
-  const mentionMatches = mention
+    if (mention && workspace) void repoFiles(workspace).then(setFiles).catch(() => undefined)
+  }, [Boolean(mention), workspace]) // eslint-disable-line react-hooks/exhaustive-deps
+  const menu = mention
     ? files.map(p => ({ p, s: fuzzy(p, mention[2]) })).filter(x => x.s > 0).sort((a, b) => b.s - a.s).slice(0, 8).map(x => x.p)
     : []
   const pickFile = (path: string) => {
@@ -152,48 +75,24 @@ export function Composer({ session, transcript, terminal, floating }: { session?
     const pos = start + path.length + 2
     requestAnimationFrame(() => { const el = ref.current; if (el) { el.focus(); el.selectionStart = el.selectionEnd = pos; setCaret(pos) } })
   }
-  const menu = mentionMatches.length ? mentionMatches : slashMatches
-  const menuIsFiles = mentionMatches.length > 0
 
   const submit = async () => {
     const body = text.trim()
-    if (!body && !images.length) return
+    if (!body) return
     setText('')
-    const ctx = context, imgs = images
+    const ctx = context
     setContext([])
-    setImages([])
     try {
-      await send(body, ctx.length ? ctx : undefined, imgs.length ? imgs.map(i => ({ mediaType: i.mediaType, data: i.data })) : undefined)
+      await send(body, ctx.length ? ctx : undefined)
     } catch (e) {
       toast((e as Error).message, 'error')
       setText(body)
       setContext(ctx)
-      setImages(imgs)
     }
   }
 
-  const used = session?.contextTokens
-  const room = session?.contextWindow
-  const pct = used && room ? Math.min(100, Math.round((used / room) * 100)) : undefined
-  const full = Boolean(used && room && used / room > 0.8)
-
   return (
-    <div
-      className={`composer ${running ? 'running' : ''} ${dragging ? 'dropping' : ''} ${floating ? 'floating' : ''}`}
-      onDragOver={e => { if ([...e.dataTransfer.items].some(i => i.type.startsWith('image/'))) { e.preventDefault(); setDragging(true) } }}
-      onDragLeave={() => setDragging(false)}
-      onDrop={e => { if (e.dataTransfer.files.length) { e.preventDefault(); setDragging(false); void addFiles(e.dataTransfer.files) } }}
-    >
-      {images.length > 0 && (
-        <div className="img-chips">
-          {images.map((img, i) => (
-            <span key={i} className="img-chip" title={img.name}>
-              <img src={img.url} alt="" />
-              <button onClick={() => setImages(cur => cur.filter((_, j) => j !== i))} title="빼기"><X size={10} /></button>
-            </span>
-          ))}
-        </div>
-      )}
+    <div className={`composer ${floating ? 'floating' : ''}`}>
       {context.length > 0 && (
         <div className="ctx-chips editable">
           {context.map((c, i) => (
@@ -206,10 +105,10 @@ export function Composer({ session, transcript, terminal, floating }: { session?
       )}
       {menu.length > 0 && (
         <div className="slash-menu">
-          {menuIsFiles && <div className="menu-label">파일을 대화에 붙이기</div>}
+          <div className="menu-label">파일을 붙이기</div>
           {menu.map((c, i) => (
-            <button key={c} className="menu-item" data-active={i === slashIndex} onMouseDown={e => { e.preventDefault(); if (menuIsFiles) pickFile(c); else setText(`/${c} `) }}>
-              {menuIsFiles ? <><span className="ellipsis grow">{c.split('/').pop()}</span><span className="sub ellipsis" style={{ maxWidth: 220 }}>{c}</span></> : `/${c}`}
+            <button key={c} className="menu-item" data-active={i === menuIndex} onMouseDown={e => { e.preventDefault(); pickFile(c) }}>
+              <span className="ellipsis grow">{c.split('/').pop()}</span><span className="sub ellipsis" style={{ maxWidth: 220 }}>{c}</span>
             </button>
           ))}
         </div>
@@ -218,76 +117,25 @@ export function Composer({ session, transcript, terminal, floating }: { session?
         ref={ref}
         value={text}
         rows={1}
-        placeholder={terminal ? '터미널에 보내기…' : running ? '끝나면 이어서 보낼 말…' : '에이전트에게 말하기…  / 명령 · @ 파일'}
-        onChange={e => { setText(e.target.value); setCaret(e.target.selectionStart ?? e.target.value.length); setSlashIndex(0) }}
+        placeholder="터미널에 보내기…  @ 파일"
+        onChange={e => { setText(e.target.value); setCaret(e.target.selectionStart ?? e.target.value.length); setMenuIndex(0) }}
         onSelect={e => setCaret((e.target as HTMLTextAreaElement).selectionStart ?? 0)}
-        onPaste={e => {
-          const files = [...e.clipboardData.files].filter(f => f.type.startsWith('image/'))
-          if (files.length) { e.preventDefault(); void addFiles(files) }
-        }}
         onKeyDown={e => {
-          if (menuIsFiles) {
-            if (e.key === 'ArrowDown') { e.preventDefault(); setSlashIndex(i => (i + 1) % menu.length); return }
-            if (e.key === 'ArrowUp') { e.preventDefault(); setSlashIndex(i => (i - 1 + menu.length) % menu.length); return }
-            if ((e.key === 'Tab' || e.key === 'Enter') && !e.nativeEvent.isComposing) { e.preventDefault(); pickFile(menu[slashIndex] ?? menu[0]); return }
+          if (menu.length) {
+            if (e.key === 'ArrowDown') { e.preventDefault(); setMenuIndex(i => (i + 1) % menu.length); return }
+            if (e.key === 'ArrowUp') { e.preventDefault(); setMenuIndex(i => (i - 1 + menu.length) % menu.length); return }
+            if ((e.key === 'Tab' || e.key === 'Enter') && !e.nativeEvent.isComposing) { e.preventDefault(); pickFile(menu[menuIndex] ?? menu[0]); return }
             if (e.key === 'Escape') { e.preventDefault(); setDismissed(text); return }
-          }
-          if (slashMatches.length) {
-            if (e.key === 'ArrowDown') { e.preventDefault(); setSlashIndex(i => (i + 1) % slashMatches.length); return }
-            if (e.key === 'ArrowUp') { e.preventDefault(); setSlashIndex(i => (i - 1 + slashMatches.length) % slashMatches.length); return }
-            if (e.key === 'Tab') { e.preventDefault(); setText(`/${slashMatches[slashIndex]} `); return }
-            // Enter on a partial command completes it; on a full one it sends.
-            if (e.key === 'Enter' && !e.nativeEvent.isComposing && text !== `/${slashMatches[slashIndex]}`) { e.preventDefault(); setText(`/${slashMatches[slashIndex]} `); return }
           }
           if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
             e.preventDefault()
             void submit()
           }
-          if (e.key === 'Escape' && running) { e.preventDefault(); void interrupt() }
         }}
       />
       <div className="composer-bar">
-        {!terminal && !floating && <>
-          <Picker
-            icon={<Cpu size={12} />}
-            label={modelLabel(model)}
-            items={MODELS.map(m => m.id)}
-            current={model}
-            onPick={id => void configure({ model: id }).catch(e => toast((e as Error).message, 'error'))}
-            render={modelLabel}
-          />
-          <Picker
-            icon={<ShieldCheck size={12} />}
-            label={modeLabel(mode)}
-            items={MODES}
-            current={mode}
-            onPick={id => void configure({ permissionMode: id }).catch(e => toast((e as Error).message, 'error'))}
-            render={modeLabel}
-          />
-          <Picker
-            icon={<Gauge size={12} />}
-            label={effort ?? 'default'}
-            items={EFFORTS}
-            current={effort}
-            onPick={v => void configure({ effort: v }).catch(e => toast((e as Error).message, 'error'))}
-            render={v => v ?? 'default'}
-          />
-        </>}
-        {!floating && <span className="grow" />}
-        {used && !floating ? (
-          <span
-            className={`meter ${full ? 'full' : ''}`}
-            title={`Context ${compact(used)}${room ? ` / ${compact(room)}` : ''} tokens${full ? '\n거의 찼어. /compact로 요약할 수 있어.' : ''}`}
-          >
-            {pct !== undefined && <span className="bar"><i style={{ width: `${Math.max(2, pct)}%` }} /></span>}
-            {pct !== undefined ? `${pct}%` : compact(used)}
-          </span>
-        ) : null}
-        {running && (
-          <button className="send stop" title="중단 (esc)" onClick={() => void interrupt()}><Square size={11} fill="currentColor" /></button>
-        )}
-        <button className="send" disabled={!text.trim() && !images.length} title={running ? '대기열에 넣기 (⏎)' : '보내기 (⏎)'} onClick={() => void submit()}>
-          {running ? <ListPlus size={15} /> : <ArrowUp size={15} />}
+        <button className="send" disabled={!text.trim()} title="보내기 (⏎)" onClick={() => void submit()}>
+          <ArrowUp size={15} />
         </button>
       </div>
     </div>
