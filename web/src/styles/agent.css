@@ -42,7 +42,6 @@
 .ctx-chips.editable { margin: 0 0 6px; }
 .ctx-chips .chip button { border: 0; background: transparent; padding: 0; display: grid; place-items: center; color: inherit; opacity: .7; }
 /* The view on screen rides along on its own: quieter than what the person attached by hand. */
-.ctx-chips .chip.view { background: transparent; color: var(--ink-3); border-style: dashed; max-width: 100%; min-width: 0; }
 
 /* Agent text */
 .msg-agent { font-size: 13.5px; line-height: 1.65; position: relative; }

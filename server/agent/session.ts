@@ -2,7 +2,7 @@ import { query, type Query, type SDKUserMessage, type PermissionResult, type Can
 import { join } from 'node:path'
 import { randomUUID } from 'node:crypto'
 import type {
-  ContextItem, DiffSource, ImageRef, ImageUpload, PermissionDecision, PermissionRequest, RepoChanges, SdkMessage, SessionEvent, SessionEventBody, SessionInfo, TurnRef, TurnSummary,
+  ContextItem, ImageRef, ImageUpload, PermissionDecision, PermissionRequest, RepoChanges, SdkMessage, SessionEvent, SessionEventBody, SessionInfo, TurnRef, TurnSummary,
 } from '../../shared/protocol.ts'
 import { appendJsonl, DUET_HOME, ensureDir, HttpError, newId, readJsonl } from '../util.ts'
 import { writeFileSync } from 'node:fs'
@@ -555,7 +555,7 @@ async function changeStats(root: string, before: string, after: string): Promise
   return { files, additions, deletions }
 }
 
-/** The prompt text the agent reads: the person's words, then what they pointed at or were looking at. */
+/** The prompt text the agent reads: the person's words, then what they pointed at. */
 export function composePrompt(text: string, context?: ContextItem[]): string {
   if (!context?.length) return text
   return `${text}\n\n<context from Duet>\n${context.map(refOf).join('\n')}\n</context from Duet>`
@@ -566,36 +566,6 @@ function refOf(c: ContextItem): string {
     case 'canvas': return `- canvas map "${c.map}", ${c.target ? `target ${c.target}` : 'whole map'} (${c.label})`
     case 'review': return `- ${c.path}${c.lines ? `:${c.lines}` : ''} (${c.label})`
     case 'file': return `- ${c.path}`
-    case 'map-view': return `- The map on screen: "${c.title}" (canvas map "${c.map}", rev ${c.revision})${c.selected ? `, ${c.selected} selected` : ''}. Read it with mcp__duet__canvas_read.`
-    case 'review-view': {
-      const more = c.total - c.files.length
-      return [
-        `- The review on screen: ${sourceWords(c.source)}, in the repo ${c.root}`,
-        `  Whole diff: ${diffCommand(c)}`,
-        ...(c.scope ? [`  Narrowed to the map part "${c.scope}".`] : []),
-        `  The ${c.total} files on screen:`,
-        ...c.files.map(f => `  - ${f}`),
-        ...(more > 0 ? [`  - … and ${more} more`] : []),
-      ].join('\n')
-    }
   }
 }
 
-function sourceWords(s: DiffSource): string {
-  switch (s.kind) {
-    case 'working': return 'uncommitted changes (HEAD to the working tree)'
-    case 'branch': return `${s.compare === 'WORKTREE' ? 'the working tree' : s.compare} since it left ${s.base}`
-    case 'commits': return s.from ? `commits ${s.from}..${s.to}` : `commit ${s.to}`
-    case 'turn': return 'what one agent turn changed (Duet snapshots of the tree)'
-    case 'pr': return s.number ? `pull request #${s.number}` : 'the pull request of the checked-out branch'
-  }
-}
-
-const shellWord = (s: string) => (/^[\w./@:+-]+$/.test(s) ? s : `'${s.replace(/'/g, `'\\''`)}'`)
-
-function diffCommand(c: Extract<ContextItem, { kind: 'review-view' }>): string {
-  const root = shellWord(c.root)
-  if (c.source.kind === 'pr') return `\`cd ${root} && gh pr diff${c.source.number ? ` ${c.source.number}` : ''}\``
-  if (c.head === 'WORKTREE') return `\`git -C ${root} diff ${c.base}\`; untracked files are not in git diff: \`git -C ${root} ls-files --others --exclude-standard\``
-  return `\`git -C ${root} diff ${c.base} ${c.head}\``
-}

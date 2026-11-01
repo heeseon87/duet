@@ -1,15 +1,11 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { create } from 'zustand'
-import { ArrowUp, ChevronDown, Square, X, ListPlus, Gauge, Cpu, ShieldCheck, Eye } from 'lucide-react'
+import { ArrowUp, ChevronDown, Square, X, ListPlus, Gauge, Cpu, ShieldCheck } from 'lucide-react'
 import type { ContextItem, Effort, PermissionMode, SessionInfo } from '../../../shared/protocol.ts'
 import { useApp } from '../state.ts'
 import { Popover, compact, shortcutKey } from '../lib/ui.tsx'
 import type { Transcript } from './transcript.ts'
 import { fuzzy, repoFiles } from '../lib/files.ts'
-import { sourceLabel, useReview } from '../review/store.ts'
-import { listedFiles } from '../review/mapGroups.ts'
-import { useCanvas } from '../canvas/store.ts'
-import { mapView, reviewView, takesView } from './view.ts'
 
 const MODELS: { id: string | null; label: string }[] = [
   { id: null, label: 'default' },
@@ -52,29 +48,6 @@ function Picker<T>({ icon, label, items, current, onPick, render }: {
       )}
     </>
   )
-}
-
-/** What the stage shows, as a context item derived live; `key` names the view (tab, tree, source, scope or map) a dismissal holds for. */
-function useView(): { key?: string; item?: ContextItem } {
-  const tab = useApp(s => s.tab)
-  const root = useReview(s => s.root)
-  const source = useReview(s => s.source)
-  const diff = useReview(s => s.diff)
-  const scope = useReview(s => s.scope)
-  const filter = useReview(s => s.filter)
-  const name = useCanvas(s => s.name)
-  const map = useCanvas(s => s.preview?.map ?? s.map)
-  const revision = useCanvas(s => s.preview?.revision ?? s.revision)
-  const selected = useCanvas(s => s.selected)
-  return useMemo(() => {
-    if (tab === 'review') {
-      if (!root) return {}
-      const key = `review ${root} ${JSON.stringify(source)} ${scope?.target ?? ''}`
-      return { key, item: diff && reviewView(diff, root, listedFiles(diff.files, root, scope, filter), sourceLabel(source), scope?.label) }
-    }
-    if (!name || !map) return {}
-    return { key: `canvas ${name}`, item: mapView(map, name, revision, selected) }
-  }, [tab, root, source, diff, scope, filter, name, map, revision, selected])
 }
 
 type Img = { mediaType: string; data: string; url: string; name: string }
@@ -182,18 +155,11 @@ export function Composer({ session, transcript, terminal, floating }: { session?
   const menu = mentionMatches.length ? mentionMatches : slashMatches
   const menuIsFiles = mentionMatches.length > 0
 
-  const view = useView()
-  const [hidden, setHidden] = useState<string>()
-  // A dismissal lasts while the same view is on screen; any other view, or another tab, brings the chip back.
-  useEffect(() => { setHidden(h => (h === view.key ? h : undefined)) }, [view.key])
-  const seen = view.item && hidden !== view.key && takesView(text) ? view.item : undefined
-
   const submit = async () => {
     const body = text.trim()
     if (!body && !images.length) return
     setText('')
-    const manual = context, imgs = images
-    const ctx = seen ? [...manual, seen] : manual
+    const ctx = context, imgs = images
     setContext([])
     setImages([])
     try {
@@ -201,7 +167,7 @@ export function Composer({ session, transcript, terminal, floating }: { session?
     } catch (e) {
       toast((e as Error).message, 'error')
       setText(body)
-      setContext(manual)
+      setContext(ctx)
       setImages(imgs)
     }
   }
@@ -228,7 +194,7 @@ export function Composer({ session, transcript, terminal, floating }: { session?
           ))}
         </div>
       )}
-      {(context.length > 0 || seen) && (
+      {context.length > 0 && (
         <div className="ctx-chips editable">
           {context.map((c, i) => (
             <span key={i} className="chip accent">
@@ -236,12 +202,6 @@ export function Composer({ session, transcript, terminal, floating }: { session?
               <button onClick={() => setContext(cs => cs.filter((_, j) => j !== i))}><X size={10} /></button>
             </span>
           ))}
-          {seen && (
-            <span className="chip view" title={`${seen.kind === 'map-view' ? '지금 보는 지도' : '지금 보는 리뷰'} · 보내면 같이 가`}>
-              <Eye size={11} /><span className="ellipsis">{seen.label}</span>
-              <button onClick={() => setHidden(view.key)} title="이 화면에서는 빼기"><X size={10} /></button>
-            </span>
-          )}
         </div>
       )}
       {menu.length > 0 && (

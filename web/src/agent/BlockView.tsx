@@ -1,5 +1,5 @@
 import { memo, useState } from 'react'
-import { Brain, Check, ChevronRight, CircleAlert, Copy, Eye, FileDiff, Info, MessageSquareQuote, Shapes, TriangleAlert, Clock, History } from 'lucide-react'
+import { Brain, Check, ChevronRight, CircleAlert, Copy, FileDiff, Info, MessageSquareQuote, Shapes, TriangleAlert, Clock, History } from 'lucide-react'
 import { plain, thinkingGist, type Block, type ThinkingBlock, type TurnBlock, type UserBlock } from './transcript.ts'
 import { Markdown } from '../lib/Markdown.tsx'
 import { OrphanPermission, ToolCall, type ToolCtx } from './ToolCall.tsx'
@@ -59,7 +59,7 @@ const User = memo(function User({ b, sessionId }: { b: UserBlock; rev: number; s
       {long && <button className="more" onClick={() => setOpen(o => !o)}>{open ? '접기' : '전체 보기'}</button>}
       {b.context && b.context.length > 0 && !isReview && !isCanvas && (
         <div className="ctx-chips">
-          {b.context.map((c, i) => <span key={i} className="chip">{c.kind === 'review-view' || c.kind === 'map-view' ? <Eye size={11} /> : <MessageSquareQuote size={11} />}{c.label}</span>)}
+          {b.context.map((c, i) => <span key={i} className="chip"><MessageSquareQuote size={11} />{c.label}</span>)}
         </div>
       )}
       {b.images && b.images.length > 0 && sessionId && (

@@ -49,13 +49,6 @@ export type ContextItem =
   | { kind: 'canvas'; map: string; target: string; label: string }
   | { kind: 'review'; path: string; lines?: string; label: string }
   | { kind: 'file'; path: string; label: string }
-  /**
-   * The review on screen when the person wrote. `base`/`head` are the diff's refs ('WORKTREE' = the tree on disk);
-   * `files` are the first 60 of the `total` files listed, after the map scope and the filter.
-   */
-  | { kind: 'review-view'; label: string; root: string; source: DiffSource; base: string; head: string; files: string[]; total: number; scope?: string }
-  /** The map on screen when the person wrote; `selected` is the selected part's id and label. */
-  | { kind: 'map-view'; label: string; map: string; title: string; revision: number; selected?: string }
 
 /** A picture the person pasted: kept beside the log, served back by name. */
 export type ImageRef = { file: string; mediaType: string }
@@ -293,8 +286,6 @@ export type CanvasThread = {
 export type TerminalInfo = {
   /** Claude Code's session id. */
   id: string
-  /** From the mod's turn reports: a main turn is running there, whoever started it. */
-  status: 'idle' | 'working'
   workspace: string
   cwd: string
   /** `<cwd folder> · <id8>` */
@@ -302,4 +293,6 @@ export type TerminalInfo = {
   /** The map the terminal works from, pinned there with `/duet <map>`. */
   map?: string
   lastSeen: number
+  /** From the mod's turn reports: a main turn is running there, whoever started it. */
+  status: 'idle' | 'working'
 }
