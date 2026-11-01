@@ -86,6 +86,8 @@
 
 * { box-sizing: border-box; }
 html, body, #root { height: 100%; margin: 0; }
+/* Mermaid parks an empty 6px tooltip after #root on every class diagram; Duet sets no tooltips, and it made the page scroll. */
+body > .mermaidTooltip { display: none; }
 body {
   background: var(--bg);
   color: var(--ink);

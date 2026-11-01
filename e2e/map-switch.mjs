@@ -57,6 +57,9 @@ const freshOpen = async m => {
 const freshA = await freshOpen(A)
 const freshB = await freshOpen(B)
 check('a first open fits each map, and the two fits differ', Boolean(freshA && freshB) && !same(freshA, freshB) && await inStage(), show(freshB, freshA))
+// Mermaid parks an empty tooltip at the end of <body>; nothing it adds may make the page longer than the window.
+const page_ = await page.evaluate(() => ({ height: document.scrollingElement.scrollHeight, window: innerHeight }))
+check('a drawn map leaves the page no longer than the window', page_.height === page_.window, JSON.stringify(page_))
 
 // The person zooms in and pans on A.
 await freshOpen(A)
