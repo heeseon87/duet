@@ -106,6 +106,28 @@ describe('Terminals', () => {
     expect(changes - before).toBe(1)
   })
 
+  it('keeps what the terminal does through a pin set again, and lets a turn\'s end clear the wait', () => {
+    let changes = 0
+    const t = new Terminals(() => { changes++ })
+    t.register({ id: 'term-0001', workspace: '/w', cwd: '/w', label: 'x' })
+    t.recordTurn('term-0001', 'start')
+    t.recordActivity('term-0001', { said: '테스트를 돌릴게.' })
+    t.recordActivity('term-0001', { said: '테스트를 돌릴게.', waiting: { kind: 'permission', text: 'Bash · npm test' } })
+    const before = changes
+    t.recordActivity('term-0001', { said: '테스트를 돌릴게.', waiting: { kind: 'permission', text: 'Bash · npm test' } })
+    expect(changes).toBe(before)
+    t.register({ id: 'term-0001', workspace: '/w', cwd: '/w', label: 'x', map: 'swing' })
+    expect(t.list()[0]?.activity).toMatchObject({ said: '테스트를 돌릴게.', waiting: { kind: 'permission', text: 'Bash · npm test' } })
+    // An Esc at the dialog ends the turn with no word from the mod about the wait.
+    t.recordTurn('term-0001', 'end')
+    expect(t.list()[0]?.status).toBe('idle')
+    expect(t.list()[0]?.activity).toEqual({ said: '테스트를 돌릴게.', at: expect.any(Number) })
+    t.recordActivity('term-0001', { waiting: { kind: 'question', text: '어느 쪽?' } })
+    t.recordTurn('term-0001', 'end')
+    expect(t.list()[0]?.activity).toBeUndefined()
+    expect(() => t.recordActivity('term-gone', { said: 'x' })).toThrow(/닫혔어/)
+  })
+
   it('lists the map a terminal pinned, until it registers without one', () => {
     const t = make()
     t.register({ id: 'term-0001', workspace: '/w', cwd: '/w/worktrees/feat', label: 'feat · term-000', map: 'swing' })

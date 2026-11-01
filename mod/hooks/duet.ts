@@ -188,3 +188,35 @@ export function heldQuiet(held: Held | undefined, quietFor: number): { answer?: 
   if (!held?.isWorking || held.turnId !== undefined || !held.spawned?.length || held.running?.length) return undefined
   return quietFor >= QUIET_MS ? { answer: held.answer } : undefined
 }
+
+/** What the terminal waits on the person for, as Duet's rail and the box over the map show it. */
+export type Waiting = { kind: 'question' | 'permission'; text: string }
+
+/** A line of activity is cut to this many characters. */
+export const LINE_MAX = 200
+
+/** Text on one line, cut to LINE_MAX. */
+export function lineOf(text: string): string {
+  const one = text.replace(/\s+/g, ' ').trim()
+  return one.length > LINE_MAX ? `${one.slice(0, LINE_MAX - 1)}…` : one
+}
+
+/** What a response row of the model says, on one line; none for a row with no text (a tool call alone, thinking). */
+export function saidOf(content: unknown): string | undefined {
+  if (!Array.isArray(content)) return undefined
+  const texts = content.filter((b): b is { type: 'text'; text: string } => b?.type === 'text' && typeof b.text === 'string').map(b => b.text)
+  return lineOf(texts.join(' ')) || undefined
+}
+
+/** What a tool call waits on the person for: the question it asks, the plan to approve, or the tool and what it touches (a path under `cwd` from there). */
+export function waitingOf(tool: string, input: unknown, cwd?: string): Waiting {
+  const i = (typeof input === 'object' && input !== null ? input : {}) as Record<string, unknown>
+  if (tool === 'AskUserQuestion') {
+    const asked = (Array.isArray(i.questions) ? i.questions : []).map(q => (q as { question?: unknown } | null)?.question).filter((q): q is string => typeof q === 'string' && q.trim() !== '')
+    return { kind: 'question', text: lineOf(asked.length > 1 ? `${asked[0]} (외 ${asked.length - 1}개)` : asked[0] ?? '질문') }
+  }
+  if (tool === 'ExitPlanMode') return { kind: 'permission', text: '계획 승인' }
+  const what = [i.command, i.file_path, i.notebook_path, i.url, i.pattern].find((v): v is string => typeof v === 'string' && v.trim() !== '')
+  const near = what !== undefined && cwd && what.startsWith(`${cwd}/`) ? what.slice(cwd.length + 1) : what
+  return { kind: 'permission', text: lineOf(near === undefined ? tool : `${tool} · ${near}`) }
+}

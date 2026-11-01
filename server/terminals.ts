@@ -1,5 +1,5 @@
 import type { PromptState } from '../shared/canvas.ts'
-import type { TerminalInfo } from '../shared/protocol.ts'
+import type { TerminalActivity, TerminalInfo } from '../shared/protocol.ts'
 import { HttpError } from './util.ts'
 
 /** A message on its way to a terminal: waiting here, handed over (the terminal runs it once idle), or being worked on. */
@@ -49,10 +49,11 @@ export class Terminals {
    * A reloaded mod registers again and learns which message it already holds. `isWorking`: a turn is running
    * there now (a mod older than turn reports leaves it out, and the status stands).
    */
-  register({ isWorking, ...info }: Omit<TerminalInfo, 'lastSeen' | 'status'> & { isWorking?: boolean }): { holding?: Outgoing } {
+  register({ isWorking, ...info }: Omit<TerminalInfo, 'lastSeen' | 'status' | 'activity'> & { isWorking?: boolean }): { holding?: Outgoing } {
     const e = this.all.get(info.id)
     const status = isWorking === undefined ? e?.info.status ?? 'idle' : isWorking ? 'working' : 'idle'
-    if (e) e.info = { ...info, lastSeen: Date.now(), status }
+    // A pin set again, or a mod come back from a lost poll, has not said anything new.
+    if (e) e.info = { ...info, lastSeen: Date.now(), status, activity: e.info.activity }
     else this.all.set(info.id, { info: { ...info, lastSeen: Date.now(), status }, out: [], canvas: false })
     this.changed()
     return { holding: e?.out.find(m => m.state !== 'queued') }
@@ -138,8 +139,20 @@ export class Terminals {
   recordTurn(id: string, edge: 'start' | 'end') {
     const e = this.entry(id)
     const status = edge === 'start' ? 'working' : 'idle'
-    if (e.info.status === status) return
-    e.info = { ...e.info, status }
+    // A turn that ended waits on nothing, even when an Esc cut the wait before the mod could say so.
+    const was = e.info.activity
+    const activity = edge === 'end' && was?.waiting ? (was.said === undefined ? undefined : { said: was.said, at: Date.now() }) : was
+    if (e.info.status === status && activity === was) return
+    e.info = { ...e.info, status, activity }
+    this.changed()
+  }
+
+  /** The mod's report of what the terminal does: its last words, and what it waits on the person for. */
+  recordActivity(id: string, { said, waiting }: Omit<TerminalActivity, 'at'>) {
+    const e = this.entry(id)
+    const was = e.info.activity
+    if (was?.said === said && was?.waiting?.kind === waiting?.kind && was?.waiting?.text === waiting?.text) return
+    e.info = { ...e.info, activity: said === undefined && waiting === undefined ? undefined : { said, waiting, at: Date.now() } }
     this.changed()
   }
 

@@ -582,6 +582,14 @@ route('POST', '/api/terminals/:id/turns', async ({ req, params }) => {
   if (b.edge !== 'start' && b.edge !== 'end') throw new HttpError(400, 'edge는 start나 end야')
   terminals.recordTurn(params.id, b.edge)
 })
+/** What the terminal does now, as its mod sees it: each report replaces the last, and goes out to every tab. */
+route('POST', '/api/terminals/:id/activity', async ({ req, params }) => {
+  const b = await body<{ said?: unknown; waiting?: { kind?: unknown; text?: unknown } | null }>(req)
+  const line = (v: unknown) => (typeof v === 'string' && v.trim() !== '' ? v.trim().slice(0, 300) : undefined)
+  const w = b.waiting ?? undefined
+  if (w !== undefined && (w.kind !== 'question' && w.kind !== 'permission')) throw new HttpError(400, 'waiting.kind는 question이나 permission이야')
+  terminals.recordActivity(params.id, { said: line(b.said), waiting: w && { kind: w.kind as 'question' | 'permission', text: line(w.text) ?? '' } })
+})
 /** The mod's heartbeat and inbox: held open until a message or a map change comes, or `wait` ms pass. */
 route('GET', '/api/terminals/:id/poll', ({ url, params, res }) => {
   const wait = Math.min(25_000, Math.max(0, Number(url.searchParams.get('wait') ?? 20_000) || 0))

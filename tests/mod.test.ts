@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
-import { argsOf, duetHomeOf, followsSpawn, heardPin, heldEnds, heldPrune, heldQuiet, heldSpawned, heldStarts, labelOf, linkOf, matchMap, newMapOf, noRepo, pinNote, QUIET_MS, reportFrom, runDuet, shownMap, statusText, unreachable, type Held, type MapSummary } from '../mod/hooks/duet.ts'
+import { argsOf, duetHomeOf, followsSpawn, heardPin, heldEnds, heldPrune, heldQuiet, heldSpawned, heldStarts, labelOf, LINE_MAX, lineOf, linkOf, matchMap, newMapOf, noRepo, pinNote, QUIET_MS, reportFrom, runDuet, saidOf, shownMap, statusText, unreachable, waitingOf, type Held, type MapSummary } from '../mod/hooks/duet.ts'
 import { modTools } from '../scripts/mod-tools.ts'
 
 const sent: Held = { id: 'msg1', text: '트랜잭션 경계를 여기로 옮기면 어때?', isWorking: false }
@@ -212,5 +212,30 @@ describe('the terminal mod', () => {
 
   it('has the tools of Duet\'s own conversations, up to date', () => {
     expect(readFileSync(new URL('../mod/hooks/tools.ts', import.meta.url), 'utf8')).toBe(modTools())
+  })
+})
+
+describe('what the terminal does, for Duet\'s rail', () => {
+  it('says the main agent\'s words on one line, cut short, and nothing for a row with no text', () => {
+    expect(saidOf([{ type: 'text', text: '테스트를 돌릴게.\n\n  결과를 볼게.' }, { type: 'tool_use', id: 't1', name: 'Bash', input: {} }])).toBe('테스트를 돌릴게. 결과를 볼게.')
+    expect(saidOf([{ type: 'thinking', thinking: '...' }, { type: 'tool_use', id: 't1', name: 'Bash', input: {} }])).toBeUndefined()
+    expect(saidOf([{ type: 'text', text: '   ' }])).toBeUndefined()
+    expect(saidOf('not blocks')).toBeUndefined()
+    const long = lineOf('가'.repeat(LINE_MAX + 50))
+    expect(long).toHaveLength(LINE_MAX)
+    expect(long.endsWith('…')).toBe(true)
+  })
+
+  it('says what a call waits on the person for: the question, the plan, or the tool and what it touches', () => {
+    const ask = (questions: unknown[]) => waitingOf('AskUserQuestion', { questions })
+    expect(ask([{ question: 'URL을 어떤 모양으로 할까?', header: 'URL', options: [], multiSelect: false }])).toEqual({ kind: 'question', text: 'URL을 어떤 모양으로 할까?' })
+    expect(ask([{ question: '첫째?' }, { question: '둘째?' }, { question: '셋째?' }])).toEqual({ kind: 'question', text: '첫째? (외 2개)' })
+    expect(ask([])).toEqual({ kind: 'question', text: '질문' })
+    expect(waitingOf('ExitPlanMode', { plan: '...' })).toEqual({ kind: 'permission', text: '계획 승인' })
+    expect(waitingOf('Bash', { command: 'npm test\n  -- --run', description: '테스트' })).toEqual({ kind: 'permission', text: 'Bash · npm test -- --run' })
+    expect(waitingOf('Edit', { file_path: '/w/a.ts', old_string: 'x', new_string: 'y' })).toEqual({ kind: 'permission', text: 'Edit · /w/a.ts' })
+    expect(waitingOf('Write', { file_path: '/w/src/a.ts', content: '' }, '/w')).toEqual({ kind: 'permission', text: 'Write · src/a.ts' })
+    expect(waitingOf('Write', { file_path: '/w2/a.ts', content: '' }, '/w')).toEqual({ kind: 'permission', text: 'Write · /w2/a.ts' })
+    expect(waitingOf('mcp__x__y', undefined)).toEqual({ kind: 'permission', text: 'mcp__x__y' })
   })
 })

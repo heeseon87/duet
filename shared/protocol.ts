@@ -239,4 +239,15 @@ export type TerminalInfo = {
   lastSeen: number
   /** From the mod's turn reports: a main turn is running there, whoever started it. */
   status: 'idle' | 'working'
+  /** What the terminal is doing, as its mod last told: absent until it says something or waits on the person. */
+  activity?: TerminalActivity
+}
+
+/** What a terminal's mod reports as it goes; each report replaces the last. */
+export type TerminalActivity = {
+  /** The main agent's last words in the terminal, on one line and cut short. */
+  said?: string
+  /** What the terminal waits on the person for, in the terminal: a question it asked, or a tool call to approve. */
+  waiting?: { kind: 'question' | 'permission'; text: string }
+  at: number
 }

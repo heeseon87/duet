@@ -1,13 +1,15 @@
 import type { EngineInterface, HttpResponse, Register, Timer } from 'claude-code'
 
-import { argsOf, duetHomeOf, followsSpawn, heardPin, heldEnds, heldPrune, heldQuiet, heldSpawned, heldStarts, labelOf, linkOf, newMapOf, noRepo, notConnected, pinNote, runDuet, statusText, unreachable, unreachableForPerson } from './duet'
-import type { Held, Link, Maps, MapSummary } from './duet'
+import { argsOf, duetHomeOf, followsSpawn, heardPin, heldEnds, heldPrune, heldQuiet, heldSpawned, heldStarts, labelOf, linkOf, newMapOf, noRepo, notConnected, pinNote, runDuet, saidOf, statusText, unreachable, unreachableForPerson, waitingOf } from './duet'
+import type { Held, Link, Maps, MapSummary, Waiting } from './duet'
 import { TOOLS } from './tools'
 
 /** How long the server holds a poll open: under the 30 s one `$.http.fetch` may take. */
 const WAIT_MS = 20_000
 /** After Duet did not answer, or knew no workspace here, the next try waits this long. */
 const RETRY_MS = 5_000
+/** How long an ask goes unheard by Duet: the auto mode's classifier settles most asks sooner (1 to 2.5 s), and no person sees those. */
+const ASK_MS = 3_000
 
 type Outgoing = { id: string; text: string; state: 'queued' | 'delivered' | 'working' }
 
@@ -39,6 +41,9 @@ const st = {
   held: undefined as Held | undefined,
   lastTurn: '',
   isTurnRunning: false,
+  /** The main agent's last words, and the tool calls waiting on the person by `tool_use_id` (`isShown` once Duet heard). */
+  said: undefined as string | undefined,
+  waits: new Map<string, { waiting: Waiting; isShown: boolean }>(),
   quietAt: 0,
   isPruning: false,
   isPolling: false,
@@ -89,9 +94,42 @@ async function refreshStatus($: EngineInterface) {
 
 const terminalBody = () => ({ id: st.session, workspace: st.workspace, cwd: st.cwd, label: st.label, map: st.pin, isWorking: st.isTurnRunning })
 
+/** Reports reach Duet in the order made: a wait cleared must not land before the wait it clears, nor after the turn's end. */
+let reporting: Promise<unknown> = Promise.resolve()
+
 /** Each main turn's start and end, the person's own too: Duet's rail shows whether this terminal works. */
 function reportTurn($: EngineInterface, turnId: string, edge: 'start' | 'end') {
-  if (st.isRegistered) void call($, 'POST', `/api/terminals/${st.session}/turns`, { turnId, edge }).catch(() => undefined)
+  if (!st.isRegistered) return
+  const path = `/api/terminals/${st.session}/turns`
+  reporting = reporting.then(() => call($, 'POST', path, { turnId, edge })).catch(() => undefined)
+}
+
+/** What this terminal does, for Duet's rail: its last words, and the oldest call Duet heard waits on the person. */
+function reportActivity($: EngineInterface) {
+  if (!st.isRegistered) return
+  const waiting = [...st.waits.values()].find(w => w.isShown)?.waiting
+  const path = `/api/terminals/${st.session}/activity`
+  const body = { said: st.said, waiting }
+  reporting = reporting.then(() => call($, 'POST', path, body)).catch(() => undefined)
+}
+
+/** A tool call waits on the person; after `afterMs`, if it still does, Duet hears of it. */
+function waitOn($: EngineInterface, id: string, waiting: Waiting, afterMs: number) {
+  st.waits.set(id, { waiting, isShown: false })
+  void $.clock.sleep(afterMs).then(() => {
+    const w = st.waits.get(id)
+    if (!w || w.isShown) return
+    w.isShown = true
+    reportActivity($)
+  })
+}
+
+/** The call no longer waits on the person: answered, refused, running or done. */
+function settle($: EngineInterface, id: string) {
+  const w = st.waits.get(id)
+  if (!w) return
+  st.waits.delete(id)
+  if (w.isShown) reportActivity($)
 }
 
 /** Pins a map, or none: for this terminal and in Duet's terminal list. A new session starts with none. */
@@ -118,6 +156,8 @@ async function followSession($: EngineInterface) {
   st.session = id
   st.label = labelOf(st.cwd, id)
   st.isRegistered = false
+  st.said = undefined
+  st.waits.clear()
 }
 
 /** Finds the server (its port and token), the workspace this folder belongs to, and registers this terminal. */
@@ -147,6 +187,8 @@ async function connect($: EngineInterface): Promise<boolean> {
     if (holding && st.held?.id !== holding.id) st.held = { id: holding.id, text: holding.text, isWorking: holding.state === 'working' }
     st.isRegistered = true
     st.retryAt = 0
+    // A server started anew knows nothing of what this terminal did before it.
+    if (st.said !== undefined || st.waits.size) reportActivity($)
     return true
   } catch {
     st.server = undefined
@@ -183,6 +225,7 @@ async function turnOff($: EngineInterface) {
   st.maps = undefined
   st.link = { kind: 'off' }
   st.shown = ''
+  st.waits.clear()
   draw($)
 }
 
@@ -388,6 +431,8 @@ export const register: Register = on => {
     const result = await next(e)
     if (e.agentId === undefined) {
       st.isTurnRunning = false
+      // Duet clears the wait with the turn's end; the calls left here have no answer to wait for.
+      st.waits.clear()
       reportTurn($, e.turnId, 'end')
     }
     st.quietAt = Date.now()
@@ -400,6 +445,44 @@ export const register: Register = on => {
 
   on('ui.render', { component: 'PromptHint' }, ($, e, next) =>
     st.isOn && st.hasTerminal && st.shown !== '' ? next({ ...e, props: { ...e.props, tail: st.shown } }) : next(e))
+
+  // The main agent's words, row by row, as they are kept: Duet's rail shows the last.
+  on('session.append', { door: 'response' }, ($, e, next) => {
+    const said = e.agentId === undefined && e.message.type === 'assistant' ? saidOf(e.message.content) : undefined
+    if (said !== undefined && said !== st.said) {
+      st.said = said
+      reportActivity($)
+    }
+    return next(e)
+  })
+
+  // An ask goes to the mode's decider: the dialog, a host, or the auto mode's classifier, which no one sees. Where no one
+  // can be asked it is a deny, done long before ASK_MS; `e.approver` is not read, as the SDK's engine (2.1.301) leaves it out.
+  // A subagent's asks are left out: its commands get no background hint, so one the classifier let through would read
+  // as waiting until it ends.
+  on('tool.check', async ($, e, next) => {
+    const verdict = await next(e)
+    if (st.isOn && verdict.decision === 'ask' && e.tool_use_id !== undefined && e.agentId === undefined && e.tool !== 'AskUserQuestion') {
+      waitOn($, e.tool_use_id, waitingOf(e.tool, e.input, st.cwd), ASK_MS)
+    }
+    return verdict
+  })
+
+  // A question is its dialog: it waits from the call on. Any call waits no more once it resolves.
+  on('tool.call', async ($, e, next) => {
+    if (st.isOn && e.tool === 'AskUserQuestion') waitOn($, e.tool_use_id, waitingOf(e.tool, argsOf(e as unknown as Record<string, unknown>)), 0)
+    try {
+      return await next(e)
+    } finally {
+      settle($, e.tool_use_id)
+    }
+  })
+
+  // A foreground command offered to the background runs: it was approved, or the classifier let it through.
+  on('ui.render', { component: 'ToolProgress' }, ($, e, next) => {
+    settle($, e.props.tool_use_id)
+    return next(e)
+  })
 
   on('tool.call', { tool: /^mcp__duet__duet_map_/ }, async ($, e) => relay($, String(e.tool), argsOf(e as unknown as Record<string, unknown>)))
     .catch(async ($, e, next) => ({ deny: `The Duet mod failed on this call (${next.error?.kind ?? 'error'}).` }))
