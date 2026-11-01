@@ -6,19 +6,17 @@ import { homedir } from 'node:os'
 import { extname, join, resolve, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { z } from 'zod'
-import type { CanvasThread, ContextItem, DiffSource, PermissionDecision, PermissionMode, ReviewComment, ReviewRepo, ServerEvent, SessionEvent, TerminalInfo, Workspace } from '../shared/protocol.ts'
+import type { CanvasThread, ContextItem, DiffSource, ReviewComment, ReviewRepo, ServerEvent, TerminalInfo, Workspace } from '../shared/protocol.ts'
 import { deliveryOf, fileOfRef, type CanvasDecision, type CanvasPatch, type CanvasRevision, type Delivery } from '../shared/canvas.ts'
 import { refBase } from '../shared/mapFiles.ts'
 import { DUET_HOME, HttpError, readJson, writeJson, ensureDir, newId } from './util.ts'
-import { codeHere, gitInfo, grep, headAt, listFiles, log as gitLog, readAt, toplevel, workspaceName, currentBranch, mainRoot } from './git/repo.ts'
+import { codeHere, gitInfo, grep, headAt, listFiles, log as gitLog, readAt, repoOf, toplevel, workspaceName, currentBranch, mainRoot } from './git/repo.ts'
 import { computeDiff } from './git/diff.ts'
 import { findRepos } from './fs/repos.ts'
 import { prList, prView } from './git/pr.ts'
-import { SessionManager } from './agent/manager.ts'
-import { composePrompt, type Session } from './agent/session.ts'
+import { composePrompt } from './prompt.ts'
 import { CANVAS_TOOLS, runCanvasTool, type CanvasToolName } from './agent/canvasTools.ts'
 import { Terminals, workspaceFor } from './terminals.ts'
-import { repoOf } from './agent/repos.ts'
 import { CanvasStore } from './canvas/store.ts'
 import { readComments, reviewPrompt, sourceKey, writeComments } from './review/comments.ts'
 
@@ -62,15 +60,8 @@ const canvas = new CanvasStore(
   (workspace, name, revision, by) => { broadcast({ topic: 'canvas', workspace, name, revision, by }); terminals.canvasChanged(workspace) },
   workspace => { broadcast({ topic: 'canvas-list', workspace }); terminals.canvasChanged(workspace) },
 )
-// A turn's final answer goes back to the canvas thread of every prompt it answered (a prompt sent
-// while a turn runs can join that turn).
-function trackTurns(sessionId: string, event: SessionEvent) {
-  if (event.kind !== 'turn-end') return
-  const text = event.summary?.result?.trim()
-  const ws = sessions.find(sessionId)?.info.workspace
-  if (text && ws) for (const messageId of event.prompts ?? []) replyOnCanvas(ws, messageId, text, { sessionId })
-}
-function replyOnCanvas(ws: string, messageId: string, text: string, from: { sessionId?: string; terminal?: string }) {
+// A terminal's answer goes back to the canvas thread of the prompt it answered.
+function replyOnCanvas(ws: string, messageId: string, text: string, from: { terminal: string }) {
   try {
     for (const m of canvas.list(ws)) {
       const thread = canvas.threads(ws, m.name).find(t => t.items.some(i => i.messageId === messageId))
@@ -87,23 +78,15 @@ function replyOnCanvas(ws: string, messageId: string, text: string, from: { sess
   }
 }
 
-const sessions = new SessionManager({
-  emit: (sessionId, event) => { broadcast({ topic: 'session', sessionId, event }); trackTurns(sessionId, event) },
-  delta: (sessionId, msg) => broadcast({ topic: 'delta', sessionId, msg }),
-  changed: () => broadcast({ topic: 'sessions', sessions: sessions.list() }),
-  canvas,
-})
-
-/** Where each sent canvas message stands, worked out from the live sessions and the map's history on every read. */
+/** Where each sent canvas message stands, worked out from the live terminals and the map's history on every read. */
 function deliveries(ws: string, name: string, threads: CanvasThread[], known?: CanvasRevision[]): Record<string, Delivery> {
   let revisions = known
   const history = () => (revisions ??= canvas.history(ws, name))
   const out: Record<string, Delivery> = {}
   for (const t of threads) {
     t.items.forEach((item, i) => {
-      const live = !item.messageId ? undefined
-        : item.terminal ? terminals.promptState(item.terminal, item.messageId)
-        : item.sessionId ? sessions.find(item.sessionId)?.promptState(item.messageId) : undefined
+      // An item sent to a Duet conversation (before there were only terminals) has no live state: it reads as ended.
+      const live = item.messageId && item.terminal ? terminals.promptState(item.terminal, item.messageId) : undefined
       const d = deliveryOf(t.items, i, live, history)
       if (d) out[item.id] = d
     })
@@ -126,13 +109,13 @@ async function openWorkspace(path: string): Promise<Workspace> {
   return ws
 }
 /**
- * A tree the review may show: a workspace, or a repo that one of its conversations wrote in (a
+ * A tree the review may show: a workspace, or a repo that one of its maps points at or is bound to (a
  * worktree under it, a sibling repo). `home` is the workspace it belongs to.
  */
 function reviewRoot(path: string | null): { root: string; home: string } {
   if (!path) throw new HttpError(400, 'workspace is required')
   if (workspaces().some(w => w.path === path)) return { root: path, home: path }
-  const home = sessions.ownerOf(path) ?? mapRepos.get(path) ?? codeOwner(path)
+  const home = mapRepos.get(path) ?? codeOwner(path)
   if (!home) throw new HttpError(403, '열린 적 없는 작업 공간이야. 먼저 열어 줘.')
   watchRepo(path)
   return { root: path, home }
@@ -154,37 +137,27 @@ async function workspaceOfPath(path: string): Promise<string | undefined> {
   const all = []
   for (const w of workspaces()) {
     const maps = canvas.list(w.path).flatMap(m => canvas.get(w.path, m.name).map.elements.flatMap(e => (e.files ?? []).map(f => resolve(refBase(w.path, m.code?.root), fileOfRef(f)))))
-    all.push({ path: w.path, reaches: [...(await sessions.touchedRepos(w.path)).keys(), ...maps] })
+    all.push({ path: w.path, reaches: maps })
   }
   return workspaceFor(real, await repoOf(real), all)
 }
 
 // ------------------------------------------------------------------ where what the person sends goes
 
-/** A conversation, or a terminal the person picked in the agent panel. */
-type Target = { session: Session } | { terminal: TerminalInfo }
-
 /**
- * The target a request names, checked before anything is written: a terminal that closed, or one working
- * in another workspace, is refused. No target named means a new conversation.
+ * The terminal a request names, checked before anything is written: none named, one that closed, or one working
+ * in another workspace is refused.
  */
-function targetOf(ws: string, b: { sessionId?: string; terminalId?: string }): Target {
-  if (b.terminalId) {
-    const terminal = terminals.get(b.terminalId)
-    if (terminal.workspace !== ws) throw new HttpError(400, '그 터미널은 다른 작업 공간에서 일해')
-    return { terminal }
-  }
-  return { session: b.sessionId ? sessions.get(b.sessionId) : sessions.create({ workspace: ws }) }
+function targetOf(ws: string, b: { terminalId?: string }): TerminalInfo {
+  if (!b.terminalId) throw new HttpError(409, '연결된 터미널이 없어. Claude Code 터미널에서 /duet을 켜 줘.')
+  const terminal = terminals.get(b.terminalId)
+  if (terminal.workspace !== ws) throw new HttpError(400, '그 터미널은 다른 작업 공간에서 일해')
+  return terminal
 }
-const sender = (to: Target) => ('terminal' in to ? { terminal: to.terminal.id } : { sessionId: to.session.info.id })
-/** A terminal gets the very prompt a Duet conversation would read. */
-async function deliver(to: Target, text: string, context: ContextItem[], messageId: string, display?: string): Promise<{ sessionId?: string; terminalId?: string }> {
-  if ('session' in to) {
-    await to.session.send(text, context, messageId, display)
-    return { sessionId: to.session.info.id }
-  }
-  terminals.send(to.terminal.id, composePrompt(text, context), messageId)
-  return { terminalId: to.terminal.id }
+/** The terminal gets the words with what the person attached, in one prompt. */
+function deliver(to: TerminalInfo, text: string, context: ContextItem[], messageId: string): { terminalId: string } {
+  terminals.send(to.id, composePrompt(text, context), messageId)
+  return { terminalId: to.id }
 }
 
 // Repo watchers: tell the browser which paths changed, so the review refreshes itself.
@@ -320,7 +293,7 @@ const server = createServer(async (req, res) => {
 
 // ------------------------------------------------------------------ routes
 
-route('GET', '/api/health', () => ({ app: 'duet', version: VERSION, codeHash: CODE_HASH, running: sessions.list().filter(s => s.status === 'running' || s.status === 'waiting').length }))
+route('GET', '/api/health', () => ({ app: 'duet', version: VERSION, codeHash: CODE_HASH, running: terminals.pending() }))
 
 route('GET', '/api/events', ({ req, res }) => {
   res.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'no-store', connection: 'keep-alive' })
@@ -382,11 +355,10 @@ route('GET', '/api/git/pr', async ({ url }) => {
 route('GET', '/api/git/prs', async ({ url }) => prList(reviewRoot(url.searchParams.get('ws')).root))
 /** Repos that a workspace's maps point at (their boxes' files), with the workspace: reviewable from it. */
 const mapRepos = new Map<string, string>()
-/** Repos other than the workspace that its conversations wrote in or its maps point at, so the review can show them. */
+/** Repos other than the workspace that its maps point at or are bound to, so the review can show them. */
 route('GET', '/api/review/repos', async ({ url }) => {
   const ws = knownWorkspace(url.searchParams.get('ws'))
-  const found = new Map<string, { sessions: string[]; maps: string[] }>()
-  for (const [path, ids] of await sessions.touchedRepos(ws)) found.set(path, { sessions: ids, maps: [] })
+  const found = new Map<string, { maps: string[] }>()
   for (const m of canvas.list(ws)) {
     const map = canvas.get(ws, m.name).map
     const roots = new Set<string>()
@@ -396,7 +368,7 @@ route('GET', '/api/review/repos', async ({ url }) => {
       if (top && top !== ws) roots.add(top)
     }
     for (const r of roots) {
-      const entry = found.get(r) ?? { sessions: [], maps: [] }
+      const entry = found.get(r) ?? { maps: [] }
       entry.maps.push(m.name)
       found.set(r, entry)
       mapRepos.set(r, ws)
@@ -412,7 +384,7 @@ route('GET', '/api/review/repos', async ({ url }) => {
 route('POST', '/api/review/diff', async ({ req }) => {
   const b = await body<{ ws: string; source: DiffSource; context?: number; ignoreWhitespace?: boolean; path?: string }>(req)
   const { root } = reviewRoot(b.ws)
-  return computeDiff(root, b.source, { context: b.context, ignoreWhitespace: b.ignoreWhitespace, path: b.path }, (sessionId, turnId) => sessions.get(sessionId).turnSnapshots(turnId, root))
+  return computeDiff(root, b.source, { context: b.context, ignoreWhitespace: b.ignoreWhitespace, path: b.path })
 })
 route('POST', '/api/review/comments/get', async ({ req }) => {
   const b = await body<{ ws: string; source: DiffSource }>(req)
@@ -423,66 +395,21 @@ route('POST', '/api/review/comments/put', async ({ req }) => {
   writeComments(reviewRoot(b.ws).root, sourceKey(b.source), b.comments)
   return { ok: true }
 })
-/** Sends the chosen comments to a session as one prompt and marks them sent. */
+/** Sends the chosen comments to the terminal as one prompt and marks them sent. */
 route('POST', '/api/review/send', async ({ req }) => {
-  const b = await body<{ ws: string; source: DiffSource; sessionId?: string; terminalId?: string; ids: string[]; header: string; extra?: string }>(req)
+  const b = await body<{ ws: string; source: DiffSource; terminalId?: string; ids: string[]; header: string; extra?: string }>(req)
   const { root: ws, home } = reviewRoot(b.ws)
   const key = sourceKey(b.source)
   const all = readComments(ws, key)
   const chosen = all.filter(c => b.ids.includes(c.id))
   if (!chosen.length) throw new HttpError(400, '보낼 코멘트가 없어')
   const to = targetOf(home, b)
-  const display = `코멘트 ${chosen.length}개 · ${chosen[0].body.split('\n')[0].slice(0, 80)}${chosen.length > 1 ? ' 외' : ''}`
   const messageId = newId('m-')
-  const sent = await deliver(to, reviewPrompt(chosen, b.header, b.extra), chosen.map(c => ({ kind: 'review' as const, path: c.path, lines: c.startLine === c.endLine ? `${c.startLine}` : `${c.startLine}-${c.endLine}`, label: c.body.split('\n')[0].slice(0, 60) })), messageId, display)
-  for (const c of all) if (b.ids.includes(c.id)) { c.state = 'sent'; c.sentTo = 'terminal' in to ? { terminal: to.terminal.id, messageId } : { sessionId: to.session.info.id, messageId } }
+  const sent = deliver(to, reviewPrompt(chosen, b.header, b.extra), chosen.map(c => ({ kind: 'review' as const, path: c.path, lines: c.startLine === c.endLine ? `${c.startLine}` : `${c.startLine}-${c.endLine}`, label: c.body.split('\n')[0].slice(0, 60) })), messageId)
+  for (const c of all) if (b.ids.includes(c.id)) { c.state = 'sent'; c.sentTo = { terminal: to.id, messageId } }
   writeComments(ws, key, all)
   return { ...sent, messageId }
 })
-
-route('GET', '/api/sessions', async ({ url }) => {
-  const ws = url.searchParams.get('ws') ?? undefined
-  if (ws) await sessions.learnWorkTrees(ws)
-  return sessions.list(ws)
-})
-route('POST', '/api/sessions', async ({ req }) => {
-  const b = await body<{ ws: string; model?: string; permissionMode?: PermissionMode; effort?: 'low' | 'medium' | 'high' | 'xhigh' | 'max'; resume?: string; title?: string }>(req)
-  const ws = knownWorkspace(b.ws)
-  const s = b.resume ? await sessions.importClaude(ws, b.resume, b.title) : sessions.create({ workspace: ws, model: b.model, permissionMode: b.permissionMode, effort: b.effort })
-  return s.info
-})
-route('GET', '/api/sessions/:id', ({ params }) => {
-  const s = sessions.get(params.id)
-  return { info: s.info, log: s.log(), pending: s.pendingRequests(), init: s.init ?? null }
-})
-route('PATCH', '/api/sessions/:id', async ({ req, params }) => {
-  const s = sessions.get(params.id)
-  await s.configure(await body(req))
-  return s.info
-})
-route('DELETE', '/api/sessions/:id', ({ params }) => { sessions.remove(params.id) })
-const IMAGE_TYPES = new Set(['image/png', 'image/jpeg', 'image/gif', 'image/webp'])
-route('POST', '/api/sessions/:id/messages', async ({ req, params }) => {
-  const b = await body<{ text: string; context?: import('../shared/protocol.ts').ContextItem[]; images?: import('../shared/protocol.ts').ImageUpload[] }>(req)
-  const images = (b.images ?? []).filter(i => IMAGE_TYPES.has(i.mediaType) && typeof i.data === 'string').slice(0, 6)
-  if (!b.text?.trim() && !images.length) throw new HttpError(400, '빈 메시지야')
-  return { id: await sessions.get(params.id).send(b.text?.trim() || '이 이미지를 봐 줘.', b.context, undefined, undefined, images) }
-})
-route('GET', '/api/sessions/:id/files/:file', ({ params, res }) => {
-  const s = sessions.get(params.id)
-  if (!/^[\w.-]+$/.test(params.file)) throw new HttpError(400, 'bad file')
-  const path = join(s.filesDir, params.file)
-  if (!existsSync(path)) throw new HttpError(404, 'no such file')
-  res.writeHead(200, { 'content-type': MIME[extname(path)] ?? (path.endsWith('.jpg') ? 'image/jpeg' : path.endsWith('.webp') ? 'image/webp' : path.endsWith('.gif') ? 'image/gif' : 'application/octet-stream'), 'cache-control': 'private, max-age=86400' })
-  createReadStream(path).pipe(res)
-})
-route('GET', '/api/sessions/:id/turns', async ({ url, params }) => sessions.get(params.id).turns(reviewRoot(url.searchParams.get('root')).root))
-route('POST', '/api/sessions/:id/interrupt', async ({ params }) => { await sessions.get(params.id).interrupt() })
-route('POST', '/api/sessions/:id/permissions/:pid', async ({ req, params }) => {
-  const ok = sessions.get(params.id).decide(params.pid, await body<PermissionDecision>(req))
-  if (!ok) throw new HttpError(409, '이미 처리된 요청이야')
-})
-route('GET', '/api/claude-sessions', async ({ url }) => sessions.claudeSessions(knownWorkspace(url.searchParams.get('ws'))))
 
 route('GET', '/api/canvas', ({ url }) => canvas.list(knownWorkspace(url.searchParams.get('ws'))))
 route('GET', '/api/canvas/:name', ({ url, params }) => {
@@ -552,20 +479,19 @@ function madeOf(d: CanvasDecision) {
   }
 }
 const AFTER_CHOICE = '다른 선택지에 딸린 요소는 지도에서 정리했고, 고른 쪽 요소에는 결정 표시가 남아 있어.'
-/** The person's choice. With `notify` it also goes to a conversation, kept like a comment as a thread on the decision. */
+/** The person's choice. With `notify` it also goes to the terminal, kept like a comment as a thread on the decision. */
 route('POST', '/api/canvas/:name/choose', async ({ req, params }) => {
-  const b = await body<{ ws: string; decision: string; option: string | null; rationale?: string; notify?: boolean; sessionId?: string; terminalId?: string }>(req)
+  const b = await body<{ ws: string; decision: string; option: string | null; rationale?: string; notify?: boolean; terminalId?: string }>(req)
   const ws = knownWorkspace(b.ws)
-  const asked = b.notify && b.option && (b.sessionId || b.terminalId) ? targetOf(ws, b) : undefined
+  const to = b.notify && b.option ? targetOf(ws, b) : undefined
   const cur = canvas.choose(ws, params.name, b.decision, b.option, b.rationale)
-  if (!b.notify || !b.option) return cur
+  if (!to) return cur
   const d = cur.map.decisions!.find(x => x.id === b.decision)!
   const made = madeOf(d)
-  const to = asked ?? targetOf(ws, {})
   const messageId = newId('m-')
   const last = canvas.threads(ws, params.name).filter(t => t.target === b.decision).pop()
-  const thread = canvas.addThreadItem(ws, params.name, { threadId: last?.id, target: b.decision, who: 'person', text: made.said, ...sender(to), messageId })
-  const sent = await deliver(
+  const thread = canvas.addThreadItem(ws, params.name, { threadId: last?.id, target: b.decision, who: 'person', text: made.said, terminal: to.id, messageId })
+  const sent = deliver(
     to,
     [
       `[캔버스 결정] 지도 "${cur.map.title}" (${params.name}, rev ${cur.revision})에서 결정 하나를 정했어.`,
@@ -576,7 +502,6 @@ route('POST', '/api/canvas/:name/choose', async ({ req, params }) => {
     ].join('\n'),
     [{ kind: 'canvas', map: params.name, target: b.decision, label: `${b.decision} → ${made.letter}` }],
     messageId,
-    `${b.decision} ${made.said}`,
   )
   return { ...cur, ...sent, thread }
 })
@@ -585,7 +510,7 @@ route('POST', '/api/canvas/:name/choose', async ({ req, params }) => {
  * with an item on each decision's thread. One reopened since is left out.
  */
 route('POST', '/api/canvas/:name/decided', async ({ req, params }) => {
-  const b = await body<{ ws: string; decisions: string[]; sessionId?: string; terminalId?: string }>(req)
+  const b = await body<{ ws: string; decisions: string[]; terminalId?: string }>(req)
   const ws = knownWorkspace(b.ws)
   const cur = canvas.get(ws, params.name)
   const made = [...new Set(b.decisions)].map(id => cur.map.decisions?.find(d => d.id === id)).filter((d): d is CanvasDecision => Boolean(d?.chosen))
@@ -594,9 +519,9 @@ route('POST', '/api/canvas/:name/decided', async ({ req, params }) => {
   const messageId = newId('m-')
   const threads = made.map(d => {
     const last = canvas.threads(ws, params.name).filter(t => t.target === d.id).pop()
-    return canvas.addThreadItem(ws, params.name, { threadId: last?.id, target: d.id, who: 'person', text: madeOf(d).said, ...sender(to), messageId })
+    return canvas.addThreadItem(ws, params.name, { threadId: last?.id, target: d.id, who: 'person', text: madeOf(d).said, terminal: to.id, messageId })
   })
-  const sent = await deliver(
+  const sent = deliver(
     to,
     [
       `[캔버스 결정] 지도 "${cur.map.title}" (${params.name}, rev ${cur.revision})에서 결정 ${made.length === 1 ? '하나' : `${made.length}개`}를 정했어.`,
@@ -607,7 +532,6 @@ route('POST', '/api/canvas/:name/decided', async ({ req, params }) => {
     ].join('\n'),
     made.map(d => ({ kind: 'canvas' as const, map: params.name, target: d.id, label: `${d.id} → ${madeOf(d).letter}` })),
     messageId,
-    made.map(d => `${d.id} ${madeOf(d).said}`).join(' · '),
   )
   return { sent: made.map(d => d.id), ...sent }
 })
@@ -616,21 +540,20 @@ route('POST', '/api/canvas/:name/restore', async ({ req, params }) => {
   return canvas.restore(knownWorkspace(b.ws), params.name, b.revision)
 })
 route('DELETE', '/api/canvas/:name', ({ url, params }) => { canvas.remove(knownWorkspace(url.searchParams.get('ws')), params.name) })
-/** A comment on the canvas: kept as a thread on the target, and sent to the session as a prompt. */
+/** A comment on the canvas: kept as a thread on the target, and sent to the terminal as a prompt. */
 route('POST', '/api/canvas/:name/comment', async ({ req, params }) => {
-  const b = await body<{ ws: string; target: string; text: string; threadId?: string; sessionId?: string; terminalId?: string }>(req)
+  const b = await body<{ ws: string; target: string; text: string; threadId?: string; terminalId?: string }>(req)
   const ws = knownWorkspace(b.ws)
   const cur = canvas.get(ws, params.name)
   const to = targetOf(ws, b)
   const messageId = newId('m-')
-  const thread = canvas.addThreadItem(ws, params.name, { threadId: b.threadId, target: b.target, who: 'person', text: b.text, ...sender(to), messageId })
+  const thread = canvas.addThreadItem(ws, params.name, { threadId: b.threadId, target: b.target, who: 'person', text: b.text, terminal: to.id, messageId })
   const where = b.target ? `"${thread.targetLabel}" (${b.target})` : '지도 전체'
-  const sent = await deliver(
+  const sent = deliver(
     to,
     `[캔버스 코멘트] 지도 "${cur.map.title}" (${params.name}, rev ${cur.revision})의 ${where}에 대해:\n\n${b.text}\n\n(thread ${thread.id}: 답은 채팅으로 하고, 설계가 바뀌면 canvas_update로 지도도 고쳐 줘.)`,
     [{ kind: 'canvas', map: params.name, target: b.target, label: thread.targetLabel }],
     messageId,
-    b.text,
   )
   return { thread, ...sent, messageId }
 })
@@ -641,7 +564,7 @@ route('POST', '/api/canvas/:name/threads/:tid', async ({ req, params }) => {
 
 // ------------------------------------------------------------------ terminals
 
-/** What the terminal mod relays: the canvas tools of Duet's own conversations. */
+/** What the terminal mod relays: the canvas tools. */
 const TERMINAL_TOOLS = new Set<CanvasToolName>(['canvas_list', 'canvas_read', 'canvas_create', 'canvas_update', 'canvas_reply'])
 
 route('GET', '/api/terminals', ({ url }) => terminals.list(knownWorkspace(url.searchParams.get('ws'))))
@@ -708,7 +631,6 @@ server.listen(PORT, '127.0.0.1', () => {
 
 for (const sig of ['SIGINT', 'SIGTERM'] as const) {
   process.on(sig, () => {
-    sessions.shutdown()
     for (const w of watchers.values()) w.w.close()
     process.exit(0)
   })

@@ -67,6 +67,13 @@ export class Terminals {
     this.changed()
   }
 
+  /** Messages sent to a terminal that its turn has not finished yet: `duet` waits for none before restarting the server. */
+  pending(): number {
+    let n = 0
+    for (const e of this.all.values()) n += e.out.length
+    return n
+  }
+
   /** The live terminal; one that closed is refused by name, so nothing sent to it is lost quietly. */
   get(id: string): TerminalInfo {
     return this.entry(id).info
@@ -74,7 +81,7 @@ export class Terminals {
 
   private entry(id: string): Entry {
     const e = this.all.get(id)
-    if (!e) throw new HttpError(410, '그 터미널은 닫혔어. 다른 대화나 터미널을 골라 줘.')
+    if (!e) throw new HttpError(410, '그 터미널은 닫혔어. 다른 터미널을 골라 줘.')
     return e
   }
 

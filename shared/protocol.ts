@@ -14,35 +14,7 @@ export type Workspace = {
   lastOpened: number
 }
 
-export type PermissionMode = 'default' | 'acceptEdits' | 'plan' | 'bypassPermissions' | 'auto' | 'dontAsk'
-export type Effort = 'low' | 'medium' | 'high' | 'xhigh' | 'max'
-
 export type SessionStatus = 'idle' | 'starting' | 'running' | 'waiting' | 'stopped' | 'error'
-
-export type SessionInfo = {
-  id: string
-  /** Claude Code's own session id (the transcript file), once the process has started. */
-  claudeId?: string
-  workspace: string
-  title: string
-  model?: string
-  effort?: Effort
-  permissionMode: PermissionMode
-  status: SessionStatus
-  created: number
-  updated: number
-  /** Running totals over every finished turn. */
-  costUsd: number
-  turns: number
-  /** The context the main agent's latest call read: what its next call starts from. */
-  contextTokens?: number
-  /** The context window of that call's model, from the turn's result. */
-  contextWindow?: number
-  /** Git repos other than the workspace that the agent wrote files in (a worktree under it, a sibling repo). */
-  repos?: string[]
-  /** Where the conversation works: the tree (the workspace or another repo) the latest turn that changed files changed most. */
-  workTree?: string
-}
 
 /** Something the person attached to a prompt: where it came from, and the text the agent reads. */
 export type ContextItem =
@@ -52,7 +24,6 @@ export type ContextItem =
 
 /** A picture the person pasted: kept beside the log, served back by name. */
 export type ImageRef = { file: string; mediaType: string }
-export type ImageUpload = { mediaType: string; data: string }
 
 export type PermissionSuggestion = Record<string, unknown>
 
@@ -67,10 +38,6 @@ export type PermissionRequest = {
   /** For MCP tools: which server serves it ('sdk' = Duet's own). */
   mcpServer?: { name: string; source: string }
 }
-
-export type PermissionDecision =
-  | { behavior: 'allow'; always?: boolean; updatedInput?: Record<string, unknown> }
-  | { behavior: 'deny'; message?: string; interrupt?: boolean }
 
 export type TurnSummary = {
   durationMs: number
@@ -91,23 +58,8 @@ export type TurnSummary = {
 
 export type RepoChanges = { files: number; additions: number; deletions: number }
 
-/** One turn of a conversation, as seen from one tree. */
-export type TurnRef = {
-  turnId: string
-  /** 턴 n, counted the way the review labels turns. */
-  n: number
-  started: number
-  ended?: number
-  /** Files the turn changed in the tree per its snapshots; undefined when it kept no snapshot of the tree. */
-  files?: number
-  /** An edit tool aimed into the tree, per the log. */
-  wrote: boolean
-  /** HEAD of the tree when the turn started (only for turns that wrote or changed files there). */
-  base?: { sha: string; subject: string; date: number }
-}
-
-/** A repo other than the workspace that its conversations wrote in, or its maps point at: reviewable from the workspace. */
-export type ReviewRepo = { path: string; name: string; branch?: string; label: string; sessions: string[]; maps: string[] }
+/** A repo other than the workspace that its maps point at or are bound to: reviewable from the workspace. */
+export type ReviewRepo = { path: string; name: string; branch?: string; label: string; maps: string[] }
 
 /**
  * One entry of a session's log. `seq` orders the entries of one session; the browser replays the
@@ -127,19 +79,11 @@ export type SessionEvent = { seq: number; ts: number } & (
   | { kind: 'notice'; level: 'info' | 'warn' | 'error'; text: string }
 )
 
-type DistributiveOmit<T, K extends PropertyKey> = T extends unknown ? Omit<T, K> : never
-/** A session event before the log numbers and stamps it. */
-export type SessionEventBody = DistributiveOmit<SessionEvent, 'seq' | 'ts'>
-
 /** A loose view of an SDK message; the browser reads the fields it needs. */
 export type SdkMessage = { type: string; subtype?: string; [key: string]: unknown }
 
 /** What the server pushes over the one SSE connection. */
 export type ServerEvent =
-  | { topic: 'session'; sessionId: string; event: SessionEvent }
-  /** Streaming deltas: shown live, never stored. */
-  | { topic: 'delta'; sessionId: string; msg: SdkMessage }
-  | { topic: 'sessions'; sessions: SessionInfo[] }
   | { topic: 'repo-changed'; workspace: string; paths: string[] }
   | { topic: 'canvas'; workspace: string; name: string; revision: number; by: 'agent' | 'person' }
   | { topic: 'canvas-list'; workspace: string }
@@ -158,7 +102,7 @@ export type DiffSource =
   | { kind: 'branch'; base: string; compare: string }
   /** One commit, or a range `from..to`. */
   | { kind: 'commits'; from?: string; to: string }
-  /** What one agent turn changed (two snapshots of the tree). */
+  /** What one turn of a Duet conversation changed. Those conversations are gone: kept so a saved view still parses, and refused. */
   | { kind: 'turn'; sessionId: string; turnId?: string }
   /** A pull request's changes, as GitHub sees them; the PR for the checked-out branch when no number. */
   | { kind: 'pr'; number?: number }
@@ -218,7 +162,7 @@ export type ReviewComment = {
   body: string
   created: number
   state: 'draft' | 'sent' | 'resolved'
-  /** The conversation or terminal and the prompt it went out with. */
+  /** The terminal and the prompt it went out with (`sessionId`: a Duet conversation, from before there were only terminals). */
   sentTo?: { sessionId: string; messageId: string } | { terminal: string; messageId: string }
   /** The anchor could not be found in the latest diff. */
   outdated?: boolean
@@ -275,7 +219,7 @@ export type CanvasThread = {
   targetLabel: string
   revision: number
   state: 'open' | 'resolved'
-  /** `terminal`: the terminal it went to or came from, instead of a conversation. */
+  /** `terminal`: the terminal it went to or came from. `sessionId`: a Duet conversation, from before there were only terminals. */
   items: { id: string; who: 'person' | 'agent'; text: string; ts: number; sessionId?: string; terminal?: string; messageId?: string }[]
   created: number
 }

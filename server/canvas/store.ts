@@ -164,7 +164,7 @@ export class CanvasStore {
     return readJson<CanvasThread[]>(this.file(workspace, name, 'threads.json'), [])
   }
 
-  addThreadItem(workspace: string, name: string, args: { threadId?: string; target: string; who: 'person' | 'agent'; text: string; sessionId?: string; terminal?: string; messageId?: string }): CanvasThread {
+  addThreadItem(workspace: string, name: string, args: { threadId?: string; target: string; who: 'person' | 'agent'; text: string; terminal?: string; messageId?: string }): CanvasThread {
     const all = this.threads(workspace, name)
     const cur = this.get(workspace, name)
     let thread = args.threadId ? all.find(t => t.id === args.threadId) : undefined
@@ -172,7 +172,7 @@ export class CanvasStore {
       thread = { id: newId('t'), target: args.target, targetLabel: labelOf(cur.map, args.target), revision: cur.revision, state: 'open', items: [], created: Date.now() }
       all.push(thread)
     }
-    thread.items.push({ id: newId('i'), who: args.who, text: args.text, ts: Date.now(), sessionId: args.sessionId, terminal: args.terminal, messageId: args.messageId })
+    thread.items.push({ id: newId('i'), who: args.who, text: args.text, ts: Date.now(), terminal: args.terminal, messageId: args.messageId })
     thread.state = 'open'
     writeJson(this.file(workspace, name, 'threads.json'), all)
     this.onChange(workspace, name, cur.revision, args.who)

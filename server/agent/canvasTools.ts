@@ -1,5 +1,4 @@
 import { resolve } from 'node:path'
-import { createSdkMcpServer, tool } from '@anthropic-ai/claude-agent-sdk'
 import { z } from 'zod'
 import { DECISION_WHY_TAGS, toMermaid, type CanvasPatch } from '../../shared/canvas.ts'
 import { refBase } from '../../shared/mapFiles.ts'
@@ -69,7 +68,7 @@ export const INSTRUCTIONS = `Duet canvas: design maps the person reviews with yo
 - Each map is bound to the code it is about, and the person reviews that code beside it. When you build or change the code of a part, set the part's files (relative to the folder canvas_read names for them) in the same turn: the review lists each changed file under the part that names it, and the map marks which parts are built.
 - The person can also edit the map directly (labels, status, notes, removals). Read the map before you change it, and keep their edits.`
 
-/** The canvas tools, written once: Duet's conversations get them over MCP, the terminal mod relays its calls to the server. */
+/** The canvas tools, written once: the terminal mod relays its calls to the server. */
 export const CANVAS_TOOLS = {
   canvas_list: { description: 'List the design maps of this workspace.', shape: {} },
   canvas_read: { description: 'Read a map: its JSON, the Mermaid it draws, and open comment threads.', shape: { name: z.string() } },
@@ -116,12 +115,12 @@ export type CanvasToolName = keyof typeof CANVAS_TOOLS
 /** Where a bound map's relative part files start: the workspace, or the root of another repository outside it. */
 const filesFrom = (workspace: string, root: string) => ` Its parts' files are relative to ${refBase(workspace, root)}.`
 
-/** A terminal signs its revisions and replies; a Duet conversation is the session itself. `cwd`: where a new map's code is. */
-export type Caller = { terminal?: { id: string; label: string; cwd?: string }; cwd?: string }
+/** A terminal signs its revisions and replies; its `cwd` is where a new map's code is. */
+export type Caller = { terminal?: { id: string; label: string; cwd?: string } }
 
 /** One canvas tool call on arguments its shape already checked; the text is what the agent reads. */
 export function runCanvasTool(store: CanvasStore, workspace: string, name: CanvasToolName, args: Record<string, unknown>, caller: Caller = {}): { text: string; isError?: boolean } {
-  // Duet's conversations carry the guide in the MCP server's instructions; a terminal reads it with the map it reads or makes.
+  // A terminal reads the guide with the map it reads or makes.
   const guide = caller.terminal ? [INSTRUCTIONS, ''] : []
   const signed = (note: string) => (caller.terminal ? `터미널 · ${caller.terminal.label} · ${note}` : note)
   try {
@@ -150,7 +149,7 @@ export function runCanvasTool(store: CanvasStore, workspace: string, name: Canva
       }
       case 'canvas_create': {
         const { name: map, diagram, title, context, code: asked, repo } = args as { name: string; diagram: 'class' | 'sequence'; title: string; context?: string; code?: string; repo?: string }
-        const from = caller.terminal?.cwd || caller.cwd || workspace
+        const from = caller.terminal?.cwd || workspace
         const here = codeHere(repo ? resolve(from, repo) : from, workspace)
         const source = asked ? codeSourceOf(asked) : undefined
         if (asked && !source) return { isError: true, text: `Nothing was made: code "${asked}" is not one of pr, pr:<number>, branch:<base>...<compare>, commits:<from>..<to>.` }
@@ -178,25 +177,4 @@ export function runCanvasTool(store: CanvasStore, workspace: string, name: Canva
   } catch (e) {
     return { isError: true, text: (e as Error).message }
   }
-}
-
-const result = (r: { text: string; isError?: boolean }) => ({ content: [{ type: 'text' as const, text: r.text }], ...(r.isError ? { isError: true } : {}) })
-
-/** `cwd`: the tree the conversation works in now (a map it makes is about that code). */
-export function canvasServer(store: CanvasStore, workspace: string, cwd: () => string = () => workspace) {
-  const run = (name: CanvasToolName) => async (args: Record<string, unknown>) => result(runCanvasTool(store, workspace, name, args, { cwd: cwd() }))
-  const { canvas_list: list, canvas_read: read, canvas_create: create, canvas_update: update, canvas_reply: reply } = CANVAS_TOOLS
-  return createSdkMcpServer({
-    name: 'duet',
-    version: '1.0.0',
-    instructions: INSTRUCTIONS,
-    alwaysLoad: true,
-    tools: [
-      tool('canvas_list', list.description, list.shape, run('canvas_list')),
-      tool('canvas_read', read.description, read.shape, run('canvas_read')),
-      tool('canvas_create', create.description, create.shape, run('canvas_create')),
-      tool('canvas_update', update.description, update.shape, run('canvas_update')),
-      tool('canvas_reply', reply.description, reply.shape, run('canvas_reply')),
-    ],
-  })
 }

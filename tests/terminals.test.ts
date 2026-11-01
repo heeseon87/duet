@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { Terminals, workspaceFor } from '../server/terminals.ts'
-import { targetTerminal } from '../web/src/terminalTarget.ts'
+import { sendingTo, targetTerminal } from '../web/src/terminalTarget.ts'
 import type { TerminalInfo } from '../shared/protocol.ts'
 
 describe('workspaceFor', () => {
@@ -47,6 +47,20 @@ describe('Terminals', () => {
     t.release('term-0001', 'm1')
     expect(t.promptState('term-0001', 'm1')).toBeUndefined()
     expect((await t.poll('term-0001', 10, never)).message?.text).toBe('second')
+  })
+
+  it('counts every message a terminal has not finished, for the launcher to wait on', async () => {
+    const t = make()
+    expect(t.pending()).toBe(0)
+    t.send('term-0001', 'first', 'm1')
+    t.send('term-0001', 'second', 'm2')
+    await t.poll('term-0001', 10, never)
+    t.working('term-0001', 'm1')
+    expect(t.pending()).toBe(2)
+    t.release('term-0001', 'm1')
+    expect(t.pending()).toBe(1)
+    t.remove('term-0001')
+    expect(t.pending()).toBe(0)
   })
 
   it('wakes a waiting poll when a message comes or a map of its workspace changes', async () => {
@@ -134,5 +148,10 @@ describe('targetTerminal', () => {
     expect(targetTerminal({ terminals: [term('a'), term('b')], currentTerminal: 'gone' })).toBe('gone')
     expect(targetTerminal({ terminals: [], currentTerminal: 'gone' })).toBe('gone')
     expect(targetTerminal({ terminals: [] })).toBeUndefined()
+  })
+  it('refuses to send with no terminal, and says how to get one', () => {
+    expect(sendingTo({ terminals: [term('a')] })).toEqual({ terminal: 'a' })
+    expect(sendingTo({ terminals: [] })).toEqual({ refused: expect.stringContaining('/duet') })
+    expect(sendingTo({ terminals: [term('a'), term('b')] })).toEqual({ refused: expect.stringContaining('골라') })
   })
 })

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { composePrompt } from '../server/agent/session.ts'
+import { composePrompt } from '../server/prompt.ts'
 
 describe('composePrompt', () => {
   it('leaves a message without context as typed', () => {

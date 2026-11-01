@@ -15,9 +15,7 @@ const UNTRACKED_MAX_BYTES = 1024 * 1024
 
 export type DiffOptions = { context?: number; ignoreWhitespace?: boolean; path?: string }
 
-export type TurnSnapshots = (sessionId: string, turnId?: string) => Promise<{ before: string; after?: string; label: string } | undefined>
-
-export async function computeDiff(root: string, source: DiffSource, opts: DiffOptions, turns: TurnSnapshots): Promise<DiffResult> {
+export async function computeDiff(root: string, source: DiffSource, opts: DiffOptions): Promise<DiffResult> {
   const flags = [...DIFF_FLAGS, `-U${opts.context ?? 3}`]
   if (opts.ignoreWhitespace) flags.push('-w')
   const only = opts.path ? ['--', opts.path] : []
@@ -94,16 +92,9 @@ export async function computeDiff(root: string, source: DiffSource, opts: DiffOp
       }
       break
     }
-    case 'turn': {
-      const snap = await turns(source.sessionId, source.turnId)
-      if (!snap) throw new HttpError(404, '이 대화에는 아직 턴이 없어')
-      oldRef = snap.before
-      newRef = snap.after ?? (await snapshot(root)) ?? 'WORKTREE'
-      oldLabel = `${snap.label} 시작`
-      newLabel = snap.after ? `${snap.label} 끝` : `${snap.label} 진행 중`
-      raw = await git(root, ['diff', ...flags, oldRef, newRef, ...only], { maxBuffer: 256 * 1024 * 1024 })
-      break
-    }
+    case 'turn':
+      // Turns were recorded by Duet's own conversations, which are gone; a saved view of one is refused by name.
+      throw new HttpError(410, '대화의 턴은 이제 볼 수 없어. 다른 기준을 골라 줘.')
   }
 
   const files = parseDiff(raw)

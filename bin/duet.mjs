@@ -3,7 +3,7 @@
 //   duet            this folder
 //   duet ~/repo     another folder
 //   duet --status   show the server
-//   duet --stop     stop the server (agent sessions resume on the next prompt)
+//   duet --stop     stop the server (connected terminals register again when it is back)
 //   duet --no-open  print the address instead of opening the browser
 import { spawn, spawnSync } from 'node:child_process'
 import { existsSync, mkdirSync, openSync, readdirSync, readFileSync, realpathSync, statSync } from 'node:fs'
@@ -97,14 +97,14 @@ async function main() {
   if (flag('--stop')) { say(stopServer() ? 'Duet 서버를 멈췄어.' : '떠 있는 서버가 없어.'); return }
   let h = await health()
   if (flag('--status')) {
-    say(h && !h.foreign ? `Duet ${h.version} · ${BASE} · 코드 ${h.codeHash} · 일하는 대화 ${h.running}` : '떠 있는 서버가 없어.')
+    say(h && !h.foreign ? `Duet ${h.version} · ${BASE} · 코드 ${h.codeHash} · 터미널이 처리 중인 메시지 ${h.running}` : '떠 있는 서버가 없어.')
     return
   }
   if (h?.foreign) { say(`포트 ${PORT}를 다른 프로그램이 쓰고 있어. --port로 다른 포트를 골라 줘.`); process.exit(1) }
   buildIfStale()
   const hash = await localHash()
   if (h && h.codeHash !== hash) {
-    if (h.running) say(`서버 코드가 바뀌었지만 일하는 대화가 ${h.running}개 있어서 그대로 둘게. 다 끝나면 duet --stop 후 다시 실행해 줘.`)
+    if (h.running) say(`서버 코드가 바뀌었지만 터미널이 처리 중인 메시지가 ${h.running}개 있어서 그대로 둘게. 다 끝나면 duet --stop 후 다시 실행해 줘.`)
     else { say('서버 코드가 바뀌어서 다시 띄울게.'); stopServer(); await new Promise(r => setTimeout(r, 600)); h = null }
   }
   if (!h) h = await startServer()

@@ -1,6 +1,7 @@
 import { execFileSync } from 'node:child_process'
 import { existsSync, realpathSync, statSync } from 'node:fs'
-import { basename, resolve } from 'node:path'
+import { homedir } from 'node:os'
+import { basename, dirname, join, resolve, sep } from 'node:path'
 import type { DiffSource, GitInfo, MapCode } from '../../shared/protocol.ts'
 import { git, HttpError, run } from '../util.ts'
 
@@ -11,6 +12,27 @@ export async function toplevel(path: string): Promise<string> {
   const out = await git(abs, ['rev-parse', '--show-toplevel'], { allowFail: true })
   if (!out.trim()) throw new HttpError(400, `${abs} is not inside a git repository`)
   return out.trim()
+}
+
+const tops = new Map<string, string | undefined>()
+
+/**
+ * The git working tree that holds this path (a file that does not exist yet counts by its folder).
+ * Claude Code's own folder (plans, memory) never counts, even when it is a git repo.
+ */
+export async function repoOf(path: string): Promise<string | undefined> {
+  const own = process.env.CLAUDE_CONFIG_DIR ?? join(homedir(), '.claude')
+  if (path === own || path.startsWith(own + sep)) return undefined
+  let dir = path
+  while (!existsSync(dir) || !statSync(dir).isDirectory()) {
+    const up = dirname(dir)
+    if (up === dir) return undefined
+    dir = up
+  }
+  if (tops.has(dir)) return tops.get(dir)
+  const top = (await git(dir, ['rev-parse', '--show-toplevel'], { allowFail: true })).trim() || undefined
+  tops.set(dir, top)
+  return top
 }
 
 /** For a linked worktree, the main repository's root; else undefined. */
