@@ -1,7 +1,7 @@
 // The terminal mod: a Claude Code session started through the Agent SDK with mod/ loaded stays off Duet (no status
 // line, no terminal, no tools) until /duet; then it says Duet is off while it finds no server, and once the server
-// shows up registers as a terminal of the workspace, reads and changes
-// a map with its tools (revisions signed by the agent from that
+// shows up registers as a terminal of the workspace, tells Duet what it does (its last words, a call or a question
+// waiting on the approver), reads and changes a map with its tools (revisions signed by the agent from that
 // terminal), shows the map in its status line, pins a map with /duet (status line, Duet's terminal list, the
 // model's choice of map, again after /compact, the canvas and the rail's terminal list in the browser; /duet off disconnects, and the next
 // session in the folder starts unpinned and off), takes a canvas
@@ -84,10 +84,18 @@ function startSession(cwd = nested) {
       settingSources: ['project', 'local'],
       plugins: [{ type: 'local', path: fileURLToPath(new URL('../mod', import.meta.url)) }],
       env,
-      canUseTool: async (tool, input) => (tool.startsWith('mcp__duet__duet_map_') ? { behavior: 'allow', updatedInput: input } : { behavior: 'deny', message: 'Only the Duet map tools are allowed in this test.' }),
+      canUseTool: async (tool, input) => {
+        if (tool.startsWith('mcp__duet__duet_map_')) return { behavior: 'allow', updatedInput: input }
+        // The approver takes its time over a probe: Duet hears of the wait meanwhile, and what it heard is kept.
+        if (JSON.stringify(input).includes('duet-activity-probe')) {
+          await sleep(tool === 'AskUserQuestion' ? 1_000 : 5_000)
+          s.waitsSeen.push({ tool, waiting: (await terminalOf(s.id))?.activity?.waiting ?? null })
+        }
+        return { behavior: 'deny', message: 'Only the Duet map tools are allowed in this test.' }
+      },
     },
   })
-  const s = { id: '', results: [], tools: [], uses: [], outs: new Map(), statuses: [], compactions: 0 }
+  const s = { id: '', results: [], tools: [], uses: [], outs: new Map(), statuses: [], compactions: 0, waitsSeen: [] }
   s.ended = (async () => {
     for await (const m of q) {
       if (m.type === 'system' && m.subtype === 'init') s.id = m.session_id
@@ -162,6 +170,20 @@ check('asked to change a box, Haiku uses duet_map_update', tools.includes('mcp__
 check('the new rev is the agent\'s, signed with the terminal', changed.revision === revBefore + 1 && last.by === 'agent' && last.note === `터미널 · ${folder} · ${id8} · Job 이름 바꿈`, JSON.stringify(last))
 await until('status follows the change', () => statuses.some(s => s.includes(`rev ${changed.revision}`)), 10_000)
 check('the status line follows the map to its new rev', statuses.some(s => s.startsWith(`Duet · ${title} · rev ${changed.revision}`)), statuses.at(-1))
+
+// 2a. What the terminal does reaches Duet: a call waits on the approver while it decides, then the terminal's last words.
+const lineOf = t => { const one = t.replace(/\s+/g, ' ').trim(); return one.length > 200 ? `${one.slice(0, 199)}…` : one }
+const settled = () => until('activity settles', async () => { const a = (await terminalOf(session))?.activity; return a?.said && !a.waiting ? a : undefined }, 10_000)
+const probed = await turn('Run the Bash command `touch duet-activity-probe` exactly once. If it is refused, reply with only the words: 거절됐어.')
+const bashWait = s1.waitsSeen.find(w => w.tool === 'Bash')?.waiting
+check('a call waiting on the approver shows in Duet while it waits', bashWait?.kind === 'permission' && bashWait.text === 'Bash · touch duet-activity-probe', JSON.stringify(s1.waitsSeen))
+let act = await settled()
+check('once answered, the wait clears and Duet has the terminal\'s last words', act?.said === lineOf(probed), `${JSON.stringify(act)} | ${probed.slice(0, 80)}`)
+const asked = await turn('Use the AskUserQuestion tool once to ask me "duet-activity-probe: A or B?" with the options A and B. If it is refused, reply with only the words: 질문 거절.')
+const askWait = s1.waitsSeen.find(w => w.tool === 'AskUserQuestion')?.waiting
+check('a question waits from the call on, in its own words', askWait?.kind === 'question' && askWait.text.includes('duet-activity-probe'), JSON.stringify(s1.waitsSeen))
+act = await settled()
+check('answered, the question waits no more', act?.said === lineOf(asked), `${JSON.stringify(act)} | ${asked.slice(0, 80)}`)
 
 // 2b. /duet pins the map this terminal works from: the status line, Duet's terminal list and the model follow it.
 const listing = await turn('/duet')

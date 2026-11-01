@@ -1,7 +1,8 @@
 // The composer floats over the map and writes to the terminal picked on the rail. With no terminal its head says so
-// and a send is refused out loud, the words kept; with one, the head names it (and says when its turn runs) and Enter
-// sends to it. What is typed outlives the box making way for decision mode (the rail's 결정); the box keeps clear of
-// the zoom bar as the window narrows, and can be put away: it stays away through a reload, and ⌘L brings it back.
+// and a send is refused out loud, the words kept; with one, the head names it (and says when its turn runs, its last
+// words, and what it waits on the person for, as the rail does) and Enter sends to it. What is typed outlives the box
+// making way for decision mode (the rail's 결정); the box keeps clear of the zoom bar as the window narrows, and can be
+// put away: it stays away through a reload, and ⌘L brings it back.
 //   DUET_PORT=7981 DUET_TOKEN=... DUET_WS=<a scratch repo with README.md and no terminal> DUET_SHOTS=/dir node e2e/float-composer.mjs
 //   (makes and removes a map named float-composer and a stand-in terminal)
 import { fakeTerminal, open, sleep } from './browser.mjs'
@@ -39,7 +40,8 @@ await page.reload({ waitUntil: 'domcontentloaded' })
 await page.waitForSelector('.stage-inner > svg .cv-node', { timeout: 20000 }); await sleep(800)
 
 const value = () => page.$eval('.float-composer textarea', e => e.value).catch(() => null)
-const head = () => page.$eval('.float-head', h => ({ who: h.querySelector('.float-who')?.textContent, cls: h.querySelector('.float-who')?.className, said: h.querySelector('.float-said')?.textContent })).catch(() => null)
+const head = () => page.$eval('.float-head', h => ({ who: h.querySelector('.float-who')?.textContent, cls: h.querySelector('.float-who')?.className, said: h.querySelector('.float-said')?.textContent, saidCls: h.querySelector('.float-said')?.className })).catch(() => null)
+const rail = () => page.$eval('.rail-btn.term', b => ({ cls: b.className, text: b.textContent, title: b.title })).catch(() => null)
 const toasts = () => page.$$eval('.toast', ts => ts.map(t => t.textContent).join(' ')).catch(() => '')
 const clear = () => page.evaluate(() => {
   const f = document.querySelector('.float-composer')?.getBoundingClientRect(), z = document.querySelector('.zoom-bar')?.getBoundingClientRect()
@@ -64,6 +66,25 @@ await call('POST', `/api/terminals/${term.id}/turns`, { edge: 'start' }); await 
 h = await head()
 check('while its turn runs, the head says it works', h?.cls.includes('working') && h.said === '일하는 중', JSON.stringify(h))
 await call('POST', `/api/terminals/${term.id}/turns`, { edge: 'end' }); await sleep(500)
+
+// 2b. What the terminal does: its last words in the head, then what it waits on the person for, until its turn ends.
+await call('POST', `/api/terminals/${term.id}/turns`, { edge: 'start' })
+await call('POST', `/api/terminals/${term.id}/activity`, { said: '테스트를 돌려 볼게.' }); await sleep(600)
+h = await head()
+check('the head says the terminal\'s last words', h?.said === '테스트를 돌려 볼게.' && !h.saidCls.includes('wait') && (await rail())?.title.includes('테스트를 돌려 볼게.'), JSON.stringify(h))
+await call('POST', `/api/terminals/${term.id}/activity`, { said: '테스트를 돌려 볼게.', waiting: { kind: 'permission', text: 'Bash · npm test' } }); await sleep(600)
+h = await head()
+let r = await rail()
+check('a wait on the person shows in the head and on the rail', h?.said === '터미널에서 승인을 기다려 · Bash · npm test' && h.saidCls.includes('wait') && r?.cls.includes('waiting') && r.text.includes('대기'), `${JSON.stringify(h)} · ${JSON.stringify(r)}`)
+await page.click('.rail-btn.term'); await sleep(300)
+const item = await page.$eval(`.menu-item[data-terminal="${term.id}"] .term-doing`, e => ({ text: e.textContent, cls: e.className })).catch(() => null)
+check('the rail\'s list says what the terminal waits on', item?.text === '터미널에서 승인을 기다려 · Bash · npm test' && item.cls.includes('wait'), JSON.stringify(item))
+if (shots) await page.screenshot({ path: `${shots}/float-composer-waiting.png` })
+await page.click('.rail-btn.term'); await sleep(300)
+await call('POST', `/api/terminals/${term.id}/turns`, { edge: 'end' }); await sleep(600)
+h = await head()
+r = await rail()
+check('the turn\'s end clears the wait, and the last words stay', h?.said === '테스트를 돌려 볼게.' && !h.saidCls.includes('wait') && r?.cls.includes('idle'), `${JSON.stringify(h)} · ${JSON.stringify(r)}`)
 await page.focus('.float-composer textarea')
 await page.keyboard.press('Enter'); await sleep(1500)
 check('Enter sends the kept words to it, and the box empties', term.got.length === 1 && term.got[0].text.includes('터미널 없이 보낸 말') && await value() === '', `${JSON.stringify(term.got.map(m => m.text))} · ${await value()}`)
