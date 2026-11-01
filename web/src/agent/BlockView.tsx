@@ -1,10 +1,9 @@
 import { memo, useState } from 'react'
-import { Brain, Check, ChevronRight, CircleAlert, Copy, Eye, FileDiff, Info, MessageSquareQuote, Shapes, TriangleAlert, Clock, Maximize2, History, BookOpen } from 'lucide-react'
+import { Brain, Check, ChevronRight, CircleAlert, Copy, Eye, FileDiff, Info, MessageSquareQuote, Shapes, TriangleAlert, Clock, History } from 'lucide-react'
 import { plain, thinkingGist, type Block, type ThinkingBlock, type TurnBlock, type UserBlock } from './transcript.ts'
 import { Markdown } from '../lib/Markdown.tsx'
 import { OrphanPermission, ToolCall, type ToolCtx } from './ToolCall.tsx'
 import { duration, useNow } from '../lib/ui.tsx'
-import { useApp } from '../state.ts'
 
 const Thinking = memo(function Thinking({ b }: { b: ThinkingBlock; rev: number }) {
   const [open, setOpen] = useState(false)
@@ -26,17 +25,14 @@ const Thinking = memo(function Thinking({ b }: { b: ThinkingBlock; rev: number }
   )
 }, (a, b) => a.rev === b.rev)
 
-/** The summary Claude Code wrote when the conversation was compacted: folded, readable wide. */
-const Summary = memo(function Summary({ b, sessionId }: { b: UserBlock; rev: number; sessionId?: string }) {
+/** The summary Claude Code wrote when the conversation was compacted: folded. */
+const Summary = memo(function Summary({ b }: { b: UserBlock; rev: number }) {
   const [open, setOpen] = useState(false)
-  const openReader = useApp(s => s.openReader)
   return (
     <div className={`summary-card ${open ? 'open' : ''}`}>
       <div className="summary-head">
         <History size={13} />
         <b>이전 대화 요약</b>
-        <span className="grow" />
-        {sessionId && <button className="btn sm ghost" onClick={() => openReader(sessionId, b.key)}><BookOpen size={13} /> 넓게 읽기</button>}
       </div>
       <div className="summary-body"><Markdown text={b.text} /></div>
       <button className="summary-more" onClick={() => setOpen(o => !o)}>{open ? '접기' : '펼치기'}</button>
@@ -100,16 +96,10 @@ const Turn = memo(function Turn({ b, onReviewTurn }: { b: TurnBlock; rev: number
   )
 }, (a, b) => a.rev === b.rev)
 
-/** Long answers, or ones with headings, tables or diagrams, read better wide. */
-const LONG = 900
-const isDocument = (text: string) => text.length > LONG || /^#{1,3} |^\|.*\|$|^```mermaid/m.test(text)
-
-function AnswerTools({ text, sessionId, blockKey }: { text: string; sessionId?: string; blockKey: string }) {
+function AnswerTools({ text }: { text: string }) {
   const [done, setDone] = useState(false)
-  const openReader = useApp(s => s.openReader)
   return (
     <span className="msg-tools">
-      {sessionId && <button className="iconbtn" title="넓게 읽기" onClick={() => openReader(sessionId, blockKey)}><Maximize2 size={13} /></button>}
       <button className="iconbtn" title="마크다운으로 복사" onClick={() => { void navigator.clipboard.writeText(text); setDone(true); setTimeout(() => setDone(false), 1200) }}>
         {done ? <Check size={13} /> : <Copy size={13} />}
       </button>
@@ -117,28 +107,17 @@ function AnswerTools({ text, sessionId, blockKey }: { text: string; sessionId?: 
   )
 }
 
-function ReadWide({ sessionId, blockKey }: { sessionId: string; blockKey: string }) {
-  const openReader = useApp(s => s.openReader)
-  const reading = useApp(s => s.reader?.key === blockKey)
-  return (
-    <button className={`read-wide ${reading ? 'on' : ''}`} onClick={() => openReader(sessionId, blockKey)}>
-      <BookOpen size={12} /> {reading ? '옆에서 읽는 중' : '넓게 읽기'}
-    </button>
-  )
-}
-
 export function BlockView({ block, ctx, nested, onReviewTurn }: { block: Block; ctx: ToolCtx; nested?: boolean; onReviewTurn?: (turnId: string) => void }) {
   switch (block.kind) {
     case 'user':
       if (nested) return null
-      return block.summary ? <Summary b={block} rev={block.rev} sessionId={ctx.sessionId} /> : <User b={block} rev={block.rev} sessionId={ctx.sessionId} />
+      return block.summary ? <Summary b={block} rev={block.rev} /> : <User b={block} rev={block.rev} sessionId={ctx.sessionId} />
     case 'text':
       return block.text.trim() || block.streaming
         ? (
           <div className={`msg-agent ${nested ? 'nested' : ''}`} data-key={block.key}>
             <Markdown text={block.text} streaming={block.streaming} onOpenPath={ctx.onOpenPath} />
-            {block.streaming ? <span className="caret" /> : <AnswerTools text={block.text} sessionId={nested ? undefined : ctx.sessionId} blockKey={block.key} />}
-            {!nested && ctx.sessionId && isDocument(block.text) && <ReadWide sessionId={ctx.sessionId} blockKey={block.key} />}
+            {block.streaming ? <span className="caret" /> : <AnswerTools text={block.text} />}
           </div>
         )
         : null

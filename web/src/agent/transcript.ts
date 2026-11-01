@@ -428,11 +428,6 @@ export function summaryBody(text: string): string {
   return t.trim()
 }
 
-/** Blocks worth opening in the reader: the agent's answers and compaction summaries, top level only. */
-export function readableBlocks(blocks: Block[]): (TextBlock | UserBlock)[] {
-  return blocks.filter((b): b is TextBlock | UserBlock => (b.kind === 'text' && b.text.trim().length > 0) || (b.kind === 'user' && Boolean(b.summary)))
-}
-
 /** Markdown marks dropped, whitespace folded: text fit for one line. */
 export function plain(text: string): string {
   return text.replace(/[*_`#>]+/g, '').replace(/\s+/g, ' ').trim()

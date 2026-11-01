@@ -56,13 +56,6 @@ type AppState = {
   versions: Record<string, number>
   /** Text queued into the composer from elsewhere (canvas, review, empty states). */
   draft?: { text: string; context?: ContextItem[]; nonce: number }
-  /** Focus: each turn shows only what was asked, what waits for the person, the last words and the changed files. */
-  focus: boolean
-  setFocus: (on: boolean) => void
-  /** A long answer opened wide over the stage. */
-  reader?: { sessionId: string; key: string }
-  openReader: (sessionId: string, key: string) => void
-  closeReader: () => void
   setTab: (t: Tab) => void
   setTheme: (t: Theme) => void
   setCodePalette: (id: string) => void
@@ -135,7 +128,6 @@ export const useApp = create<AppState>((set, get) => ({
   paletteOpen: false,
   toasts: [],
   prefs: loadPrefs(),
-  focus: store.get('focus') === '1',
   sessions: [],
   terminals: [],
   versions: {},
@@ -164,7 +156,7 @@ export const useApp = create<AppState>((set, get) => ({
     history.replaceState(null, '', url)
     const sessions = await api.get<SessionInfo[]>(`/api/sessions${q({ ws: ws.path })}`)
     const terminals = await api.get<TerminalInfo[]>(`/api/terminals${q({ ws: ws.path })}`)
-    set({ workspace: ws, workspaces, sessions, terminals, reader: undefined })
+    set({ workspace: ws, workspaces, sessions, terminals })
     const remembered = store.get(`session:${ws.path}`)
     const pick = sessions.find(s => s.id === remembered) ?? sessions[0]
     await get().selectSession(pick?.id)
@@ -176,15 +168,14 @@ export const useApp = create<AppState>((set, get) => ({
     const ws = get().workspace
     if (ws && id) store.set(`session:${ws.path}`, id)
     if (ws) store.set(`terminal:${ws.path}`, '')
-    // The reader shows one conversation's answer; another conversation closes it.
-    set(s => ({ currentSession: id, currentTerminal: undefined, reader: s.reader?.sessionId === id ? s.reader : undefined }))
+    set({ currentSession: id, currentTerminal: undefined })
     if (id && !transcripts.has(id)) await loadSession(id)
   },
 
   selectTerminal: id => {
     const ws = get().workspace
     if (ws) store.set(`terminal:${ws.path}`, id)
-    set({ currentTerminal: id, reader: undefined })
+    set({ currentTerminal: id })
   },
 
   newSession: async () => {
@@ -235,9 +226,6 @@ export const useApp = create<AppState>((set, get) => ({
     set(s => ({ sessions: s.sessions.map(x => (x.id === id ? info : x)) }))
   },
 
-  setFocus: on => { store.set('focus', on ? '1' : '0'); set({ focus: on }) },
-  openReader: (sessionId, key) => set({ reader: { sessionId, key } }),
-  closeReader: () => set({ reader: undefined }),
   setDraft: (text, context) => set({ draft: { text, context, nonce: Date.now() }, sideOpen: true }),
   setPalette: open => set({ paletteOpen: open }),
 }))

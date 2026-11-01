@@ -1,10 +1,9 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
-import { ArrowDown, Check, ChevronDown, Copy, Focus, History, Loader2, Plus, Sparkles, Terminal, Trash2, CircleDot, ListChecks } from 'lucide-react'
+import { ArrowDown, Check, ChevronDown, Copy, History, Loader2, Plus, Sparkles, Terminal, Trash2, CircleDot, ListChecks } from 'lucide-react'
 import type { SessionInfo, TerminalInfo } from '../../../shared/protocol.ts'
 import { api, q } from '../api.ts'
 import { transcriptOf, useApp, useTranscript } from '../state.ts'
 import { Popover, relTime, useNow } from '../lib/ui.tsx'
-import { Blocks } from './Blocks.tsx'
 import { FocusBlocks } from './Focus.tsx'
 import { Composer, modelLabel } from './Composer.tsx'
 import { confirmDialog } from '../lib/confirm.tsx'
@@ -176,7 +175,7 @@ const SUGGESTIONS = [
 ]
 
 export function AgentPanel() {
-  const { sessions, currentSession, workspace, toast, setDraft, setTab, focus, setFocus, terminals, currentTerminal } = useApp()
+  const { sessions, currentSession, workspace, toast, setDraft, setTab, terminals, currentTerminal } = useApp()
   const session = sessions.find(s => s.id === currentSession)
   const terminal = terminals.find(x => x.id === currentTerminal)
   const t = useTranscript(currentSession)
@@ -242,9 +241,6 @@ export function AgentPanel() {
           <ChevronDown size={13} />
         </button>
         <span className="grow" />
-        <button className={`focus-toggle ${focus ? 'on' : ''}`} aria-pressed={focus} onClick={() => setFocus(!focus)} title={focus ? '포커스 끄기 (⌘.)' : '포커스 (⌘.)'}>
-          <Focus size={13} /> 포커스
-        </button>
         {!currentTerminal && session?.claudeId && (
           <button
             className="iconbtn"
@@ -290,9 +286,7 @@ export function AgentPanel() {
             </div>
           </div>
         ) : (
-          focus
-            ? <FocusBlocks blocks={blocks} ctx={ctx} running={status === 'running' || status === 'starting' || status === 'waiting'} onReviewTurn={onReviewTurn} />
-            : <Blocks blocks={blocks} ctx={ctx} onReviewTurn={onReviewTurn} />
+          <FocusBlocks blocks={blocks} ctx={ctx} running={status === 'running' || status === 'starting' || status === 'waiting'} onReviewTurn={onReviewTurn} />
         )}
       </div>
       {!stuck && (

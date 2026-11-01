@@ -38,7 +38,7 @@ for (;;) {
 }
 
 const { browser, page, errors } = await open({ port, token: T, ws, width: 1600, height: 1100 })
-await page.evaluate(([w, id]) => { localStorage.setItem(`duet.session:${w}`, id); localStorage.setItem('duet.sideOpen', '1'); localStorage.setItem('duet.focus', '0'); localStorage.setItem('duet.sideWidth', '640') }, [ws, s.id])
+await page.evaluate(([w, id]) => { localStorage.setItem(`duet.session:${w}`, id); localStorage.setItem('duet.sideOpen', '1'); localStorage.setItem('duet.sideWidth', '640') }, [ws, s.id])
 await page.reload({ waitUntil: 'domcontentloaded' })
 await page.waitForSelector('.turn-foot', { timeout: 15000 }); await sleep(800)
 
@@ -46,6 +46,10 @@ const view = () => page.evaluate(() => {
   const cards = [...document.querySelectorAll('.side .tool')].map(t => ({ title: t.querySelector('.tool-title')?.textContent, summary: t.querySelector('.edit-summary')?.textContent, marks: t.querySelectorAll('.mini-diff mark.w-add').length, preview: t.querySelectorAll('.write-preview .cl').length, more: t.querySelector('.write-preview .more')?.textContent }))
   return { folds: [...document.querySelectorAll('.side .explore-line')].map(e => e.textContent), loose: [...document.querySelectorAll('.side .tool')].filter(t => t.querySelector('.tool-sub code.cmd') || t.querySelector('.tool-title')?.textContent === 'Read').map(t => t.textContent.slice(0, 60)), cards }
 })
+// The turn is a timeline: its work line counts the calls in one sentence, and opens to each call.
+const run = await page.$$eval('.side .run-tally', rs => rs.map(r => r.textContent))
+check('the work line tells its calls in one sentence', run.some(r => /ran 2 shell commands/.test(r)), JSON.stringify(run))
+for (const h of await page.$$('.side .run-head')) { await h.click(); await sleep(200) }
 const v = await view()
 check('look-arounds and shell commands fold into one sentence', v.folds.some(f => /ran 2 shell commands/.test(f)) && v.loose.length === 0, JSON.stringify(v.folds) + ' loose ' + JSON.stringify(v.loose))
 const ed = v.cards.find(c => c.title === 'Update')
@@ -57,11 +61,6 @@ if (shots) await page.locator('.side').screenshot({ path: `${shots}/toolview.png
 await page.click('.side .explore-head'); await sleep(300)
 const inside = await page.$$eval('.side .explore-body .tool', ts => ts.length)
 check('the folded line opens to each call', inside >= 2, String(inside))
-// Focus mode words its work line the same way.
-await page.keyboard.press('Meta+.'); await sleep(600)
-const run = await page.$$eval('.side .run-tally', rs => rs.map(r => r.textContent))
-check('focus mode tells its work in the same sentence', run.some(r => /ran 2 shell commands/.test(r)), JSON.stringify(run))
-await page.keyboard.press('Meta+.'); await sleep(300)
 if (errors.length) { failed++; console.log('page errors', errors) }
 await browser.close()
 process.exit(failed ? 1 : 0)

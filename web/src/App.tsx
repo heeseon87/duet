@@ -6,7 +6,6 @@ import { Popover, isTypingTarget, shortcutKey } from './lib/ui.tsx'
 import { PALETTES } from './lib/highlight.ts'
 import { RepoPicker } from './lib/RepoPicker.tsx'
 import { AgentPanel } from './agent/AgentPanel.tsx'
-import { Reader } from './agent/Reader.tsx'
 import { ReviewView } from './review/ReviewView.tsx'
 import { CanvasView } from './canvas/CanvasView.tsx'
 import { Palette } from './Palette.tsx'
@@ -144,12 +143,11 @@ function ClaudeSlot() {
 /** Decision mode from anywhere: the open decisions of the map on the canvas, one at a time (all made, what was made). */
 function DecideSlot() {
   const tab = useApp(s => s.tab)
-  const reading = useApp(s => Boolean(s.reader))
   const all = useCanvas(s => s.map?.decisions?.length ?? 0)
   const open = useCanvas(s => (s.map?.decisions ?? []).filter(d => !d.chosen).length)
   const deciding = useCanvas(s => s.deciding), setDeciding = useCanvas(s => s.setDeciding)
   const preview = useCanvas(s => s.preview?.revision)
-  const on = deciding && !reading && tab === 'canvas'
+  const on = deciding && tab === 'canvas'
   const title = !all ? '결정 · 이 지도에는 정할 결정이 없어'
     : preview ? `결정 · rev ${preview}을 보는 동안은 열 수 없어`
     : on ? '결정 모드 닫기 (esc)'
@@ -157,7 +155,6 @@ function DecideSlot() {
   return (
     <button className="rail-btn rail-decide" aria-pressed={on} disabled={!all || Boolean(preview)} title={title} onClick={() => {
       if (on) { setDeciding(false); return }
-      useApp.getState().closeReader()
       useApp.getState().setTab('canvas')
       setDeciding(true)
     }}>
@@ -170,19 +167,17 @@ function DecideSlot() {
 /** The app's left rail: the two views, decision mode, the conversation, and what is about the app itself. */
 function Rail({ onHelp }: { onHelp: () => void }) {
   const { tab, setTab, setPalette } = useApp()
-  const reading = useApp(s => Boolean(s.reader))
   const drafts = useReview(s => s.comments.filter(c => c.state === 'draft').length)
   const fileCount = useReview(s => s.diff?.files.length)
   const counted = useReview(s => s.root && `${s.repos.find(r => r.path === s.root)?.label ?? s.root.split('/').pop()} · ${sourceLabel(s.source)}`)
-  const go = (t: 'canvas' | 'review') => { useApp.getState().closeReader(); setTab(t) }
   return (
     <nav className="rail" aria-label="앱">
       <span className="brand-mark rail-logo" title="Duet"><i /><i /></span>
       <div className="tabs" role="tablist" aria-orientation="vertical">
-        <button role="tab" className="rail-btn" aria-selected={!reading && tab === 'canvas'} onClick={() => go('canvas')} title="지도 (⌘1)">
+        <button role="tab" className="rail-btn" aria-selected={tab === 'canvas'} onClick={() => setTab('canvas')} title="지도 (⌘1)">
           <Shapes size={16} />지도
         </button>
-        <button role="tab" className="rail-btn" aria-selected={!reading && tab === 'review'} onClick={() => go('review')} title={counted ? `리뷰 (⌘2) · ${counted}${fileCount ? ` 파일 ${fileCount}개` : ''}` : '리뷰 (⌘2)'}>
+        <button role="tab" className="rail-btn" aria-selected={tab === 'review'} onClick={() => setTab('review')} title={counted ? `리뷰 (⌘2) · ${counted}${fileCount ? ` 파일 ${fileCount}개` : ''}` : '리뷰 (⌘2)'}>
           <FileDiff size={16} /><span>리뷰{fileCount ? <> <span className="count">{fileCount > 999 ? '999+' : fileCount}</span></> : null}</span>
           {drafts > 0 && <span className="badge agent" title={`보내기 전 코멘트 ${drafts}개`}>{drafts}</span>}
         </button>
@@ -205,7 +200,6 @@ export function App() {
   const [booted, setBooted] = useState(false)
   const [help, setHelp] = useState(false)
   const sessions = useApp(s => s.sessions)
-  const reading = useApp(s => Boolean(s.reader))
 
   // A turn that ends, or waits for a yes, while the tab is in the background says so in the tab title.
   useEffect(() => {
@@ -241,9 +235,8 @@ export function App() {
     const key = (e: KeyboardEvent) => {
       const mod = e.metaKey || e.ctrlKey
       if (mod && shortcutKey(e).toLowerCase() === 'k') { e.preventDefault(); setPalette(!useApp.getState().paletteOpen) }
-      else if (mod && e.key === '1') { e.preventDefault(); useApp.getState().closeReader(); setTab('canvas') }
-      else if (mod && e.key === '2') { e.preventDefault(); useApp.getState().closeReader(); setTab('review') }
-      else if (mod && e.key === '.') { e.preventDefault(); const s = useApp.getState(); s.setFocus(!s.focus) }
+      else if (mod && e.key === '1') { e.preventDefault(); setTab('canvas') }
+      else if (mod && e.key === '2') { e.preventDefault(); setTab('review') }
       else if (mod && e.key === '3') { e.preventDefault(); setSide(useApp.getState().sideWidth, !useApp.getState().sideOpen) }
       else if (mod && e.shiftKey && shortcutKey(e).toLowerCase() === 'o') { e.preventDefault(); void useApp.getState().newSession() }
       else if (e.key === '?' && !isTypingTarget(e.target)) { e.preventDefault(); setHelp(h => !h) }
@@ -270,7 +263,6 @@ export function App() {
         {sideOpen && <Divider />}
         <section className="stage">
           {tab === 'canvas' ? <CanvasView /> : <ReviewView />}
-          {reading && <Reader />}
         </section>
       </div>
       {paletteOpen && <Palette onClose={() => setPalette(false)} />}

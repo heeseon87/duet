@@ -1,6 +1,6 @@
 // What waits on the person reaches them: while a command runs the strip shows what the agent last said
 // (one line, a click away from the words), a question rings and the strip names it ("질문 1개 · 답하기") and
-// brings it into view (also in focus mode), an answered question keeps its pick across a reload, and the
+// brings it into view, an answered question keeps its pick across a reload, and the
 // context meter shows the real context, amber past 80%.
 //   DUET_PORT=7981 DUET_TOKEN=... DUET_WS=<scratch repo> node e2e/waiting.mjs   (runs one Haiku conversation)
 import { open, sleep } from './browser.mjs'
@@ -29,7 +29,7 @@ const stamp = Date.now().toString(36)
 await call('POST', '/api/workspaces', { path: ws })
 const s = await call('POST', '/api/sessions', { ws, model: process.env.DUET_MODEL ?? 'claude-haiku-5-5', permissionMode: 'bypassPermissions' })
 const { browser, page, errors } = await open({ port, token: T, ws, width: 1400, height: 640 })
-await page.evaluate(([w, id]) => { localStorage.setItem(`duet.session:${w}`, id); localStorage.setItem('duet.sideOpen', '1'); localStorage.setItem('duet.focus', '0'); localStorage.setItem('duet.sideWidth', '560') }, [ws, s.id])
+await page.evaluate(([w, id]) => { localStorage.setItem(`duet.session:${w}`, id); localStorage.setItem('duet.sideOpen', '1'); localStorage.setItem('duet.sideWidth', '560') }, [ws, s.id])
 await page.reload({ waitUntil: 'domcontentloaded' })
 await page.waitForSelector('.composer textarea', { timeout: 15000 })
 await call('POST', `/api/sessions/${s.id}/messages`, { text: [
@@ -45,7 +45,7 @@ let during
 for (let i = 0; i < 240 && !during; i++) {
   await sleep(250)
   const v = await page.evaluate(() => ({
-    sleeping: [...document.querySelectorAll('.tool.running code.cmd')].some(c => c.textContent.includes('sleep')),
+    sleeping: [...document.querySelectorAll('.live-tool')].some(c => c.textContent.includes('sleep')),
     said: document.querySelector('.status-strip .said')?.textContent,
     title: document.querySelector('.status-strip')?.getAttribute('title'),
   }))
@@ -71,12 +71,8 @@ const jump = async mode => {
   await page.click('.status-strip .link'); await sleep(900)
   check(`${mode}: the strip's click brings the question into view`, !before && (await inView()), `in view before the click: ${before}`)
 }
-await jump('normal view')
+await jump('timeline')
 if (shots) await page.locator('.side').screenshot({ path: `${shots}/waiting-question.png` })
-await page.keyboard.press('Meta+.'); await sleep(500)
-check('focus mode is on', await page.$eval('.focus-toggle', b => b.classList.contains('on')))
-await jump('focus mode')
-await page.keyboard.press('Meta+.'); await sleep(400)
 
 // Answered: the card shows the pick, not the raw result, also after a reload.
 await page.click('.tool.ask .ask-opt:has-text("Blue")')

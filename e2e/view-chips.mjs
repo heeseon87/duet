@@ -54,7 +54,7 @@ const prompts = async () => {
 
 const { browser, page, errors } = await open({ port, token: T, ws })
 await page.evaluate(([w, id, n, m]) => {
-  localStorage.setItem('duet.tab', 'review'); localStorage.setItem('duet.sideOpen', '1'); localStorage.setItem('duet.focus', '0')
+  localStorage.setItem('duet.tab', 'review'); localStorage.setItem('duet.sideOpen', '1')
   localStorage.setItem(`duet.session:${w}`, id); localStorage.setItem(`duet.review.root:${w}:${id}`, n)
   localStorage.setItem(`duet.review.source:${n}`, JSON.stringify({ kind: 'working' })); localStorage.setItem(`duet.canvas.current:${w}`, m)
 }, [ws, s.id, nested, mapName])

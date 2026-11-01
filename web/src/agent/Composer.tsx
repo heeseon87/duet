@@ -57,7 +57,6 @@ function Picker<T>({ icon, label, items, current, onPick, render }: {
 /** What the stage shows, as a context item derived live; `key` names the view (tab, tree, source, scope or map) a dismissal holds for. */
 function useView(): { key?: string; item?: ContextItem } {
   const tab = useApp(s => s.tab)
-  const reading = useApp(s => Boolean(s.reader))
   const root = useReview(s => s.root)
   const source = useReview(s => s.source)
   const diff = useReview(s => s.diff)
@@ -68,7 +67,6 @@ function useView(): { key?: string; item?: ContextItem } {
   const revision = useCanvas(s => s.preview?.revision ?? s.revision)
   const selected = useCanvas(s => s.selected)
   return useMemo(() => {
-    if (reading) return {}
     if (tab === 'review') {
       if (!root) return {}
       const key = `review ${root} ${JSON.stringify(source)} ${scope?.target ?? ''}`
@@ -76,7 +74,7 @@ function useView(): { key?: string; item?: ContextItem } {
     }
     if (!name || !map) return {}
     return { key: `canvas ${name}`, item: mapView(map, name, revision, selected) }
-  }, [reading, tab, root, source, diff, scope, filter, name, map, revision, selected])
+  }, [tab, root, source, diff, scope, filter, name, map, revision, selected])
 }
 
 type Img = { mediaType: string; data: string; url: string; name: string }

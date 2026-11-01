@@ -1,4 +1,4 @@
-// Focus mode on a real turn: while it runs, one live line; after, the last words, the folded work and the changed files.
+// The timeline on a real turn: while it runs, one live line; after, the last words, the folded work and the changed files.
 //   DUET_PORT=7981 DUET_TOKEN=... DUET_WS=<demo repo> DUET_SHOTS=/dir node e2e/focus.mjs   (runs one short Haiku turn)
 import { open, sleep } from './browser.mjs'
 const port = Number(process.env.DUET_PORT ?? 7979)
@@ -7,14 +7,12 @@ const { browser, page, errors } = await open({ port, token: T, ws, width: 1500, 
 let failed = 0
 const check = (name, ok, extra = '') => { if (!ok) failed++; console.log(ok ? 'PASS' : 'FAIL', name, extra) }
 const shot = async name => { if (!shots) return; const b = await page.$eval('.side', e => { const r = e.getBoundingClientRect(); return { x: r.x, y: r.y, width: r.width, height: r.height } }); await page.screenshot({ path: `${shots}/focus-${name}.png`, clip: b }) }
-await page.evaluate(() => { localStorage.setItem('duet.focus', '0'); localStorage.setItem('duet.sideOpen', '1') })
+await page.evaluate(() => { localStorage.setItem('duet.sideOpen', '1') })
 await page.reload({ waitUntil: 'domcontentloaded' })
 await page.waitForSelector('.composer textarea', { timeout: 15000 })
 await page.keyboard.press('Meta+Shift+o'); await sleep(900)
 await page.click('.composer-bar .pick >> nth=0'); await sleep(200)
 await page.click('.popover .menu-item:has-text("Haiku 5.5")'); await sleep(300)
-await page.keyboard.press('Meta+.'); await sleep(200)
-check('⌘. turns focus on', await page.$eval('.focus-toggle', b => b.classList.contains('on')))
 await page.fill('.composer textarea', 'Do these steps with tools, one after another, and before each tool call write one short Korean sentence saying what you are about to do: 1) Read README.md. 2) Append the line "focus mode check" to docs/notes.md (use Edit or Write). 3) Run `git status --short` with Bash. Then reply in one short Korean sentence saying what changed.')
 await page.keyboard.press('Enter')
 let sawLive = 0, sawCount = false, cardsWhileRunning = 0
@@ -58,8 +56,6 @@ await shot('done')
 await page.click('.focus-turn:last-child .ftl .run-head >> nth=-1'); await sleep(400)
 check('a count opens to its calls in place', await page.$$eval('.focus-turn:last-child .run-body > *', els => els.length > 0))
 await shot('run-open')
-await page.keyboard.press('Meta+.'); await sleep(300)
-check('⌘. turns focus off and shows everything', !(await page.$('.focus-turn')) && (await page.$$('.transcript .tool, .transcript .explore, .transcript .thinking')).length > 0)
 if (errors.length) { failed++; console.log('page errors', errors) }
 await browser.close()
 process.exit(failed ? 1 : 0)

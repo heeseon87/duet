@@ -42,7 +42,6 @@ export function WorkChip() {
   if (!tree || tree === workspace) return null
   return (
     <button className="work-chip" title={`${tree}\n이 대화가 일하는 저장소`} onClick={() => {
-      useApp.getState().closeReader()
       useApp.getState().setTab('review')
       void useReview.getState().setRoot(tree)
     }}>

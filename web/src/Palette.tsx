@@ -43,7 +43,6 @@ export function Palette({ onClose }: { onClose: () => void }) {
     { id: 'tab-canvas', icon: <Shapes size={14} />, label: '캔버스로 가기', hint: '⌘1', run: () => app.setTab('canvas') },
     { id: 'tab-review', icon: <FileDiff size={14} />, label: '리뷰로 가기', hint: '⌘2', run: () => app.setTab('review') },
     { id: 'new-session', icon: <MessageSquarePlus size={14} />, label: '새 대화', hint: '⌘⇧O', run: () => void app.newSession() },
-    { id: 'focus', icon: <PanelRight size={14} />, label: app.focus ? '포커스 끄기' : '포커스 켜기', hint: '⌘.', run: () => app.setFocus(!app.focus) },
     { id: 'toggle-side', icon: <PanelRight size={14} />, label: '에이전트 패널 열고 닫기', hint: '⌘3', run: () => app.setSide(app.sideWidth, !app.sideOpen) },
     { id: 'theme', icon: <Moon size={14} />, label: '테마 바꾸기', run: () => app.setTheme(app.theme === 'system' ? 'light' : app.theme === 'light' ? 'dark' : 'system') },
     { id: 'src-working', icon: <FileDiff size={14} />, label: '리뷰: Changes', run: () => { app.setTab('review'); review.setSource({ kind: 'working' }) } },
