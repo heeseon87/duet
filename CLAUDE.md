@@ -19,20 +19,19 @@ DUET_HOME=/tmp/duet-dev npx tsx watch server/main.ts --port 7981   # 개발 서�
 - `npm run typecheck`의 mod 쪽은 `mod/.claude-plugin/types/`를 읽는다. 이 폴더는 git에 없고, `claude --plugin-dir mod`를 한 번 띄웠다가 나가면 Claude Code가 쓴다.
 - `server/agent/canvasTools.ts`를 고치면 `npm run mod:tools`를 돌린다. 안 돌리면 `tests/mod.test.ts`가 어긋남을 잡고 실패한다.
 - 개발은 7981 포트와 별도 `DUET_HOME`에서 한다. 토큰은 `$DUET_HOME/token`에 있다. 기본 포트 7979의 서버는 사용자의 실제 대화를 돌리고 있을 수 있으므로 `duet --stop`이나 프로세스 종료로 멈추지 않는다. 다만 `duet` 실행기(`~/.local/bin/duet` → `bin/duet.mjs`)는 이 체크아웃에서 돌기 때문에 두 서버는 `dist/web`과 코드 해시를 공유한다. 그래서 `npm run build`는 7979의 열린 탭에도 바로 반영되고, `server/`·`shared/`를 고치면 그 탭에도 재시작이 필요하다는 칩이 뜬다.
-- e2e는 테스트 러너가 아니라 떠 있는 서버를 상대로 도는 `node e2e/<이름>.mjs` 스크립트다. 필요한 환경 변수와 준비물은 각 파일 머리 주석에 있다. 상당수가 실제 Haiku 대화를 돌린다(`DUET_MODEL`로 바꾼다). `smoke.mjs`는 `e2e/make-demo.sh <경로>`로 만든 데모 저장소가 필요하다. `DUET_SETTING_SOURCES=project,local`을 주면 대화가 사용자 설정(CLAUDE.md, 훅) 없이 뜬다.
+- e2e는 테스트 러너가 아니라 떠 있는 서버를 상대로 도는 `node e2e/<이름>.mjs` 스크립트다. 필요한 환경 변수와 준비물은 각 파일 머리 주석에 있다. 터미널은 `e2e/browser.mjs`의 `fakeTerminal`이 대신한다. `mod.mjs`만 Agent SDK로 mod를 붙인 실제 Haiku 세션을 돌린다(`DUET_MODEL`로 바꾼다. SDK는 이 때문에 개발 의존성으로 남아 있다). `smoke.mjs`는 `e2e/make-demo.sh <경로>`로 만든 데모 저장소가 필요하다.
 
 ## 구조
 
-프로세스 셋이 서버 하나를 가운데 두고 만난다.
+브라우저와 터미널의 Claude Code가 서버 하나를 가운데 두고 만난다. Duet은 에이전트를 직접 띄우지 않는다.
 
 - **브라우저 ↔ 서버.** `server/main.ts`가 HTTP 라우트와 SSE(`/api/events`) 방송을 맡는다. 브라우저는 프로세스 상태를 직접 보지 않고 `shared/protocol.ts`에 정의된 이벤트만 받는다. 이 파일이 서버와 브라우저 사이의 계약이다.
-- **서버 ↔ Duet 대화.** `server/agent/session.ts`가 Agent SDK `query()`를 스트리밍 입력(Inbox)으로 붙잡고 있고, 캔버스 도구는 같은 프로세스 안의 SDK MCP 서버(`mcp__duet__canvas_*`)로 붙는다. 턴마다 작업 트리를 스냅샷으로 남겨 리뷰의 Turns 비교에 쓴다(`server/git/diff.ts`의 `snapshot`).
-- **서버 ↔ 터미널 Claude Code.** `mod/`는 MCP 플러그인이 아니라 Claude Code mod다. mod는 SSE를 읽을 수 없어서 `GET /api/terminals/:id/poll`을 길게 붙잡아 메시지와 지도 변경을 받고, 도구 호출은 `POST /api/terminals/:id/tools/:tool`로 보내 서버의 `runCanvasTool`이 처리한다. 순수 로직은 `mod/hooks/duet.ts`(단위 테스트 대상)에, 상태와 훅 등록은 `mod/hooks/register.tsx`에 둔다.
+- **서버 ↔ 터미널 Claude Code.** `mod/`는 MCP 플러그인이 아니라 Claude Code mod다. mod는 SSE를 읽을 수 없어서 `GET /api/terminals/:id/poll`을 길게 붙잡아 메시지와 지도 변경을 받고, 도구 호출은 `POST /api/terminals/:id/tools/:tool`로 보내 서버의 `runCanvasTool`이 처리한다. 브라우저에서 보내는 것(코멘트, 결정, 리뷰 코멘트, 입력창)은 `terminalId`로 고른 터미널에만 가고, 없으면 서버가 아무것도 쓰기 전에 409로 거절한다(`server/main.ts`의 `targetOf`). 순수 로직은 `mod/hooks/duet.ts`(단위 테스트 대상)에, 상태와 훅 등록은 `mod/hooks/register.tsx`에 둔다.
 
 한 가지 의미는 한 곳에만 둔다.
 
 - `shared/canvas.ts`: 지도 모델(검증, 패치, rev diff, Mermaid 변환). 순수 함수만 두고, 서버와 브라우저가 함께 쓴다.
-- `server/agent/canvasTools.ts`의 `CANVAS_TOOLS`: 캔버스 도구의 설명과 스키마. Duet 대화의 MCP 서버, 터미널 라우트, 생성된 `mod/hooks/tools.ts`가 모두 여기서 나온다.
+- `server/agent/canvasTools.ts`의 `CANVAS_TOOLS`: 캔버스 도구의 설명과 스키마. 터미널 라우트와 생성된 `mod/hooks/tools.ts`가 여기서 나온다.
 - `shared/mapFiles.ts`: 상자와 파일을 짝짓는 규칙. 리뷰의 '지도' 묶음과 캔버스의 코드 배지가 같은 함수를 쓴다.
 - 지도가 묶인 코드(`<name>.map.json`의 `code`)는 rev 밖에 저장되므로 rev 비교·복원과 무관하다.
 
@@ -44,9 +43,8 @@ DUET_HOME=/tmp/duet-dev npx tsx watch server/main.ts --port 7981   # 개발 서�
 
 서버 보안이나 git 동작을 건드리기 전에 README의 '지켜야 할 것'을 읽는다. 핵심은 다음과 같다.
 
-- 서버는 Bash를 돌리는 에이전트를 부린다. `127.0.0.1`에만 묶고, 토큰 쿠키와 Host·Origin 검사를 유지하며, CORS는 열지 않는다.
-- 리뷰와 턴 스냅샷은 작업 트리, 진짜 인덱스, stash를 건드리지 않는다. 트리 객체는 임시 인덱스로만 만든다.
-- Duet이 띄우는 대화에는 터미널 mod와 옛 design-map 플러그인이 붙지 않는다(`CLAUDE_CODE_PLUGIN_DIRS`에서 빼고 `DUET_CONVERSATION=1`을 준다).
+- 서버는 Bash를 돌리는 터미널 에이전트에게 프롬프트를 보낸다. `127.0.0.1`에만 묶고, 토큰 쿠키와 Host·Origin 검사를 유지하며, CORS는 열지 않는다.
+- 리뷰와 스냅샷은 작업 트리, 진짜 인덱스, stash를 건드리지 않는다. 트리 객체는 임시 인덱스로만 만든다.
 
 ## 관례
 
