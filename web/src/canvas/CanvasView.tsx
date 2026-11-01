@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import {
   ChevronDown, ChevronsDownUp, ChevronsUpDown, Clock3, Copy, ListCollapse, ZoomIn, GitCompareArrows, Maximize2, MessageSquare, Plus, Shapes, Sparkles, Undo2, Workflow,
   Check, FileCode2, FileDiff, ArrowLeft, ArrowRight, ArrowUp, ArrowDown, X, Bot, User, Trash2, Share, ImageDown, FolderGit2,
@@ -123,9 +123,21 @@ function HeadLine() {
   return <div className="canvas-bar map-head"><div className="map-head-row"><span className="head-ws"><WorkspaceMenu /></span></div></div>
 }
 
+/** Each arrow's name as Korean UML texts give it, and on hover its UML name and what it says (A is the line's `from`). */
 const ARROW_LABEL: Record<ArrowKind, string> = {
-  association: '연관', dependency: '의존', inheritance: '상속', realization: '실현', composition: '합성', aggregation: '집약',
-  call: '호출', reply: '답', async: '비동기',
+  association: '연관', dependency: '의존', inheritance: '일반화(상속)', realization: '실체화(구현)', aggregation: '집합', composition: '합성',
+  call: '호출', reply: '응답', async: '비동기',
+}
+const ARROW_MEANING: Record<ArrowKind, string> = {
+  association: 'Association · A가 B를 필드로 갖고 계속 참조해',
+  dependency: 'Dependency · A가 B를 잠깐 써(매개변수, 지역 변수, 호출)',
+  inheritance: 'Generalization · A가 B를 상속해(extends)',
+  realization: 'Realization · A가 인터페이스 B를 구현해(implements)',
+  aggregation: 'Aggregation · 마름모 쪽 A가 B를 모으지만, B는 A 없이도 있어',
+  composition: 'Composition · 마름모 쪽 A가 B를 품고, A가 없어지면 B도 없어져',
+  call: 'Synchronous message · 보내고 응답을 기다려',
+  reply: 'Reply · 호출에 돌려주는 응답',
+  async: 'Asynchronous message · 보내고 기다리지 않아',
 }
 
 /** A short arrow drawn as the map draws its kind: solid or dashed, and its head (a diamond sits at the whole's end). */
@@ -145,24 +157,47 @@ function ArrowGlyph({ kind }: { kind: ArrowKind }) {
   )
 }
 
-/** What the map's colors and marks mean, over the map's top right corner: the states it uses, its kinds of arrow, open decisions, the agent's △. */
+/**
+ * What the map's colors and marks mean, over the map's top right corner: the states it uses, every kind of arrow its
+ * diagram can draw (so a line is read the same on any map), open decisions, the agent's △.
+ */
 function Legend({ map, revised }: { map: CanvasMap; revised?: { revision: number; ids: string[] } }) {
   const used = new Set(map.elements.map(e => e.change ?? 'keep'))
   const items = (['add', 'modify', 'delete', 'result', 'keep'] as const).filter(c => used.has(c))
-  const arrows = arrowsOf(map)
+  const arrows = arrowsOf(map.diagram)
   const open = map.decisions?.some(d => !d.chosen)
   const rev = revised?.ids.length ? revised : undefined
   // The states as before: shown when there is more than one, or beside the decision and △ marks.
   const states = items.length > 1 || open || rev
-  if (!states && !arrows.length) return null
+  // No wider than the room right of the flow list at the top left; it wraps a group at a time, then within one.
+  const box = useRef<HTMLDivElement>(null)
+  const [room, setRoom] = useState<number>()
+  useLayoutEffect(() => {
+    const host = box.current?.parentElement
+    if (!host) return
+    const flow = host.querySelector('.flow-list')
+    const fit = () => {
+      const f = flow?.getBoundingClientRect()
+      setRoom(f ? host.getBoundingClientRect().right - 16 - f.right - 16 : undefined)
+    }
+    fit()
+    const ro = new ResizeObserver(fit)
+    ro.observe(host)
+    if (flow) ro.observe(flow)
+    return () => ro.disconnect()
+  }, [map])
   return (
-    <div className="legend map-legend">
-      {states && items.map(c => <span key={c} className="legend-item"><i className={`sw cv-sw-${c}`} />{CHANGE_LABEL[c]}</span>)}
-      {arrows.map(k => <span key={k} className="legend-item" data-arrow={k}><ArrowGlyph kind={k} />{ARROW_LABEL[k]}</span>)}
-      {open && <span className="legend-item"><i className="sw cv-sw-open" />결정 전</span>}
-      {rev && (
-        <span className="legend-item" title={`에이전트가 rev ${rev.revision}에서 더하거나 고친 상자 ${rev.ids.length}개. 그 뒤에 네가 고친 상자에서는 빠져.`}>
-          <i className="sw-rev">{rev.revision}</i>에이전트가 rev {rev.revision}에서 고침
+    <div ref={box} className="legend map-legend" style={{ maxWidth: room }}>
+      {states && <span className="legend-group">{items.map(c => <span key={c} className="legend-item"><i className={`sw cv-sw-${c}`} />{CHANGE_LABEL[c]}</span>)}</span>}
+      <span className="legend-group">{arrows.map(k => <span key={k} className="legend-item" data-arrow={k} title={ARROW_MEANING[k]}><ArrowGlyph kind={k} />{ARROW_LABEL[k]}</span>)}</span>
+      {(open || rev) && (
+        <span className="legend-group">
+          {open && <span className="legend-item"><i className="sw cv-sw-open" />결정 전</span>}
+          {rev && (
+            <span className="legend-item" title={`에이전트가 rev ${rev.revision}에서 더하거나 고친 상자 ${rev.ids.length}개. 그 뒤에 네가 고친 상자에서는 빠져.`}>
+              <i className="sw-rev">{rev.revision}</i>에이전트가 rev {rev.revision}에서 고침
+            </span>
+          )}
         </span>
       )}
     </div>

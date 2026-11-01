@@ -255,14 +255,15 @@ describe('normalizeDecisions', () => {
 })
 
 describe('arrowsOf', () => {
-  it('lists the kinds of line a class map draws, in the legend\'s order', () => {
-    const map = { ...emptyMap('class', 't'), relations: [{ from: 'A', to: 'B', kind: 'composition' as const }, { from: 'B', to: 'C' }, { from: 'C', to: 'D', kind: 'inheritance' as const }, { from: 'D', to: 'E' }] }
-    expect(arrowsOf(map)).toEqual(['association', 'inheritance', 'composition'])
-    expect(arrowsOf(emptyMap('class', 't'))).toEqual([])
+  it('lists every kind of line a class map can draw, from the loosest tie to the tightest, drawn or not', () => {
+    const kinds = arrowsOf('class')
+    expect(kinds).toEqual(['association', 'dependency', 'inheritance', 'realization', 'aggregation', 'composition'])
+    // The same kinds the model takes, no more and no fewer.
+    const said = validate({ ...emptyMap('class', 't'), relations: [{ from: 'A', to: 'B', kind: 'x' as never }] }).find(e => e.includes('kind must be one of'))
+    expect(said?.split('one of ')[1]?.split(', ').sort()).toEqual([...kinds].sort())
   })
 
-  it('lists the kinds of message a sequence map draws, and no note', () => {
-    const map = { ...emptyMap('sequence', 't'), messages: [{ id: 'm1', from: 'A', to: 'B', kind: 'reply' as const }, { id: 'm2', from: 'A', to: 'B' }, { id: 'm3', from: 'A', kind: 'note' as const }] }
-    expect(arrowsOf(map)).toEqual(['call', 'reply'])
+  it('lists every kind of message a sequence map can draw, and no note', () => {
+    expect(arrowsOf('sequence')).toEqual(['call', 'reply', 'async'])
   })
 })

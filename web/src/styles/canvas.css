@@ -403,6 +403,8 @@ svg[id^='cv'] g.node > .label-group p { font-family: var(--font-ui); font-size: 
 }
 /* Too narrow for both: the flow list keeps the corner. */
 @container (max-width: 720px) { .canvas-main:has(.flow-list) .map-legend { display: none; } }
+/* Box states, arrows, other marks: a group moves to the next row whole, and wraps within itself only when alone too wide. */
+.legend-group { display: inline-flex; flex-wrap: wrap; justify-content: flex-end; gap: 4px 12px; }
 .legend-item { display: inline-flex; align-items: center; gap: 5px; }
 .sw { width: 12px; height: 10px; border-radius: 3px; border: 1.5px solid; display: inline-block; }
 .cv-sw-add { background: var(--cv-add-fill); border-color: var(--cv-keep-line); }
