@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { applyPatch, arrowsOf, chooseOption, deliveryLabel, deliveryOf, describeDiff, diffMaps, emptyMap, labelOf, normalizeDecisions, relationKey, reopenDecision, reorderedGroups, safeText, toMermaid, validate, type CanvasMap } from '../shared/canvas.ts'
+import { applyPatch, ARROW_TERMS, arrowsOf, chooseOption, deliveryLabel, deliveryOf, describeDiff, diffMaps, emptyMap, labelOf, normalizeDecisions, RELATION_RULES, relationKey, reopenDecision, reorderedGroups, safeText, toMermaid, validate, type CanvasMap } from '../shared/canvas.ts'
 
 function base(): CanvasMap {
   const m = emptyMap('class', 'test')
@@ -251,6 +251,42 @@ describe('normalizeDecisions', () => {
   it('leaves an open decision open', () => {
     const d = { id: 'D1', question: '고를까', options: [{ id: 'D1-a', text: 'a' }, { id: 'D1-b', text: 'b' }] }
     expect(normalizeDecisions({ ...base, decisions: [d] }).decisions![0].chosen).toBeUndefined()
+  })
+})
+
+describe('a relation\'s via', () => {
+  const notesOf = (rel: Parameters<typeof applyPatch>[1]['relations'], by: 'agent' | 'person' = 'agent') => applyPatch(base(), { relations: rel }, by)
+  it('notes a via that is evidence for another kind, and still draws the line', () => {
+    const res = notesOf([{ from: 'B', to: 'C', kind: 'dependency', via: 'field userRepository' }])
+    expect(res.map.relations.find(r => relationKey(r) === 'B->C:dependency')?.via).toBe('field userRepository')
+    expect(res.notes).toEqual(['relation B->C:dependency: via "field userRepository" is evidence of association, aggregation or composition, not dependency. Remove this line (remove: true with kind dependency) and add it as association'])
+    expect(notesOf([{ from: 'A', to: 'B', via: 'param request' }]).notes.join()).toMatch(/evidence of dependency, not association/)
+    expect(notesOf([{ from: 'A', to: 'C', kind: 'realization', via: 'extends Base' }]).notes.join()).toMatch(/evidence of inheritance, not realization/)
+  })
+
+  it('says nothing when via fits, names no rule\'s word, or comes from the person', () => {
+    expect(notesOf([{ from: 'A', to: 'B', kind: 'composition', via: 'field parts' }]).notes).toEqual([])
+    expect(notesOf([{ from: 'A', to: 'B', via: 'Constructor-injected userRepository' }]).notes).toEqual([])
+    expect(notesOf([{ from: 'B', to: 'C', kind: 'dependency', via: 'HTTP POST /groups' }]).notes).toEqual([])
+    expect(notesOf([{ from: 'B', to: 'C', kind: 'dependency', via: 'field userRepository' }], 'person').notes).toEqual([])
+  })
+
+  it('checks only the lines a patch names, not the ones already drawn', () => {
+    const drawn = applyPatch(base(), { relations: [{ from: 'B', to: 'C', kind: 'dependency', via: 'field x' }] }, 'agent').map
+    expect(applyPatch(drawn, { elements: [{ id: 'A', label: 'Alpha' }] }, 'agent').notes).toEqual([])
+  })
+
+  it('makes a change of its own, so a patch that only gives via is a new rev', () => {
+    const before = base()
+    const after = applyPatch(before, { relations: [{ from: 'A', to: 'B', via: 'field b' }] }, 'agent').map
+    expect([...diffMaps(before, after).changedRelations]).toEqual(['A->B:association'])
+  })
+
+  it('has a rule and a legend entry for every kind of relation, and rule words a via can start with', () => {
+    expect(Object.keys(RELATION_RULES).sort()).toEqual([...arrowsOf('class')].sort())
+    for (const k of arrowsOf('class')) expect(ARROW_TERMS[k].label).toBeTruthy()
+    expect(RELATION_RULES.association.via).toContain('field')
+    expect(RELATION_RULES.dependency.via).not.toContain('field')
   })
 })
 

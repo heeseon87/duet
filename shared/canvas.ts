@@ -39,6 +39,8 @@ export type CanvasRelation = {
   to: string
   /** composition and aggregation: `from` is the whole and `to` the part (the diamond is drawn at `from`). */
   kind?: RelationKind
+  /** The code that ties the two, its first word one of `RELATION_RULES`' (`field userRepository`, `param request`). */
+  via?: string
   label?: string
   /** A step number: drawn as ①②③ in front of the label, to show the order of a flow. */
   step?: number
@@ -359,8 +361,13 @@ export function applyPatch(map: CanvasMap, patch: CanvasPatch, by: 'agent' | 'pe
     if (remove) {
       if (i >= 0) next.relations.splice(i, 1)
       else notes.push(`relation ${key} was not on the map`)
-    } else if (i >= 0) next.relations[i] = merge(next.relations[i], rel)
-    else next.relations.push(merge<CanvasRelation>(undefined, rel))
+    } else {
+      const drawn = merge<CanvasRelation>(i >= 0 ? next.relations[i] : undefined, rel)
+      if (i >= 0) next.relations[i] = drawn
+      else next.relations.push(drawn)
+      const off = by === 'agent' && viaOff(drawn)
+      if (off) notes.push(off)
+    }
   }
   for (const p of patch.messages ?? []) {
     const list = (next.messages ??= [])
@@ -605,6 +612,45 @@ export type ArrowKind = RelationKind | Exclude<MessageKind, 'note'>
 export function arrowsOf(diagram: CanvasMap['diagram']): ArrowKind[] {
   if (diagram === 'sequence') return ['call', 'reply', 'async']
   return ['association', 'dependency', 'inheritance', 'realization', 'aggregation', 'composition']
+}
+
+/**
+ * Each arrow's name as Korean UML texts give it, and on hover its UML name and what it says (A is the line's `from`).
+ * `RELATION_RULES` below tells the agent the same, as the test it draws a relation by.
+ */
+export const ARROW_TERMS: Record<ArrowKind, { label: string; meaning: string }> = {
+  association: { label: '연관', meaning: 'Association · A가 B를 필드로 갖고 계속 참조해(생성자로 주입받은 필드도)' },
+  dependency: { label: '의존', meaning: 'Dependency · A가 B를 잠깐 써(매개변수, 지역 변수, 호출)' },
+  inheritance: { label: '일반화(상속)', meaning: 'Generalization · A가 B를 상속해(extends)' },
+  realization: { label: '실체화(구현)', meaning: 'Realization · A가 인터페이스 B를 구현해(implements)' },
+  aggregation: { label: '집합', meaning: 'Aggregation · 마름모 쪽 A가 B를 모으지만, B는 A 없이도 있어' },
+  composition: { label: '합성', meaning: 'Composition · 마름모 쪽 A가 B를 품고, A가 없어지면 B도 없어져' },
+  call: { label: '호출', meaning: 'Synchronous message · 보내고 응답을 기다려' },
+  reply: { label: '응답', meaning: 'Reply · 호출에 돌려주는 응답' },
+  async: { label: '비동기', meaning: 'Asynchronous message · 보내고 기다리지 않아' },
+}
+
+/**
+ * When the agent draws each kind of relation: `when` is the test the canvas tools give it, and `via` the first words
+ * of a relation's `via` that are evidence for that kind. A patch whose `via` is evidence for another kind gets a note.
+ */
+export const RELATION_RULES: Record<RelationKind, { when: string; via: readonly string[] }> = {
+  association: { when: 'from keeps to in a field: a collaborator it holds (injected through the constructor or not), a repository, an enum or value it stores (a field wins over the calls made on it)', via: ['field', 'constructor'] },
+  dependency: { when: 'from touches to only while a call runs: a parameter, a local variable, a return type, a static call, an object it makes and drops, an exception it throws; also a line to or from a box that is no class (an actor, a table, an endpoint)', via: ['param', 'local', 'return', 'call', 'new', 'throws'] },
+  inheritance: { when: 'from extends class to', via: ['extends'] },
+  realization: { when: 'from implements interface to', via: ['implements'] },
+  aggregation: { when: 'from holds to (often a collection of them), and to lives on without from', via: ['field', 'constructor'] },
+  composition: { when: 'from owns to, which is made with from and ends with it', via: ['field', 'constructor'] },
+}
+
+/** A note when a relation's `via` is evidence for other kinds than its own; nothing when it fits or names no rule's word. */
+function viaOff(r: CanvasRelation): string | undefined {
+  const word = /^[a-z]+/i.exec(r.via?.trim() ?? '')?.[0].toLowerCase()
+  const fits = (Object.keys(RELATION_RULES) as RelationKind[]).filter(k => word && RELATION_RULES[k].via.includes(word))
+  const kind = r.kind ?? 'association'
+  if (!fits.length || fits.includes(kind)) return undefined
+  const kinds = fits.length > 1 ? `${fits.slice(0, -1).join(', ')} or ${fits.at(-1)}` : fits[0]
+  return `relation ${relationKey(r)}: via "${r.via}" is evidence of ${kinds}, not ${kind}. Remove this line (remove: true with kind ${kind}) and add it as ${fits[0]}`
 }
 
 // UML draws the diamond at the whole, which is `from`: `A *-- B` puts it at A.

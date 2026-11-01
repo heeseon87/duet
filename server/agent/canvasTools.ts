@@ -1,6 +1,6 @@
 import { resolve } from 'node:path'
 import { z } from 'zod'
-import { DECISION_WHY_TAGS, toMermaid, type CanvasPatch } from '../../shared/canvas.ts'
+import { DECISION_WHY_TAGS, RELATION_RULES, toMermaid, type CanvasPatch } from '../../shared/canvas.ts'
 import { refBase } from '../../shared/mapFiles.ts'
 import { describeSource } from '../../shared/protocol.ts'
 import type { CanvasStore } from '../canvas/store.ts'
@@ -22,10 +22,13 @@ const element = z.object({
   before: z.string().optional().describe('move this element right before this sibling (same parent). Top-level groups are drawn in map order: left to right within a row (top to bottom when direction is LR); boxes tied by lines go where the lines put them. Keep an order the person set unless asked'),
   after: z.string().optional().describe('move this element right after this sibling (same parent)'),
 })
+const rules = Object.entries(RELATION_RULES).map(([kind, r]) => `${kind}${kind === 'association' ? ' (the default)' : ''}: ${r.when}`).join('; ')
+const viaWords = [...new Set(Object.values(RELATION_RULES).flatMap(r => r.via))].join(', ')
 const relation = z.object({
   from: z.string(),
   to: z.string(),
-  kind: z.enum(['association', 'dependency', 'inheritance', 'realization', 'composition', 'aggregation']).optional().describe('association (the default) or dependency: from uses to; inheritance or realization: from extends or implements to; composition or aggregation: from is the whole and to its part (the diamond is drawn at from)'),
+  kind: z.enum(['association', 'dependency', 'inheritance', 'realization', 'composition', 'aggregation']).optional().describe(`how from is tied to to in the code; give that code in via. ${rules}. Composition and aggregation draw the diamond at from, the whole`),
+  via: z.string().nullable().optional().describe(`the code that ties from to to: one of ${viaWords} then its name, e.g. "field userRepository", "param request", "extends AuditEntity". A via that is evidence for another kind gets a note`),
   label: z.string().optional().describe('what passes along this line, e.g. "upload(location, files)"'),
   step: z.number().int().positive().optional().describe('order in a flow; drawn as ①②③'),
   change: z.enum(['add', 'delete']).optional(),
@@ -56,6 +59,7 @@ const decision = z.object({
 export const INSTRUCTIONS = `Duet canvas: design maps the person reviews with you in the browser, beside this chat.
 - A class map shows groups (packages), classes and labelled relations. Use it to discuss structure: who depends on whom, and what passes along each line.
 - Label every relation with what it carries ("upload(location, files)"), and number the steps of a flow with "step".
+- Pick each relation's kind from the code that ties the two and give that code in via ("field userRepository"): a field, an injected one included, is an association, not a dependency.
 - Mark how each element touches the code with "change": add (new), modify, delete, result (data that comes out), keep.
 - When a design fork needs the person's choice, add a decision (D1 with options D1-a, D1-b) and tag the elements and relations of each option with decision/option. Never choose for them; they choose in the browser.
 - Give every decision a why: what keeps you from settling it from the code and the request, with its tags (convention, scope, irreversible, context, tie). If no tag fits, it is not the person's decision: pick yourself and say in chat what you picked and why.

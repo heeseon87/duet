@@ -3,7 +3,7 @@ import {
   ChevronDown, ChevronsDownUp, ChevronsUpDown, Clock3, Copy, ListCollapse, ZoomIn, GitCompareArrows, Maximize2, MessageSquare, Plus, Shapes, Sparkles, Undo2, Workflow,
   Check, FileCode2, FileDiff, ArrowLeft, ArrowRight, ArrowUp, ArrowDown, X, Bot, User, Trash2, Share, ImageDown, FolderGit2,
 } from 'lucide-react'
-import { arrowsOf, describeDiff, diffMaps, exportMermaid, filesUnder, labelOf, relationKey, type ArrowKind, type CanvasMap } from '../../../shared/canvas.ts'
+import { ARROW_TERMS, arrowsOf, describeDiff, diffMaps, exportMermaid, filesUnder, labelOf, relationKey, type ArrowKind, type CanvasMap } from '../../../shared/canvas.ts'
 import { codeMarks, refBase } from '../../../shared/mapFiles.ts'
 import { api } from '../api.ts'
 import { local, useApp } from '../state.ts'
@@ -123,23 +123,6 @@ function HeadLine() {
   return <div className="canvas-bar map-head"><div className="map-head-row"><span className="head-ws"><WorkspaceMenu /></span></div></div>
 }
 
-/** Each arrow's name as Korean UML texts give it, and on hover its UML name and what it says (A is the line's `from`). */
-const ARROW_LABEL: Record<ArrowKind, string> = {
-  association: '연관', dependency: '의존', inheritance: '일반화(상속)', realization: '실체화(구현)', aggregation: '집합', composition: '합성',
-  call: '호출', reply: '응답', async: '비동기',
-}
-const ARROW_MEANING: Record<ArrowKind, string> = {
-  association: 'Association · A가 B를 필드로 갖고 계속 참조해',
-  dependency: 'Dependency · A가 B를 잠깐 써(매개변수, 지역 변수, 호출)',
-  inheritance: 'Generalization · A가 B를 상속해(extends)',
-  realization: 'Realization · A가 인터페이스 B를 구현해(implements)',
-  aggregation: 'Aggregation · 마름모 쪽 A가 B를 모으지만, B는 A 없이도 있어',
-  composition: 'Composition · 마름모 쪽 A가 B를 품고, A가 없어지면 B도 없어져',
-  call: 'Synchronous message · 보내고 응답을 기다려',
-  reply: 'Reply · 호출에 돌려주는 응답',
-  async: 'Asynchronous message · 보내고 기다리지 않아',
-}
-
 /** A short arrow drawn as the map draws its kind: solid or dashed, and its head (a diamond sits at the whole's end). */
 function ArrowGlyph({ kind }: { kind: ArrowKind }) {
   const dashed = kind === 'dependency' || kind === 'realization' || kind === 'reply'
@@ -189,7 +172,7 @@ function Legend({ map, revised }: { map: CanvasMap; revised?: { revision: number
   return (
     <div ref={box} className="legend map-legend" style={{ maxWidth: room }}>
       {states && <span className="legend-group">{items.map(c => <span key={c} className="legend-item"><i className={`sw cv-sw-${c}`} />{CHANGE_LABEL[c]}</span>)}</span>}
-      <span className="legend-group">{arrows.map(k => <span key={k} className="legend-item" data-arrow={k} title={ARROW_MEANING[k]}><ArrowGlyph kind={k} />{ARROW_LABEL[k]}</span>)}</span>
+      <span className="legend-group">{arrows.map(k => <span key={k} className="legend-item" data-arrow={k} title={ARROW_TERMS[k].meaning}><ArrowGlyph kind={k} />{ARROW_TERMS[k].label}</span>)}</span>
       {(open || rev) && (
         <span className="legend-group">
           {open && <span className="legend-item"><i className="sw cv-sw-open" />결정 전</span>}

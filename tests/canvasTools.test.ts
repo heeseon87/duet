@@ -3,11 +3,13 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { beforeAll, describe, expect, it } from 'vitest'
 import type { CanvasStore } from '../server/canvas/store.ts'
-import type { runCanvasTool as Run } from '../server/agent/canvasTools.ts'
+import type { runCanvasTool as Run, CANVAS_TOOLS as Tools } from '../server/agent/canvasTools.ts'
+import { RELATION_RULES } from '../shared/canvas.ts'
 
 let store: CanvasStore
 let run: typeof Run
 let INSTRUCTIONS: string
+let CANVAS_TOOLS: typeof Tools
 const ws = '/w'
 const terminal = { terminal: { id: 'term-0001', label: 'feat · term-000' } }
 
@@ -19,6 +21,7 @@ beforeAll(async () => {
   store = new CanvasStore(() => undefined, () => undefined)
   run = tools.runCanvasTool
   INSTRUCTIONS = tools.INSTRUCTIONS
+  CANVAS_TOOLS = tools.CANVAS_TOOLS
 })
 
 describe('canvas tools from a terminal', () => {
@@ -43,6 +46,21 @@ describe('canvas tools from a terminal', () => {
 
   it('refuses a name that is taken', () => {
     expect(run(store, ws, 'canvas_create', { name: 'from-terminal', diagram: 'class', title: '다시' }, terminal)).toMatchObject({ isError: true })
+  })
+
+  it('notes a relation whose via is evidence for another kind, and writes it anyway', () => {
+    run(store, ws, 'canvas_update', { name: 'from-terminal', note: '상자', elements: [{ id: 'Svc' }, { id: 'Repo' }] }, terminal)
+    const res = run(store, ws, 'canvas_update', { name: 'from-terminal', note: '선', relations: [{ from: 'Svc', to: 'Repo', kind: 'dependency', via: 'field repo' }] }, terminal)
+    expect(res.isError).toBeUndefined()
+    expect(res.text).toMatch(/^rev \d+\n {2}\+ Svc->Repo\n/)
+    expect(res.text).toContain('note: relation Svc->Repo:dependency: via "field repo" is evidence of association, aggregation or composition, not dependency.')
+    expect(store.get(ws, 'from-terminal').map.relations).toContainEqual({ from: 'Svc', to: 'Repo', kind: 'dependency', via: 'field repo' })
+  })
+
+  it('tells the agent in the kind of a relation how to pick it, and asks for via', () => {
+    const kind = CANVAS_TOOLS.canvas_update.shape.relations.unwrap().element.shape.kind.description ?? ''
+    for (const [k, r] of Object.entries(RELATION_RULES)) expect(kind).toContain(`${k}${k === 'association' ? ' (the default)' : ''}: ${r.when}`)
+    expect(INSTRUCTIONS).toMatch(/give that code in via/)
   })
 
   it('writes a rev for a patch that only changes the context', () => {

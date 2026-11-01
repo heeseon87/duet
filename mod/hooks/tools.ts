@@ -276,7 +276,7 @@ export const TOOLS: { relays: string; spec: ToolSpec }[] = [
                   "type": "string"
                 },
                 "kind": {
-                  "description": "association (the default) or dependency: from uses to; inheritance or realization: from extends or implements to; composition or aggregation: from is the whole and to its part (the diamond is drawn at from)",
+                  "description": "how from is tied to to in the code; give that code in via. association (the default): from keeps to in a field: a collaborator it holds (injected through the constructor or not), a repository, an enum or value it stores (a field wins over the calls made on it); dependency: from touches to only while a call runs: a parameter, a local variable, a return type, a static call, an object it makes and drops, an exception it throws; also a line to or from a box that is no class (an actor, a table, an endpoint); inheritance: from extends class to; realization: from implements interface to; aggregation: from holds to (often a collection of them), and to lives on without from; composition: from owns to, which is made with from and ends with it. Composition and aggregation draw the diamond at from, the whole",
                   "type": "string",
                   "enum": [
                     "association",
@@ -285,6 +285,13 @@ export const TOOLS: { relays: string; spec: ToolSpec }[] = [
                     "realization",
                     "composition",
                     "aggregation"
+                  ]
+                },
+                "via": {
+                  "description": "the code that ties from to to: one of field, constructor, param, local, return, call, new, throws, extends, implements then its name, e.g. \"field userRepository\", \"param request\", \"extends AuditEntity\". A via that is evidence for another kind gets a note",
+                  "type": [
+                    "string",
+                    "null"
                   ]
                 },
                 "label": {
