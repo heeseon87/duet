@@ -1,6 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { EyeOff } from 'lucide-react'
 import { local, targetTerminal, useApp } from '../state.ts'
+import { doingOf } from '../terminalTarget.ts'
 import { shortcutKey } from '../lib/ui.tsx'
 import { useCanvas } from '../canvas/store.ts'
 import { Composer } from './Composer.tsx'
@@ -59,12 +60,14 @@ export function FloatComposer() {
 
   if (deciding || hidden) return null
   const status = terminal?.status ?? 'none'
-  const said = terminal ? (terminal.status === 'working' ? '일하는 중' : '쉬는 중') : count ? '레일의 터미널 칸에서 보낼 터미널을 골라 줘' : 'Claude Code 터미널에서 /duet을 켜 줘'
+  // What the terminal waits on the person for, else its last words, else whether its turn runs.
+  const doing = terminal && doingOf(terminal)
+  const said = doing ? doing.line ?? doing.status : count ? '레일의 터미널 칸에서 보낼 터미널을 골라 줘' : 'Claude Code 터미널에서 /duet을 켜 줘'
   return (
     <div ref={box} className={`float-composer ${place?.raised ? 'raised' : ''}`} style={{ width: place?.width }}>
       <div className="float-head">
         <span className={`float-who ${status}`}>{terminal?.label ?? '터미널 없음'}</span>
-        <span className="float-said" title={said}>{said}</span>
+        <span className={`float-said ${doing?.isWaiting ? 'wait' : ''}`} title={doing?.line ? `${doing.status} · ${doing.line}` : said}>{said}</span>
         <button className="iconbtn" title="입력창 숨기기 (⌘L로 다시 열기)" onClick={() => { local.set('float.hidden', '1'); setHidden(true); useApp.getState().toast('입력창을 숨겼어 · ⌘L로 다시 열어') }}><EyeOff size={14} /></button>
       </div>
       <Composer floating />

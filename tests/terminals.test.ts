@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { Terminals, workspaceFor } from '../server/terminals.ts'
-import { sendingTo, targetTerminal } from '../web/src/terminalTarget.ts'
+import { doingOf, sendingTo, targetTerminal } from '../web/src/terminalTarget.ts'
 import type { TerminalInfo } from '../shared/protocol.ts'
 
 describe('workspaceFor', () => {
@@ -175,5 +175,13 @@ describe('targetTerminal', () => {
     expect(sendingTo({ terminals: [term('a')] })).toEqual({ terminal: 'a' })
     expect(sendingTo({ terminals: [] })).toEqual({ refused: expect.stringContaining('/duet') })
     expect(sendingTo({ terminals: [term('a'), term('b')] })).toEqual({ refused: expect.stringContaining('골라') })
+  })
+
+  it('says what a terminal does: the wait first, then its last words, then only whether its turn runs', () => {
+    expect(doingOf(term('a'))).toEqual({ status: '쉬는 중', line: undefined, isWaiting: false })
+    expect(doingOf({ ...term('a'), status: 'working', activity: { said: '테스트를 돌릴게.', at: 1 } })).toEqual({ status: '일하는 중', line: '테스트를 돌릴게.', isWaiting: false })
+    const waits = (kind: 'question' | 'permission') => doingOf({ ...term('a'), status: 'working', activity: { said: '물어볼게.', waiting: { kind, text: '어느 쪽?' }, at: 1 } })
+    expect(waits('question')).toEqual({ status: '일하는 중', line: '터미널에서 답을 기다려 · 어느 쪽?', isWaiting: true })
+    expect(waits('permission').line).toBe('터미널에서 승인을 기다려 · 어느 쪽?')
   })
 })

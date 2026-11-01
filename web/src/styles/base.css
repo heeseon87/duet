@@ -147,10 +147,17 @@ a:hover { text-decoration: underline; }
 .rail-btn.term.idle, .rail-btn.term.pick { color: var(--ink-2); }
 .rail-btn.term.none { color: var(--ink-3); }
 .rail-btn.term.none .term-ring { border-style: dotted; }
+/* The terminal waits on the person (a question, an approval): the answer is given in the terminal. */
+.rail-btn.term.waiting { color: var(--warn); }
+.rail-btn.term.waiting .term-ring { background: var(--warn-bg); animation: rail-breathe 1.6s ease-in-out infinite; }
 .term-empty { font-weight: 400; white-space: normal; }
 .term-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--ink-4); flex: none; }
 .term-dot.working { background: var(--agent); }
+.term-dot.waiting { background: var(--warn); }
+.menu-item .meta.term-doing { color: var(--ink-2); }
+.menu-item .meta.term-doing.wait { color: var(--warn); font-weight: 600; }
 @keyframes rail-spin { to { transform: rotate(360deg); } }
+@keyframes rail-breathe { 50% { opacity: 0.45; } }
 @media (prefers-reduced-motion: reduce) { .rail-btn.term .term-ring, .rail-btn.term .term-ring > svg { animation: none !important; } }
 .rail-warn {
   width: 40px; padding: 5px 0; border-radius: var(--r-1); background: var(--warn-bg); color: var(--warn);
