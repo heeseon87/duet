@@ -62,7 +62,7 @@ await page.keyboard.press('v'); await sleep(150); await page.keyboard.press('v')
 const marks = await page.$$eval('.review-nav .tree-row.map-pkg', rs => rs.map(r => `${r.querySelector('.ellipsis')?.textContent}:${r.querySelector('.viewed-mark') ? '✓' : r.querySelector('.row-count')?.textContent}`))
 check('a fully viewed package shows a check, a partly viewed one "1/2"', marks.join(' ') === 'core:✓ extra:1/2 지도 밖:1', marks.join(' '))
 const adds = await page.$$eval('.review-nav .map-chg.add', cs => cs.map(c => c.textContent))
-check('a box changed by the design is labelled 새로', adds.length > 0 && adds.every(t => t === '새로'), adds.join(' '))
+check('a box changed by the design is labelled New', adds.length > 0 && adds.every(t => t === 'New'), adds.join(' '))
 for (let i = 0; i < 2; i++) { await page.click(`.tree-row.file >> nth=${i}`); await sleep(100); await page.keyboard.press('v'); await sleep(150) }
 // The review holds on the map's code: no pickers, the map named, a way to change the map's code.
 const bar = await page.$eval('.source-bar', b => ({ bound: b.classList.contains('bound'), text: b.textContent, kinds: Boolean(b.querySelector('.kinds')) }))

@@ -17,7 +17,7 @@ import { listedFiles, mapGroups, type MapNode } from './mapGroups.ts'
 import { refBase } from '../../../shared/mapFiles.ts'
 import { useCanvas } from '../canvas/store.ts'
 import { WorkspaceMenu } from '../WorkspaceMenu.tsx'
-import { CHANGE_LABEL } from '../canvas/words.ts'
+import { REVIEW_CHANGE_LABEL } from '../canvas/words.ts'
 
 type LogEntry = { sha: string; short: string; subject: string; author: string; date: number; refs: string }
 
@@ -398,7 +398,7 @@ function MapTree({ model }: { model: ReturnType<typeof mapGroups> }) {
         <div className="tree-row map-box" style={{ paddingLeft: 8 + depth * 12 + 14 }} title={n.el.id}>
           <Box size={11} />
           <span className="ellipsis grow">{label}</span>
-          {n.el.change && n.el.change !== 'keep' && <span className={`map-chg ${n.el.change}`}>{CHANGE_LABEL[n.el.change]}</span>}
+          {n.el.change && n.el.change !== 'keep' && <span className={`map-chg ${n.el.change}`}>{REVIEW_CHANGE_LABEL[n.el.change]}</span>}
         </div>
         {n.files.map(f => <FileRow key={`${n.el.id}:${f.path}`} f={f} name={base(f.path)} depth={depth + 1} ctx={ctx} />)}
         {n.children.map(c => render(c, depth + 1))}
