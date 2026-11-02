@@ -4,13 +4,23 @@
 
 ## 설치
 
-macOS에서 Node 20.19 이상(22는 22.12 이상), git, Claude Code 2.1.287 이상이 필요하다. 리뷰의 PR은 쓰는 쪽의 `gh`, `glab`, `az`가 있어야 보인다.
+Node 20.19 이상(22는 22.12 이상), git, Claude Code 2.1.287 이상이 필요하다. 리뷰의 PR은 쓰는 쪽의 `gh`, `glab`, `az`가 있어야 보인다. macOS에서는 다음처럼 설치한다.
 
 ```bash
 git clone https://github.com/heeseon87/duet.git ~/github/duet
 cd ~/github/duet && npm install
+mkdir -p ~/.local/bin
 ln -s ~/github/duet/bin/duet.mjs ~/.local/bin/duet    # ~/.local/bin이 PATH에 있어야 한다
 ```
+
+Windows(PowerShell)에서는 심링크 대신 `npm link`로 `duet` 명령을 만든다. npm은 전역 폴더(보통 `%AppData%\npm`, Node 설치 프로그램이 PATH에 넣는다)에 `duet.cmd`와 `duet.ps1`을 둔다. PowerShell이 스크립트 실행을 막아 `duet`이 돌지 않으면 `Set-ExecutionPolicy -Scope CurrentUser RemoteSigned`로 풀거나 `duet.cmd`로 부른다.
+
+```powershell
+git clone https://github.com/heeseon87/duet.git $HOME\github\duet
+cd $HOME\github\duet; npm install; npm link
+```
+
+Windows에서 맞춘 것은 설치, 실행(웹 빌드, 서버 띄우기, 브라우저 열기), mod가 서버를 찾는 것까지다. 서버에는 경로를 `/`로 나누어 비교하는 곳이 남아 있어서 터미널이 작업 공간에 붙지 않거나 지도의 파일을 찾지 못할 수 있다. 아직 Windows에서 돌려 확인하지는 않았다.
 
 첫 `duet`이 웹 화면을 빌드하므로 개발 의존성까지 설치한다(`npm install --omit=dev`로는 빌드하지 못한다). 업데이트는 `git pull` 뒤 `duet`이다. 실행기가 웹을 다시 빌드하고, 터미널이 처리 중인 메시지가 없으면 서버를 다시 띄운다.
 
@@ -33,7 +43,7 @@ duet --stop       # 서버 멈춤 (연결된 터미널은 서버가 돌아오면
 duet --no-open    # 브라우저 대신 주소만 출력
 ```
 
-`duet`은 `~/.local/bin/duet` → `bin/duet.mjs` 심링크다. 서버가 없으면 띄우고, 웹 빌드가 오래됐으면 다시 빌드하고, 서버 코드가 바뀌었으면 (터미널이 처리 중인 메시지가 없을 때) 다시 띄운다. 기본 포트는 7979다.
+`duet`은 `~/.local/bin/duet` → `bin/duet.mjs` 심링크다(Windows에서는 `npm link`가 만든 `duet.cmd`). 서버가 없으면 띄우고, 웹 빌드가 오래됐으면 다시 빌드하고, 서버 코드가 바뀌었으면 (터미널이 처리 중인 메시지가 없을 때) 다시 띄운다. 기본 포트는 7979다. 브라우저를 열지 못하면 대신 주소를 출력한다.
 
 ## 화면
 
@@ -99,7 +109,7 @@ claude --plugin-dir ~/github/duet/mod     # 이 세션에만
 - **연결(`/duet`).** 세션은 Duet에 붙지 않은 채 시작한다: 폴링도, `duet_map_*` 도구도, 상태 줄도 없다. `/duet`(또는 `/duet <지도>`)을 쳐야 그 터미널이 Duet에 등록되고 도구가 생기며 폴링이 돈다. `/duet off`는 고정을 풀고 연결을 끊는다(Duet 터미널 목록에서 빠지고 상태 줄이 사라진다). `/duet new <이름> [제목]`은 모델 턴 없이 빈 지도를 만든다: 다이어그램 종류(class·sequence)를 물어보고, 만든 지도를 이 터미널에 고정한다. 제목을 안 적으면 이름이 제목이 되고, 대화창을 닫으면 아무것도 만들지 않는다. 그래서 `new`라는 이름의 지도는 `/duet new`로 고정할 수 없다. 이미 등록된 도구는 남지만 다시 연결할 때까지 거절한다.
 - **기준 지도(`/duet`).** `/duet <지도>`는 이 터미널이 기준으로 삼을 지도를 고정한다. 지도 이름과 똑같으면 그 지도, 아니면 이름이나 제목에 그 글자가 든 지도가 하나뿐일 때 그 지도다(대소문자 무시). 여럿이거나 없으면 후보(이름 · 제목)를 보여 주고 아무것도 바꾸지 않는다. `/duet`만 치면 고정된 지도(없으면 `고정된 지도 없음`)와 작업 공간의 지도 목록(이름 · 제목 · rev, 결정이 있는 지도는 결정 a/b)을, `/duet off`는 고정을 풀고 연결을 끊는다. 고정은 그 터미널(프로세스)에만 있다: 같은 폴더라도 새 세션은 고정 없이, 연결 없이 시작한다(`/clear` 뒤에는 이어진다). 지도가 지워지면 고정도 풀린다. 고정이 바뀌면 모델은 턴을 새로 열지 않고 듣는다: `/duet`의 답에 붙은 숨은 메모(`command.run`의 `context`)로, `/clear` 뒤에는 보이지 않는 user 행(`$.session.append`)으로. 대화를 압축하면(`/compact`, 자동 압축) 요약이 그 메모를 빠뜨릴 수 있어서, 턴이 시작될 때 모델이 받는 메시지(`$.session.messages({ as: 'api' })`)에 메모가 없으면 같은 행으로 다시 듣는다. `session.compact` 훅은 쓰지 않는다: Team·Enterprise 조직 계정이나 managed settings가 있는 기기에서는 Claude Code 내장 플러그인 `cc-plugin-sec-default`가 가장 바깥에 앉아서, 이 이벤트를 사용자가 설치한 플러그인을 건너 넘긴다. 그래서 이 훅은 돌지 않고 /plugins의 Errors에 올라간다. 관리자가 managed settings의 `prependPlugins`에서 그 플러그인을 빼지 않는 한 사용자가 끌 수 없다. 그래서 지도를 말하지 않은 "이 터미널의 지도"는 `duet_map_*` 도구에 고정된 이름으로 간다. 고정된 지도가 없는 터미널이 `duet_map_create`로 지도를 만들면 `/duet <지도>`처럼 그 지도가 고정되고, 모델은 그 도구 결과로 듣는다. 이미 고정된 지도가 있으면 그대로 두고, 새 지도는 마지막으로 만진 지도가 된다. Duet의 터미널 목록에도 `map`으로 올라가서, 레일의 터미널 목록에 `📌 <제목>`이 보이고 거기서 그 터미널을 고르면 캔버스가 그 지도를 연다.
 - **상태 줄.** `Duet · <지도 제목> · rev N · 결정 a/b · 코멘트 n`. 터미널에서는 프롬프트 아래 힌트 줄(`? for shortcuts`) 끝에 흐리게 붙는다(`$.ui.status`로 띄우면 Claude Code가 ⚠ 알림처럼 그려서다). 터미널이 없는 세션(SDK, `-p`)에서는 플러그인 상태 줄(`ui.status`)로 나온다. 고정한 지도가 있으면 늘 그 지도이고 제목 앞에 📌가 붙는다(`Duet · 📌 <지도 제목> · …`). 없으면 이 터미널이 마지막으로 읽거나 고친 지도, 그 뒤에 다른 지도가 바뀌었으면 그 지도. 서버가 없으면 `Duet 꺼짐`, 작업 공간을 못 찾으면 `Duet 작업 공간 없음`이고(`duet_map_create`로 지도를 만들면 그 저장소가 작업 공간이 된다), 서버가 돌아오면 스스로 다시 붙는다.
-- **연결.** `$DUET_HOME`(없으면 `~/.duet`)의 `server.json`과 `token`(또는 `DUET_TOKEN`)을 읽는다. mod는 SSE를 읽을 수 없어서(`$.http.fetch`는 본문이 끝나야 돌아온다) `GET /api/terminals/:id/poll`을 길게 붙잡는다. 이 poll이 heartbeat이고, 메시지와 지도 변경을 받는 길이다.
+- **연결.** `$DUET_HOME`(없으면 `~/.duet`, Windows에서는 `%USERPROFILE%\.duet`)의 `server.json`과 `token`(또는 `DUET_TOKEN`)을 읽는다. mod는 SSE를 읽을 수 없어서(`$.http.fetch`는 본문이 끝나야 돌아온다) `GET /api/terminals/:id/poll`을 길게 붙잡는다. 이 poll이 heartbeat이고, 메시지와 지도 변경을 받는 길이다.
 - `DUET_CONVERSATION=1`인 세션에서는 mod가 아무것도 안 한다. Duet이 직접 대화를 띄우던 때의 장치다.
 - `npm run typecheck`는 `mod/.claude-plugin/types/`를 읽는다. Claude Code가 `--plugin-dir`로 mod를 띄울 때 그 버전의 타입을 거기 쓴다.
 

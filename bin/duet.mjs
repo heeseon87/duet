@@ -58,12 +58,19 @@ function newestMtime(dir) {
   return newest
 }
 
+/** A dependency's command as the JS file node runs: node_modules/.bin holds shims, and Windows runs no shim without a shell. */
+function binOf(pkg) {
+  const dir = join(ROOT, 'node_modules', pkg)
+  const { bin } = JSON.parse(readFileSync(join(dir, 'package.json'), 'utf8'))
+  return join(dir, typeof bin === 'string' ? bin : bin[pkg])
+}
+
 function buildIfStale() {
   const index = join(ROOT, 'dist', 'web', 'index.html')
   const stale = !existsSync(index) || statSync(index).mtimeMs < Math.max(newestMtime(join(ROOT, 'web')), newestMtime(join(ROOT, 'shared')))
   if (!stale) return
   say('웹 화면을 빌드하는 중…')
-  const r = spawnSync(join(ROOT, 'node_modules', '.bin', 'vite'), ['build', '--logLevel', 'error'], { cwd: ROOT, stdio: 'inherit' })
+  const r = spawnSync(process.execPath, [binOf('vite'), 'build', '--logLevel', 'error'], { cwd: ROOT, stdio: 'inherit' })
   if (r.status !== 0) { say('빌드에 실패했어.'); process.exit(1) }
 }
 
@@ -80,8 +87,10 @@ function stopServer() {
 async function startServer() {
   mkdirSync(HOME, { recursive: true })
   const log = openSync(join(HOME, 'server.log'), 'a')
-  const child = spawn(join(ROOT, 'node_modules', '.bin', 'tsx'), [join(ROOT, 'server', 'main.ts'), '--port', String(PORT)], {
-    cwd: ROOT, detached: true, stdio: ['ignore', log, log], env: process.env,
+  // One process (`--import tsx` resolves from cwd), so no inner node of the tsx CLI opens its own console on
+  // Windows. windowsHide: a detached child there would otherwise get a console window that stops the server when closed.
+  const child = spawn(process.execPath, ['--import', 'tsx', join(ROOT, 'server', 'main.ts'), '--port', String(PORT)], {
+    cwd: ROOT, detached: true, windowsHide: true, stdio: ['ignore', log, log], env: process.env,
   })
   child.unref()
   for (let i = 0; i < 60; i++) {
@@ -110,8 +119,11 @@ async function main() {
   if (!h) h = await startServer()
   const url = `${BASE}/?t=${token()}&ws=${encodeURIComponent(target)}`
   if (flag('--no-open')) { say(url); return }
-  const opener = process.platform === 'darwin' ? 'open' : 'xdg-open'
-  spawn(opener, [url], { stdio: 'ignore', detached: true }).unref()
+  // Windows: rundll32 hands the URL to the default browser; `cmd /c start` would split it at '&'.
+  const [opener, ...pre] = process.platform === 'darwin' ? ['open'] : process.platform === 'win32' ? ['rundll32', 'url.dll,FileProtocolHandler'] : ['xdg-open']
+  spawn(opener, [...pre, url], { stdio: 'ignore', detached: true })
+    .on('error', () => say(`브라우저를 열지 못했어. 이 주소를 열어 줘: ${url}`))
+    .unref()
   say(`Duet → ${target}`)
 }
 

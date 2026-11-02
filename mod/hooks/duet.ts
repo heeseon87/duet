@@ -1,7 +1,10 @@
 // The mod's parts that need no `$`: tests run them without a session.
 
-/** Where the Duet server keeps its files: DUET_HOME as the server reads it, else ~/.duet. */
-export const duetHomeOf = (duetHome: string | undefined, home: string) => duetHome || `${home}/.duet`
+/**
+ * Where the Duet server keeps its files: DUET_HOME as the server reads it, else .duet in the home that
+ * os.homedir() gives the server (USERPROFILE on Windows, HOME elsewhere).
+ */
+export const duetHomeOf = (duetHome: string | undefined, home: string | undefined, profile?: string) => duetHome || `${profile || home || ''}/.duet`
 
 /** How Duet names a terminal: its folder and the start of its session id. */
 export const labelOf = (cwd: string, id: string) => `${cwd.split('/').filter(p => p !== '').at(-1) ?? '~'} · ${id.slice(0, 8)}`

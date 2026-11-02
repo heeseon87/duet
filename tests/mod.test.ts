@@ -13,6 +13,9 @@ describe('the terminal mod', () => {
   it('finds the server where the server keeps its files', () => {
     expect(duetHomeOf(undefined, '/Users/me')).toBe('/Users/me/.duet')
     expect(duetHomeOf('/tmp/duet-r6', '/Users/me')).toBe('/tmp/duet-r6')
+    // Windows: the server's os.homedir() is USERPROFILE, even when HOME is set too.
+    expect(duetHomeOf(undefined, 'D:\\home', 'C:\\Users\\me')).toBe('C:\\Users\\me/.duet')
+    expect(duetHomeOf(undefined, undefined, 'C:\\Users\\me')).toBe('C:\\Users\\me/.duet')
   })
 
   it('names a terminal by its folder and session', () => {

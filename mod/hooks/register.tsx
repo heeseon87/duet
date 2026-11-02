@@ -343,7 +343,7 @@ export const register: Register = on => {
     st.cwd = e.cwd
     st.session = await $.session.id()
     st.label = labelOf(e.cwd, st.session)
-    st.duetHome = duetHomeOf(await $.env.get('DUET_HOME'), (await $.env.get('HOME')) ?? '')
+    st.duetHome = duetHomeOf(await $.env.get('DUET_HOME'), await $.env.get('HOME'), await $.env.get('USERPROFILE'))
     st.envToken = await $.env.get('DUET_TOKEN')
     // Nothing connects until the person runs /duet: no poll, no tools, no status line.
     await $.command.register({ name: 'duet', description: 'Duet에 연결하고 기준 지도를 고정해: /duet [지도 이름이나 제목 | new <이름> [제목](빈 지도 만들기) | off(연결 끊기)]', argumentHint: '[지도 | new <이름> [제목] | off]' }).catch(() => undefined)
