@@ -124,8 +124,9 @@ table.diff.unified:not(.wrap) td.no + td.no { left: 48px; }
 .hunk-row .row-pin { left: 12px; }
 .comment-pin { width: 100cqw; box-sizing: border-box; padding: 6px 12px 8px 60px; }
 table.diff .sign { display: inline-block; width: 14px; color: var(--ink-4); user-select: none; }
-table.diff tr.line.add td { background: var(--add-bg); }
-table.diff tr.line.add td.no { background: linear-gradient(color-mix(in srgb, var(--add-bg) 70%, var(--add-strong)), color-mix(in srgb, var(--add-bg) 70%, var(--add-strong))), var(--panel); color: color-mix(in srgb, var(--add) 70%, var(--ink-4)); }
+/* A line the map's code changed (the canvas's code columns, decision snippets) is colored as an added line here. */
+table.diff tr.line.add td, table.diff tr.changed td { background: var(--add-bg); }
+table.diff tr.line.add td.no, table.diff tr.changed td.no { background: linear-gradient(color-mix(in srgb, var(--add-bg) 70%, var(--add-strong)), color-mix(in srgb, var(--add-bg) 70%, var(--add-strong))), var(--panel); color: color-mix(in srgb, var(--add) 70%, var(--ink-4)); }
 table.diff tr.line.add .sign { color: var(--add); }
 table.diff tr.line.del td { background: var(--del-bg); }
 table.diff tr.line.del td.no { background: linear-gradient(color-mix(in srgb, var(--del-bg) 70%, var(--del-strong)), color-mix(in srgb, var(--del-bg) 70%, var(--del-strong))), var(--panel); color: color-mix(in srgb, var(--del) 70%, var(--ink-4)); }
