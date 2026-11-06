@@ -27,6 +27,10 @@ export function partIds(map: CanvasMap, target: string): string[] {
   return rel ? [rel.from, rel.to, target] : [target]
 }
 
+/** Whether the map draws this target: a box, a package, a relation or a message. */
+export const isPart = (map: CanvasMap, id: string | undefined): id is string =>
+  Boolean(id && (map.elements.some(e => e.id === id) || map.relations.some(r => relationKey(r) === id) || map.messages?.some(m => m.id === id)))
+
 /** A box's own declaration: found if it is there, else the box's lines or the top, quietly. */
 const ownDeclaration = (el: CanvasElement): Seek => ({ names: [el.id, ...(el.label ? [el.label] : [])], kind: 'type', soft: true })
 

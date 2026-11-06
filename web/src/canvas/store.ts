@@ -6,6 +6,8 @@ import { local, useApp } from '../state.ts'
 import { sendingTo } from '../terminalTarget.ts'
 import { lastAgentRevision, revisedBoxes } from './revised.ts'
 import { withDecision } from './decisionQueue.ts'
+import type { PartLink } from './codeLinks.ts'
+import { EMPTY, go, isPart, linkView, partIds, shown, step, swap, unfoldFor, viewOf, type LiveView, type Trail } from './codeNav.ts'
 
 export type HistoryItem = { revision: number; by: 'agent' | 'person'; note?: string; ts: number }
 
@@ -23,6 +25,10 @@ type CanvasState = {
   /** Where each sent thread item stands with the agent, by item id: the server works it out on every read. */
   deliveries: Record<string, Delivery>
   selected?: string
+  /** The live code column's history; its shown entry is the code of what is selected. */
+  trail: Trail
+  /** A part to bring on screen once (a link followed, back, forward); the stage centers it, after the next drawing when a fold opened. */
+  reveal?: { ids: string[]; afterRender: boolean; nonce: number }
   /** Showing an older revision instead of the current one. */
   preview?: { revision: number; map: CanvasMap }
   /** Compare against this revision: removed things come back as ghosts, new ones glow. */
@@ -41,7 +47,17 @@ type CanvasState = {
   open: (name: string) => Promise<void>
   reload: () => Promise<void>
   refreshThreads: () => Promise<void>
+  /** Selects a part; the live code column follows to its code unless it shows that part already. */
   select: (target: string | undefined) => void
+  /**
+   * Follows a link from code: selects its part (unfolding its packages), shows the declaring code and reveals the part.
+   * `stay` only selects and reveals (the reader is on the declaration); `ref` opens that one of the part's files.
+   */
+  goTo: (link: PartLink, o?: { stay?: boolean; ref?: string }) => void
+  back: () => void
+  forward: () => void
+  /** Shows this file in doc `doc` of the live view (a tab, the menu's 코드 열기): no move in history. */
+  showFile: (doc: number, ref: string) => void
   toggleCollapse: (groupId: string) => void
   /** Fold every package (nested ones too, so unfolding opens one level at a time), or unfold all. */
   setAllCollapsed: (fold: boolean) => void
@@ -119,9 +135,38 @@ function followDeliveries() {
   refreshing = setTimeout(() => { refreshing = undefined; void useCanvas.getState().refreshThreads() }, 400)
 }
 
+/** How the live column reads where its reader is: the top line of each of its docs. The store's only read of the screen. */
+let livePosition: () => number[] | undefined = () => undefined
+export const setLivePosition = (f: typeof livePosition) => { livePosition = f }
+let seq = 0
+const nonce = () => ++seq
+
+/** Opens the folded packages around these parts, remembered like a fold by hand; the same set when none was folded. */
+function unfold(map: CanvasMap, collapsed: Set<string>, ids: string[]): Set<string> {
+  const next = ids.reduce<Set<string>>((c, id) => unfoldFor(map, c, id) ?? c, collapsed)
+  const w = ws(), name = useCanvas.getState().name
+  if (next !== collapsed && w && name) local.set(`canvas.collapsed:${w}:${name}`, JSON.stringify([...next]))
+  return next
+}
+
+/** Selects `target` with the live column on `trail`, bringing it on screen. */
+function arrive(map: CanvasMap, target: string, trail: Trail) {
+  const ids = partIds(map, target), was = useCanvas.getState().collapsed, collapsed = unfold(map, was, ids)
+  useCanvas.setState({ selected: target, trail, collapsed, reveal: { ids, afterRender: collapsed !== was, nonce: nonce() } })
+}
+
+/** Back or forward in the live column, past parts the map lost. */
+function move(by: -1 | 1) {
+  const s = useCanvas.getState(), map = s.preview?.map ?? s.map
+  if (!map) return
+  const trail = step(s.trail, by, t => isPart(map, t), livePosition(), nonce())
+  if (trail !== s.trail) arrive(map, shown(trail)!.view.target, trail)
+}
+
 export const useCanvas = create<CanvasState>((set, get) => ({
   list: [],
   revision: 0,
+  trail: EMPTY,
   history: [],
   threads: [],
   deliveries: {},
@@ -153,7 +198,7 @@ export const useCanvas = create<CanvasState>((set, get) => ({
     local.set(`canvas.current:${w}`, name)
     const collapsed = new Set<string>(JSON.parse(local.get(`canvas.collapsed:${w}:${name}`) ?? '[]'))
     const seen = Number(local.get(`canvas.seen:${w}:${name}`) ?? 0)
-    set({ name, selected: undefined, preview: undefined, compareFrom: undefined, compareMap: undefined, collapsed, loading: true, glow: undefined, revised: undefined })
+    set({ name, selected: undefined, trail: EMPTY, reveal: undefined, preview: undefined, compareFrom: undefined, compareMap: undefined, collapsed, loading: true, glow: undefined, revised: undefined })
     await get().reload()
     const rev = get().revision
     // First visit: nothing is "new". Later visits: show what changed since then.
@@ -189,7 +234,28 @@ export const useCanvas = create<CanvasState>((set, get) => ({
     if (get().name === name) set(data)
   },
 
-  select: target => set({ selected: target }),
+  select: target => set(s => {
+    const map = s.preview?.map ?? s.map
+    const view = map && target ? viewOf(map, target) : undefined
+    if (!view || shown(s.trail)?.view.target === target) return { selected: target }
+    return { selected: target, trail: go(s.trail, view, livePosition(), nonce()) }
+  }),
+
+  goTo: (link, o) => {
+    const s = get(), map = s.preview?.map ?? s.map
+    if (!map) return
+    const view = linkView(map, link)
+    const opened: LiveView = o?.ref ? { ...view, docs: [{ ...view.docs[0], ref: o.ref }, ...view.docs.slice(1)] as LiveView['docs'] } : view
+    arrive(map, link.target, o?.stay ? s.trail : go(s.trail, opened, livePosition(), nonce()))
+  },
+  back: () => move(-1),
+  forward: () => move(1),
+
+  showFile: (doc, ref) => set(s => {
+    const cur = shown(s.trail)
+    if (!cur || !cur.view.docs[doc]) return {}
+    return { trail: swap(s.trail, { ...cur.view, docs: cur.view.docs.map((d, i) => (i === doc ? { ...d, ref } : d)) as LiveView['docs'] }) }
+  }),
 
   toggleCollapse: groupId => {
     const w = ws(), name = get().name

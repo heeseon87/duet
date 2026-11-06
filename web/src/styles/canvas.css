@@ -95,6 +95,9 @@
 /* The code pane: the picked part's code beside the map */
 .code-pane { position: relative; flex: none; display: flex; flex-direction: column; min-width: 0; border-left: 1px solid var(--line); background: var(--panel); }
 .code-pane.slide { animation: slide-in .2s var(--ease); }
+.code-columns { display: contents; }
+.code-doc { flex: 1; display: flex; flex-direction: column; min-height: 0; }
+.code-pane-head .code-nav:disabled { opacity: .35; }
 .code-split { position: absolute; left: -4px; top: 0; bottom: 0; width: 8px; cursor: col-resize; z-index: 5; }
 .code-outline-split { position: absolute; top: 0; bottom: 0; width: 8px; margin-left: -4px; cursor: col-resize; z-index: 5; }
 .code-split:hover, .code-split:active, .code-outline-split:hover, .code-outline-split:active { background: color-mix(in srgb, var(--accent) 30%, transparent); }
@@ -134,6 +137,13 @@
 .ol-kind.k-doc { color: var(--ink-3); background: var(--hover); }
 /* The word under the click wherever it stands, and the clicked line. */
 ::highlight(duet-word) { background-color: color-mix(in srgb, var(--accent) 24%, transparent); }
+/* A name the map draws, under the pointer: a hint, then a link while ⌘ (ctrl) is held. */
+::highlight(duet-link-hint) { text-decoration: underline dotted var(--accent-line); }
+::highlight(duet-link) { color: var(--accent-ink); text-decoration: underline solid var(--accent); }
+.code-pane-body.link-armed { cursor: pointer; }
+.code-pane-path .code-link-hint, .code-pane-path .code-missed { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.code-pane-path .code-link-hint { margin-left: auto; color: var(--accent-ink); }
+.code-pane-path .code-missed { color: var(--warn); }
 /* Variable colors (the code pane's palette button): one color per variable, VAR_COLORS of them taking turns. While they
    are on the rest of the code goes gray (below) except the keywords, so the whole hue circle is theirs: nine per theme,
    eight for variables and one for keywords (the blue one), picked together so the closest two stay as far apart as
@@ -337,6 +347,11 @@ svg[id^='cv'] g.node > .label-group p { font-family: var(--font-ui); font-size: 
 .stage-inner .cv-edge.cv-peek { stroke: var(--accent) !important; stroke-width: 2.6px !important; opacity: 1 !important; }
 .stage-inner .cv-label.cv-peek { opacity: 1 !important; }
 .stage-inner .cv-label.cv-peek p { background: var(--accent) !important; color: var(--cv-sel-ink) !important; }
+/* A name under ⌘ in the code lights its box, participant or message the same way, the camera kept still. */
+.stage-inner .cv-node.cv-peek, .stage-inner .cv-actor.cv-peek, .stage-inner .cv-msg.cv-peek, .stage-inner .cv-msg-text.cv-peek { opacity: 1 !important; }
+.stage-inner .cv-node.cv-peek .label-container path:last-child, .stage-inner .cv-actor.cv-peek rect { stroke: var(--accent) !important; stroke-width: 2.6 !important; }
+.stage-inner .cv-msg.cv-peek { stroke: var(--accent) !important; stroke-width: 2.6px !important; }
+.stage-inner .cv-msg-text.cv-peek { fill: var(--accent-ink) !important; }
 
 /* Mermaid colors a class box's circles under its own id (white, gray ring): the badge's colors must win outright. */
 .stage-inner .cv-badge circle { fill: var(--accent) !important; stroke: var(--panel) !important; stroke-width: 2; }

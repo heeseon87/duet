@@ -1,6 +1,7 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
-import { Copy, Ellipsis, FileDiff, ListTree, Loader2, Minus, Palette, Plus, X } from 'lucide-react'
+import { ChevronLeft, ChevronRight, Copy, Ellipsis, FileCode2, FileDiff, ListTree, Loader2, Minus, Palette, Plus, X } from 'lucide-react'
 import { fileOfRef, labelOf, type CanvasMap } from '../../../shared/canvas.ts'
+import type { DiffFile } from '../../../shared/protocol.ts'
 import { absoluteRef, refBase } from '../../../shared/mapFiles.ts'
 import { api, q } from '../api.ts'
 import { Line, useTokens } from '../lib/Code.tsx'
@@ -10,17 +11,15 @@ import { useReview } from '../review/store.ts'
 import { PathLabel } from '../review/DiffView.tsx'
 import { escapeRe, matchRanges } from '../review/FindBar.tsx'
 import { widestCols } from '../review/diffModel.ts'
-import { useCanvas } from './store.ts'
-import { linesOf, refsFor, sourceOf, targetOf } from './codeLinks.ts'
-import { viewOf } from './codeNav.ts'
+import { setLivePosition, useCanvas } from './store.ts'
+import { linesOf, linkAt, partsOfFile, refsFor, resolveLink, sourceOf, targetOf, type PartLink, type ReviewSide, type Source } from './codeLinks.ts'
+import { isPart, layoutColumns, linkView, shown, type Doc, type Entry } from './codeNav.ts'
+import { ContextMenu, type MenuEntry, type Point } from './ContextMenu.tsx'
 import { painter, type Painter } from './paint.ts'
 import { activeAt, outlineOf, type OutlineItem, type SymbolKind } from './outline.ts'
 import { VAR_COLORS, varLangOf, type Span, type VarMark } from './variables.ts'
 import { variableMarks } from './variablesLoader.ts'
 
-const MIN_WIDTH = 320
-/** What the canvas keeps beside the pane, however wide the pane was dragged. */
-const STAGE_MIN = 360
 const MIN_SCALE = 0.7
 const MAX_SCALE = 2
 /** Below this width the structure floats over the code instead of standing beside it. */
@@ -33,31 +32,275 @@ const OUTLINE_HIDE = 60
 const WORD_CHAR = /[\p{L}\p{N}_$]/u
 const isWord = (s: string) => /^[\p{L}\p{N}_$]+$/u.test(s)
 
+const MAC = typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.platform)
+/** ⌘ on a Mac (ctrl-click is its right click there), ctrl elsewhere: held, a name in the code is a link. */
+export const linkKey = (e: { metaKey: boolean; ctrlKey: boolean }) => (MAC ? e.metaKey : e.ctrlKey)
+export const LINK_KEY = MAC ? '⌘' : 'ctrl'
+/** Back and forward in the live code column: ⌘[ ⌘] on a Mac, Alt+← Alt+→ elsewhere, as browsers and editors have them. */
+export function navStep(e: KeyboardEvent, key: string): -1 | 1 | undefined {
+  if (MAC ? !e.metaKey || e.altKey || e.ctrlKey : !e.altKey || e.metaKey || e.ctrlKey) return undefined
+  if (key === (MAC ? '[' : 'ArrowLeft')) return -1
+  if (key === (MAC ? ']' : 'ArrowRight')) return 1
+  return undefined
+}
+export const NAV_KEYS = MAC ? ['⌘[', '⌘]'] : ['Alt+←', 'Alt+→']
+
+/** What every code column shares: the code's zoom, and whether the structure and the variable colors are on. Remembered. */
+type Settings = {
+  scale: number
+  /** Each column keeps its top line in place across a zoom: it notes where it is when one starts. */
+  anchors: Set<() => void>
+  zoom: (next: number) => void
+  outline: boolean
+  toggleOutline: () => void
+  closeOutline: () => void
+  vars: boolean
+  toggleVars: () => void
+}
+function useSettings(): Settings {
+  const [scale, setScale] = useState(() => Number(local.get('canvas.codeZoom')) || 1)
+  const [outline, setOutline] = useState(() => local.get('canvas.codeOutline') === '1')
+  const [vars, setVars] = useState(() => local.get('canvas.codeVars') === '1')
+  const [anchors] = useState(() => new Set<() => void>())
+  return {
+    scale, anchors,
+    zoom: next => {
+      const s = Math.round(Math.min(MAX_SCALE, Math.max(MIN_SCALE, next)) * 100) / 100
+      for (const a of anchors) a()
+      setScale(s)
+      local.set('canvas.codeZoom', String(s))
+    },
+    outline,
+    toggleOutline: () => setOutline(o => { local.set('canvas.codeOutline', o ? '0' : '1'); return !o }),
+    closeOutline: () => { setOutline(false); local.set('canvas.codeOutline', '0') },
+    vars,
+    toggleVars: () => setVars(o => { local.set('canvas.codeVars', o ? '0' : '1'); return !o }),
+  }
+}
+
+/** Several parts a name may stand for: the person picks one, then `go` follows it as a sure link would be. */
+type Choice = { at: Point; name: string; links: PartLink[]; go: (link: PartLink) => void }
+
 /**
- * The code of the part picked on the canvas (`target`), beside the map. It opens on the part's declaration or its
- * referenced lines, and marks the lines the map's code changed.
+ * The code beside the map. The live column shows the code of what the map has selected and follows every pick; a name
+ * drawn on the map is a link in it (⌘-click goes to its declaration and its part), and back and forward retrace the way.
+ * `slide`: opened just now by the person, so the column slides in beside the gliding map.
  */
-/** `slide`: opened just now by the person (not a reload or a map switch), so it slides in beside the gliding map. */
-export function CodePane({ map, target, want, slide, onClose }: { map: CanvasMap; target: string; want?: { file: string; nonce: number }; slide?: boolean; onClose: () => void }) {
+export function CodeColumns({ map, slide, onPeek, onClose }: { map: CanvasMap; slide: boolean; onPeek: (target?: string) => void; onClose: () => void }) {
+  const entry = useCanvas(s => shown(s.trail))
+  const live = entry && isPart(map, entry.view.target) ? entry : undefined
+  const host = useRef<HTMLDivElement>(null)
+  const room = useRoom(host)
+  const [wanted, setWanted] = useState(() => Number(local.get('canvas.codeWidth')) || 520)
+  const layout = layoutColumns(room, live ? wanted : undefined, [])
+  const settings = useSettings()
+  const [choice, setChoice] = useState<Choice>()
+  // Shown up on a pick after the columns were already there, the live column slides in.
+  const mounted = useRef(false)
+  useEffect(() => { mounted.current = true }, [])
+  useBackButtons()
+  return (
+    <div className="code-columns" ref={host}>
+      {live && layout.live !== undefined && (
+        <LiveColumn map={map} entry={live} width={layout.live} settings={settings} slide={slide || mounted.current}
+          onWidth={(w, done) => { const fit = layoutColumns(room, w, []).live!; setWanted(fit); if (done) local.set('canvas.codeWidth', String(fit)) }}
+          onPeek={onPeek} onChoose={setChoice} onClose={onClose} />
+      )}
+      {choice && <ContextMenu at={choice.at} entries={chooserEntries(map, choice)} onClose={() => setChoice(undefined)} />}
+    </div>
+  )
+}
+
+/** The canvas body's width, which the columns and the map share. */
+function useRoom(host: React.RefObject<HTMLElement | null>) {
+  const [room, setRoom] = useState(Infinity)
+  useLayoutEffect(() => {
+    const body = host.current?.parentElement
+    if (!body) return
+    const measure = () => setRoom(body.getBoundingClientRect().width)
+    measure()
+    const obs = new ResizeObserver(measure)
+    obs.observe(body)
+    return () => obs.disconnect()
+  }, [host])
+  return room
+}
+
+/** The mouse's back and forward buttons over the code step the live column, and keep the browser from leaving Duet. */
+function useBackButtons() {
+  useEffect(() => {
+    const on = (e: MouseEvent) => {
+      if ((e.button !== 3 && e.button !== 4) || !(e.target as Element | null)?.closest?.('.code-pane')) return
+      e.preventDefault()
+      if (e.type !== 'mouseup') return
+      if (e.button === 3) useCanvas.getState().back()
+      else useCanvas.getState().forward()
+    }
+    for (const t of ['mousedown', 'mouseup', 'auxclick'] as const) window.addEventListener(t, on)
+    return () => { for (const t of ['mousedown', 'mouseup', 'auxclick'] as const) window.removeEventListener(t, on) }
+  }, [])
+}
+
+/** How a link reads to the person: a box's name, a member as `Box.name`, a message as its label. */
+function linkLabel(map: CanvasMap, l: PartLink): string {
+  if (l.target !== l.owner) return labelOf(map, l.target)
+  return l.kind === 'type' ? labelOf(map, l.owner) : `${labelOf(map, l.owner)}.${l.name}${l.kind === 'function' ? '()' : ''}`
+}
+
+function chooserEntries(map: CanvasMap, c: Choice): MenuEntry[] {
+  return [
+    { kind: 'head', label: `어느 «${c.name}»?` },
+    ...c.links.slice(0, 8).map((l, i): MenuEntry => ({
+      kind: 'item', key: `${i}`, icon: <FileCode2 size={14} />, label: linkLabel(map, l), sub: refsFor(map, l.owner)[0]?.split('/').pop()?.replace(/:\d+(-\d+)?$/, ''), run: () => c.go(l),
+    })),
+  ]
+}
+
+/** Where a doc's file is read: the map's workspace, its own code, and what the review shows. */
+type ReadContext = { workspace: string; mapName?: string; codeRoot?: string; base: string; review: ReviewSide }
+function useReadContext(): ReadContext {
   const workspace = useApp(s => s.workspace?.path ?? '')
-  const setTab = useApp(s => s.setTab)
-  const toast = useApp(s => s.toast)
+  const mapName = useCanvas(s => s.mapName), codeRoot = useCanvas(s => s.code?.root)
+  const root = useReview(s => s.root), diff = useReview(s => s.diff), bound = useReview(s => s.bound), editing = useReview(s => s.editing)
+  return { workspace, mapName, codeRoot, base: refBase(workspace, codeRoot), review: { root, diff, bound, editing } }
+}
+
+/** A doc's files, the one shown (the one picked, else the first), and where that one is read. */
+type DocFile = { refs: string[]; ref?: string; source?: Source }
+function resolveDoc(map: CanvasMap, doc: Doc, c: ReadContext): DocFile {
+  const refs = refsFor(map, doc.part, doc.seek)
+  const ref = refs.find(r => r === doc.ref) ?? refs.find(r => fileOfRef(r) === fileOfRef(doc.ref ?? '')) ?? refs[0]
+  return { refs, ref, source: ref ? sourceOf(absoluteRef(c.base, ref), c.workspace, c.mapName, c.review, c.codeRoot) : undefined }
+}
+
+/** The file as the map's code changed it: its new lines are marked, and it is marked viewed as in the review. */
+function useChanged(source?: Source): { changedFile?: DiffFile; changed: Set<number> } {
+  const diff = useReview(s => s.diff)
+  const changedFile = useMemo(() => (source?.marks && diff ? diff.files.find(x => x.path === source.path) : undefined), [source?.marks, source?.path, diff])
+  const changed = useMemo(() => {
+    const f = changedFile
+    return new Set(f && !f.binary && !f.large ? f.hunks.flatMap(h => h.lines.filter(l => l.type === 'add' && l.newNo).map(l => l.newNo!)) : [])
+  }, [changedFile])
+  return { changedFile, changed }
+}
+
+function ChangedMarks({ changedFile, changed }: ReturnType<typeof useChanged>) {
+  const viewed = useReview(s => Boolean(changedFile && s.viewed[changedFile.path])), toggleViewed = useReview(s => s.toggleViewed)
+  return <>
+    {changed.size > 0 && <span className="code-added" title={`더해지거나 바뀐 줄 ${changed.size}개`}>+{changed.size}</span>}
+    {changedFile && <label className="toggle" title="리뷰의 Viewed"><input type="checkbox" checked={viewed} onChange={() => toggleViewed(changedFile)} /> Viewed</label>}
+  </>
+}
+
+/** What the live column knows of each doc it shows, for the store (where the reader was) and its own menu. */
+type DocSpot = { top?: () => number | undefined; target?: number }
+
+function LiveColumn({ map, entry, width, settings, slide, onWidth, onPeek, onChoose, onClose }: {
+  map: CanvasMap; entry: Entry; width: number; settings: Settings; slide: boolean
+  onWidth: (w: number, done: boolean) => void; onPeek: (target?: string) => void; onChoose: (c: Choice) => void; onClose: () => void
+}) {
+  const setTab = useApp(s => s.setTab), toast = useApp(s => s.toast), openFile = useReview(s => s.openFile)
+  const back = useCanvas(s => s.back), forward = useCanvas(s => s.forward)
+  const canBack = useCanvas(s => s.trail.entries.slice(0, s.trail.index).some(e => isPart(map, e.view.target)))
+  const canForward = useCanvas(s => s.trail.entries.slice(s.trail.index + 1).some(e => isPart(map, e.view.target)))
   const more = useAnchor()
   const [slideIn] = useState(slide)
-  const mapName = useCanvas(s => s.mapName), codeRoot = useCanvas(s => s.code?.root)
-  const diff = useReview(s => s.diff), root = useReview(s => s.root), bound = useReview(s => s.bound), editing = useReview(s => s.editing)
-  const openFile = useReview(s => s.openFile)
-  const [pick, setPick] = useState<string>()
-  // Only a new pick moves the pane: an edit of the map keeps the file tab the person chose.
-  useEffect(() => setPick(undefined), [target])
-  useEffect(() => { if (want) setPick(want.file) }, [want])
+  const pane = useRef<HTMLElement>(null)
+  useWheelZoom(pane, settings)
+  const read = useReadContext()
+  const docs = entry.view.docs
+  const files = docs.map(d => resolveDoc(map, d, read))
+  const spots = useRef<DocSpot[]>([{}, {}])
+  const count = useRef(docs.length)
+  count.current = docs.length
+  useEffect(() => {
+    setLivePosition(() => spots.current.slice(0, count.current).map(s => s.top?.() ?? 1))
+    return () => setLivePosition(() => undefined)
+  }, [])
+  const solo = docs.length === 1
+  const soloChanged = useChanged(solo ? files[0].source : undefined)
+  const drag = (e: React.PointerEvent) => {
+    const host = pane.current?.closest('.canvas-body')?.getBoundingClientRect()
+    if (!host) return
+    e.preventDefault()
+    const handle = e.currentTarget as HTMLElement
+    handle.setPointerCapture(e.pointerId)
+    let last = width
+    const move = (m: PointerEvent) => { last = host.right - m.clientX; onWidth(last, false) }
+    const up = () => {
+      handle.removeEventListener('pointermove', move)
+      handle.removeEventListener('pointerup', up)
+      onWidth(last, true)
+    }
+    handle.addEventListener('pointermove', move)
+    handle.addEventListener('pointerup', up)
+  }
+  const head = labelOf(map, entry.view.target)
+  return (
+    <aside className={`code-pane live${slideIn ? ' slide' : ''}`} ref={pane} style={{ width, '--code-scale': settings.scale } as React.CSSProperties}>
+      <div className="code-split" onPointerDown={drag} title="끌어서 폭 조절" />
+      <div className="code-pane-head">
+        <button className="iconbtn code-nav" disabled={!canBack} aria-label="뒤로" title={`뒤로 (${NAV_KEYS[0]})`} onClick={back}><ChevronLeft size={14} /></button>
+        <button className="iconbtn code-nav" disabled={!canForward} aria-label="앞으로" title={`앞으로 (${NAV_KEYS[1]})`} onClick={forward}><ChevronRight size={14} /></button>
+        <b className="ellipsis">{head}</b>
+        {solo && <ChangedMarks {...soloChanged} />}
+        <span className="grow" />
+        <button className="iconbtn" aria-pressed={settings.outline} title={settings.outline ? '구조 닫기' : '구조: 이 파일의 클래스·함수 목록'} onClick={settings.toggleOutline}><ListTree size={14} /></button>
+        {files.some(f => varLangOf(f.source?.path)) && (
+          <button className="iconbtn" aria-pressed={settings.vars} title={settings.vars ? '변수 색 끄기' : '변수 색: 변수마다 선언부터 쓰는 곳까지 한 색으로, 스코프별로'} onClick={settings.toggleVars}><Palette size={14} /></button>
+        )}
+        <button ref={more.ref} className="iconbtn" aria-pressed={more.open} aria-label="더 보기: 글자 크기, 경로 복사, 리뷰에서 보기" title="더 보기: 글자 크기, 경로 복사, 리뷰에서 보기" onClick={more.toggle}><Ellipsis size={14} /></button>
+        <button className="iconbtn" title="닫기 (c)" onClick={onClose}><X size={14} /></button>
+      </div>
+      {more.open && (
+        <Popover anchor={more.ref.current} onClose={more.close} align="end" width={230} className="code-more">
+          <div className="code-more-row">
+            <span className="grow">글자 크기</span>
+            <div className="seg code-zoom">
+              <button onClick={() => settings.zoom(Math.round(settings.scale * 10) / 10 - 0.1)} disabled={settings.scale <= MIN_SCALE} title="코드 축소 (⌘ + 휠)"><Minus size={12} /></button>
+              <button onClick={() => settings.zoom(1)} title="100%로">{Math.round(settings.scale * 100)}%</button>
+              <button onClick={() => settings.zoom(Math.round(settings.scale * 10) / 10 + 0.1)} disabled={settings.scale >= MAX_SCALE} title="코드 확대 (⌘ + 휠)"><Plus size={12} /></button>
+            </div>
+          </div>
+          {files.map(({ ref, source }, i) => source && ref && (
+            <div key={i}>
+              <div className="menu-sep" />
+              {!solo && <div className="menu-label">{source.path.split('/').pop()}</div>}
+              <button className="menu-item" onClick={() => { void navigator.clipboard.writeText(source.path); toast('경로를 복사했어'); more.close() }}><Copy size={14} /> 경로 복사</button>
+              <button className="menu-item" title="리뷰에서 보기" onClick={() => { more.close(); setTab('review'); void openFile(fileOfRef(ref), spots.current[i].target) }}><FileDiff size={14} /> 리뷰에서 보기</button>
+            </div>
+          ))}
+        </Popover>
+      )}
+      {docs.map((doc, i) => (
+        <CodeDoc key={i} map={map} doc={doc} index={i} file={files[i]} nonce={entry.nonce} at={entry.at?.[i]} lead={i === 0} width={width}
+          settings={settings} spot={spots.current[i]} onPeek={onPeek} onChoose={onChoose} />
+      ))}
+    </aside>
+  )
+}
 
-  const refs = useMemo(() => refsFor(map, target), [map, target])
-  const ref = refs.find(r => r === pick) ?? refs.find(r => fileOfRef(r) === fileOfRef(pick ?? '')) ?? refs[0]
-  const source = ref ? sourceOf(absoluteRef(refBase(workspace, codeRoot), ref), workspace, mapName, { root, diff, bound, editing }, codeRoot) : undefined
+/** ⌘ or ctrl + wheel over a column (a trackpad pinch) zooms the code, following the hand. */
+function useWheelZoom(pane: React.RefObject<HTMLElement | null>, settings: Settings) {
+  const latest = useRef(settings)
+  latest.current = settings
+  useEffect(() => {
+    const el = pane.current
+    if (!el) return
+    const wheel = (e: WheelEvent) => {
+      if (!e.ctrlKey && !e.metaKey) return
+      e.preventDefault()
+      // A mouse notch is about one 10% step; a pinch sends many small ones.
+      latest.current.zoom(latest.current.scale * Math.exp(-Math.max(-10, Math.min(10, e.deltaY)) * 0.01))
+    }
+    el.addEventListener('wheel', wheel, { passive: false })
+    return () => el.removeEventListener('wheel', wheel)
+  }, [pane])
+}
+
+/** A file's text, fetched for its source; a quick run of picks keeps only the answer for the file shown now. */
+function useFileText(source?: Source) {
   const key = source ? `${source.root}\0${source.ref}\0${source.path}` : ''
-
-  // A quick run of picks: only the answer for the file shown now is kept.
   const [file, setFile] = useState<{ key: string; text?: string; missing?: boolean }>()
   useEffect(() => {
     if (!source) return
@@ -68,94 +311,118 @@ export function CodePane({ map, target, want, slide, onClose }: { map: CanvasMap
       .catch(() => { if (live) setFile({ key, missing: true }) })
     return () => { live = false }
   }, [key]) // eslint-disable-line react-hooks/exhaustive-deps
-  const text = file?.key === key ? file.text : undefined
+  const mine = file?.key === key
+  return { key, text: mine ? file.text : undefined, missing: Boolean(mine && file.missing), loading: !mine || (file.text === undefined && !file.missing) }
+}
+
+/** The first row in view and how far its top sits above the view's top. */
+function readTop(b: HTMLElement): { line: number; offset: number } | undefined {
+  const first = b.querySelector<HTMLElement>('tr[data-line]')
+  const h = first?.getBoundingClientRect().height
+  if (!first || !h) return undefined
+  const top = first.getBoundingClientRect().top - b.getBoundingClientRect().top
+  const i = Math.max(0, Math.floor(-top / h))
+  return { line: i + 1, offset: top + i * h }
+}
+
+/**
+ * One file of the live column: it opens where its view says (a declaration, a reference's lines, or where the reader
+ * left it), marks the lines the map's code changed, reads like an editor, and makes the names the map draws links.
+ */
+function CodeDoc({ map, doc, index, file: { refs, ref, source }, nonce, at, lead, width, settings, spot, onPeek, onChoose }: {
+  map: CanvasMap; doc: Doc; index: number; file: DocFile; nonce: number; at?: number; lead: boolean; width: number; settings: Settings; spot: DocSpot
+  onPeek: (target?: string) => void; onChoose: (c: Choice) => void
+}) {
+  const { base } = useReadContext()
+  const { key, text, missing, loading } = useFileText(source)
   const lines = useMemo(() => (text ?? '').replace(/\n$/, '').split('\n'), [text])
   const tokens = useTokens(text ?? '', source?.path)
+  const seekKey = JSON.stringify(doc.seek)
+  const target = useMemo(() => (text === undefined || !ref || !source ? undefined : targetOf(lines, source.path, ref, doc.seek)), [text, lines, ref, source?.path, seekKey]) // eslint-disable-line react-hooks/exhaustive-deps
+  const [from, to] = target?.rows ?? (ref ? linesOf(ref) : undefined) ?? [0, -1]
+  const { changed } = useChanged(source)
 
-  const seek = viewOf(map, target)?.docs[0].seek
-  const rows = useMemo(() => (text === undefined || !ref || !source ? undefined : targetOf(lines, source.path, ref, seek).rows), [text, lines, ref, source?.path, JSON.stringify(seek)]) // eslint-disable-line react-hooks/exhaustive-deps
-  const [from, to] = rows ?? (ref ? linesOf(ref) : undefined) ?? [0, -1]
-  // The file as the map's code changed it: its new lines are marked, and it is marked viewed as in the review.
-  const changedFile = useMemo(() => (source?.marks && diff ? diff.files.find(x => x.path === source.path) : undefined), [source?.marks, source?.path, diff])
-  const changed = useMemo(() => {
-    const f = changedFile
-    return new Set(f && !f.binary && !f.large ? f.hunks.flatMap(h => h.lines.filter(l => l.type === 'add' && l.newNo).map(l => l.newNo!)) : [])
-  }, [changedFile])
-  const viewed = useReview(s => Boolean(changedFile && s.viewed[changedFile.path])), toggleViewed = useReview(s => s.toggleViewed)
-
+  const root = useRef<HTMLDivElement>(null)
   const body = useRef<HTMLDivElement>(null)
-  useEffect(() => {
-    if (text === undefined) return
-    requestAnimationFrame(() => {
-      const row = body.current?.querySelector(`[data-line="${from}"]`)
-      if (row) row.scrollIntoView({ block: 'center' })
-      else body.current?.scrollTo({ top: 0 })
-    })
-  }, [text, from])
-
   const [paint] = useState(painter)
   useEffect(() => () => paint.clear(), [paint])
   const marks = useWordMarks(body, key, tokens, paint)
-  const [outlineOpen, setOutlineOpen] = useState(() => local.get('canvas.codeOutline') === '1')
-  const toggleOutline = () => setOutlineOpen(o => { local.set('canvas.codeOutline', o ? '0' : '1'); return !o })
-  const [varsOn, setVarsOn] = useState(() => local.get('canvas.codeVars') === '1')
-  const toggleVars = () => setVarsOn(o => { local.set('canvas.codeVars', o ? '0' : '1'); return !o })
-  const varsPainted = useVariableColors(body, text, source?.path, tokens, varsOn, paint)
-  const outline = useMemo(() => (outlineOpen && text !== undefined && source ? outlineOf(lines, source.path) : undefined), [outlineOpen, text, lines, source?.path]) // eslint-disable-line react-hooks/exhaustive-deps
-  const active = outline && marks.caret !== undefined ? activeAt(outline, marks.caret) : undefined
+  spot.top = () => (body.current ? readTop(body.current)?.line : undefined)
+  spot.target = from > 0 ? from : undefined
 
-  const width = useWidth()
-  const zoom = useZoom(width.pane, body)
-  const floating = width.value < OUTLINE_BESIDE
-  const outlineWidth = useOutlineWidth(width.value, floating, () => { setOutlineOpen(false); local.set('canvas.codeOutline', '0') })
+  // Arrived (a pick, a link, back or forward): to where the reader left it, else the target in the middle, else the top.
+  useEffect(() => {
+    if (text === undefined) return
+    requestAnimationFrame(() => {
+      const b = body.current, row = (n?: number) => (n ? b?.querySelector<HTMLElement>(`tr[data-line="${n}"]`) : null)
+      const left = row(at), aim = row(from)
+      if (b && left) b.scrollTop += left.getBoundingClientRect().top - b.getBoundingClientRect().top
+      else if (aim) aim.scrollIntoView({ block: 'center' })
+      else b?.scrollTo({ top: 0 })
+    })
+  }, [text, from, nonce, at])
+  // The name it went to is lit; the lead doc clears what the last place lit when it lights nothing.
+  useEffect(() => {
+    if (text === undefined) return
+    if (target?.lit) marks.setWord({ text: target.lit, whole: true })
+    else if (lead) marks.setWord(undefined)
+  }, [text, nonce, seekKey]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Zooming keeps the line at the top where it is.
+  const anchor = useRef<{ line: number; offset: number }>(undefined)
+  useEffect(() => {
+    const note = () => { anchor.current = body.current ? readTop(body.current) : undefined }
+    settings.anchors.add(note)
+    return () => { settings.anchors.delete(note) }
+  }, [settings.anchors])
+  useLayoutEffect(() => {
+    const a = anchor.current, b = body.current
+    anchor.current = undefined
+    const row = a && b?.querySelector(`tr[data-line="${a.line}"]`)
+    if (a && b && row) b.scrollTop += row.getBoundingClientRect().top - b.getBoundingClientRect().top - a.offset
+  }, [settings.scale])
+
+  const varsPainted = useVariableColors(body, text, source?.path, tokens, settings.vars, paint)
+  const outline = useMemo(() => (settings.outline && text !== undefined && source ? outlineOf(lines, source.path) : undefined), [settings.outline, text, lines, source?.path]) // eslint-disable-line react-hooks/exhaustive-deps
+  const active = outline && marks.caret !== undefined ? activeAt(outline, marks.caret) : undefined
+  const floating = width < OUTLINE_BESIDE
+  const outlineWidth = useOutlineWidth(width, floating, settings.closeOutline)
   // A pick in the structure goes to its line and marks its name, as a click on the name would.
-  const goTo = (it: OutlineItem) => {
+  const pickOutline = (it: OutlineItem) => {
     body.current?.querySelector(`[data-line="${it.line}"]`)?.scrollIntoView({ block: 'center' })
     marks.setCaret(it.line)
     marks.setWord(isWord(it.name) ? { text: it.name, whole: true } : undefined)
-    if (floating) setOutlineOpen(false)
+    if (floating) settings.closeOutline()
   }
-  const head = labelOf(map, target)
+
+  /**
+   * Follows a link from this file. Its declaration in this very file is gone to here (on it already: the map only
+   * shows its part); a message goes to its call's two ends.
+   */
+  const follow = (link: PartLink, row: number) => {
+    const goTo = useCanvas.getState().goTo
+    if (link.target === link.owner && source && text !== undefined) {
+      const seek = linkView(map, link).docs[0].seek
+      const here = refsFor(map, link.owner, seek).find(r => absoluteRef(base, r) === `${source.root}/${source.path}`)
+      const found = here ? targetOf(lines, source.path, here, seek) : undefined
+      if (here && found?.rows && !found.missed) return goTo(link, found.rows[0] === row ? { stay: true } : { ref: here })
+    }
+    goTo(link)
+  }
+  const here = useMemo(() => (source ? partsOfFile(map, source, base) : []), [map, source?.root, source?.path, base]) // eslint-disable-line react-hooks/exhaustive-deps
+  const hint = useLinks(root, body, { map, here, paint, onPeek, onFollow: (found, name, row, p) => (found.sure ? follow(found.links[0], row) : onChoose({ at: p, name, links: found.links, go: l => follow(l, row) })) })
+
+  const label = labelOf(map, doc.part)
   return (
-    <aside className={`code-pane ${slideIn ? 'slide' : ''}`} ref={width.pane} style={{ width: width.value, '--code-scale': zoom.scale } as React.CSSProperties}>
-      <div className="code-split" onPointerDown={width.drag} title="끌어서 폭 조절" />
-      <div className="code-pane-head">
-        <b className="ellipsis">{head}</b>
-        {changed.size > 0 && <span className="code-added" title={`더해지거나 바뀐 줄 ${changed.size}개`}>+{changed.size}</span>}
-        {changedFile && <label className="toggle" title="리뷰의 Viewed"><input type="checkbox" checked={viewed} onChange={() => toggleViewed(changedFile)} /> Viewed</label>}
-        <span className="grow" />
-        <button className="iconbtn" aria-pressed={outlineOpen} title={outlineOpen ? '구조 닫기' : '구조: 이 파일의 클래스·함수 목록'} onClick={toggleOutline}><ListTree size={14} /></button>
-        {varLangOf(source?.path) && (
-          <button className="iconbtn" aria-pressed={varsOn} title={varsOn ? '변수 색 끄기' : '변수 색: 변수마다 선언부터 쓰는 곳까지 한 색으로, 스코프별로'} onClick={toggleVars}><Palette size={14} /></button>
-        )}
-        <button ref={more.ref} className="iconbtn" aria-pressed={more.open} aria-label="더 보기: 글자 크기, 경로 복사, 리뷰에서 보기" title="더 보기: 글자 크기, 경로 복사, 리뷰에서 보기" onClick={more.toggle}><Ellipsis size={14} /></button>
-        <button className="iconbtn" title="닫기 (c)" onClick={onClose}><X size={14} /></button>
-      </div>
-      {more.open && (
-        <Popover anchor={more.ref.current} onClose={more.close} align="end" width={230} className="code-more">
-          <div className="code-more-row">
-            <span className="grow">글자 크기</span>
-            <div className="seg code-zoom">
-              <button onClick={() => zoom.step(-1)} disabled={zoom.scale <= MIN_SCALE} title="코드 축소 (⌘ + 휠)"><Minus size={12} /></button>
-              <button onClick={() => zoom.set(1)} title="100%로">{Math.round(zoom.scale * 100)}%</button>
-              <button onClick={() => zoom.step(1)} disabled={zoom.scale >= MAX_SCALE} title="코드 확대 (⌘ + 휠)"><Plus size={12} /></button>
-            </div>
-          </div>
-          {source && <>
-            <div className="menu-sep" />
-            <button className="menu-item" onClick={() => { void navigator.clipboard.writeText(source.path); toast('경로를 복사했어'); more.close() }}><Copy size={14} /> 경로 복사</button>
-            <button className="menu-item" title="리뷰에서 보기" onClick={() => { more.close(); setTab('review'); void openFile(fileOfRef(ref!), from > 0 ? from : undefined) }}><FileDiff size={14} /> 리뷰에서 보기</button>
-          </>}
-        </Popover>
-      )}
+    <div className="code-doc" ref={root}>
       {refs.length > 1 && (
         <div className="code-tabs">
           {refs.map(r => (
-            <button key={r} aria-selected={r === ref} title={r} onClick={() => setPick(r)}>{fileOfRef(r).split('/').pop()}</button>
+            <button key={r} aria-selected={r === ref} title={r} onClick={() => useCanvas.getState().showFile(index, r)}>{fileOfRef(r).split('/').pop()}</button>
           ))}
         </div>
       )}
-      {!ref ? <div className="code-pane-empty muted">«{head}»에는 연결된 파일이 없어.</div>
+      {!ref ? <div className="code-pane-empty muted">«{label}»에는 연결된 파일이 없어.</div>
         : !source ? <div className="code-pane-empty muted">{fileOfRef(ref)}은 작업 공간 밖에 있어서 여기서 열 수 없어.</div>
         : (
           <>
@@ -164,15 +431,17 @@ export function CodePane({ map, target, want, slide, onClose }: { map: CanvasMap
               <span className="muted">{source.ref === 'WORKTREE' ? 'Working tree' : source.ref.slice(0, 7)}{text !== undefined && ` · ${lines.length}줄`}
                 {marks.word && marks.hits > 0 && <> · <code>{marks.word.text.length > 24 ? `${marks.word.text.slice(0, 23)}…` : marks.word.text}</code> {marks.hits > 2000 ? '2000+' : marks.hits}곳</>}
               </span>
+              {target?.missed && <span className="code-missed">«{target.missed}» 선언을 이 파일에서 못 찾았어{refs.length > 1 ? ' · 탭의 다른 파일도 봐' : ''}</span>}
+              <span className="code-link-hint" ref={hint} />
             </div>
             <div className="code-pane-view">
-            {outlineOpen && text !== undefined && !outlineWidth.hiding && <Outline items={outline} active={active} floating={floating} width={outlineWidth.value} onPick={goTo} />}
-            {outlineOpen && text !== undefined && (
+            {settings.outline && text !== undefined && !outlineWidth.hiding && <Outline items={outline} active={active} floating={floating} width={outlineWidth.value} onPick={pickOutline} />}
+            {settings.outline && text !== undefined && (
               <div className="code-outline-split" style={{ left: outlineWidth.hiding ? 0 : outlineWidth.value }} onPointerDown={outlineWidth.drag} title="끌어서 구조 폭 조절, 왼쪽 끝까지 끌면 닫기" />
             )}
             <div className={`code-pane-body${varsPainted ? ' vars-on' : ''}`} ref={body}>
-              {file?.key !== key || (text === undefined && !file.missing) ? <div className="code-pane-empty"><Loader2 className="spin" size={16} /></div>
-                : file.missing ? <div className="code-pane-empty muted">{source.ref === 'WORKTREE' ? '작업 트리' : source.ref.slice(0, 7)}에 이 파일이 없어. 아직 구현 전일 수 있어.</div>
+              {loading ? <div className="code-pane-empty"><Loader2 className="spin" size={16} /></div>
+                : missing ? <div className="code-pane-empty muted">{source.ref === 'WORKTREE' ? '작업 트리' : source.ref.slice(0, 7)}에 이 파일이 없어. 아직 구현 전일 수 있어.</div>
                 : (
                   <table className="diff unified hl" style={{ width: `max(100%, calc(${widestCols(lines)}ch + 90px))` }}>
                     <colgroup><col className="c-no" /><col /></colgroup>
@@ -193,8 +462,125 @@ export function CodePane({ map, target, want, slide, onClose }: { map: CanvasMap
             </div>
           </>
         )}
-    </aside>
+    </div>
   )
+}
+
+type Found = ReturnType<typeof resolveLink>
+type Hit = { name: string; receiver?: string; range: Range; row: number }
+
+/**
+ * Names drawn on the map, as links. Under the pointer a name gets a dotted underline and the path line says where it
+ * leads; with ⌘ (ctrl) held it is a solid link, its part lights on the map, and a click follows it. Nothing is
+ * decorated ahead and no row re-renders: one range is painted per pointer frame. Returns the hint's element ref.
+ */
+function useLinks(root: React.RefObject<HTMLElement | null>, body: React.RefObject<HTMLElement | null>, o: {
+  map: CanvasMap; here: string[]; paint: Painter; onPeek: (target?: string) => void; onFollow: (found: Found, name: string, row: number, at: Point) => void
+}) {
+  const hint = useRef<HTMLSpanElement>(null)
+  const latest = useRef(o)
+  latest.current = o
+  useEffect(() => {
+    const el = root.current
+    if (!el) return
+    const { paint } = latest.current
+    let frame = 0, point: Point | undefined, held = false, peeked: string | undefined
+    const linkUnder = (x: number, y: number): (Hit & { found: Found }) | undefined => {
+      const b = body.current, n = b ? nameAt(b, x, y) : undefined
+      const found = n && resolveLink(latest.current.map, { name: n.name, receiver: n.receiver, here: latest.current.here })
+      return n && found?.links.length ? { ...n, found } : undefined
+    }
+    const show = () => {
+      frame = 0
+      const hit = point && linkUnder(point.x, point.y)
+      paint.set('duet-link', hit && held ? [hit.range] : [])
+      paint.set('duet-link-hint', hit && !held ? [hit.range] : [])
+      body.current?.classList.toggle('link-armed', Boolean(hit && held))
+      const map = latest.current.map
+      const text = !hit ? '' : hit.found.sure ? `${LINK_KEY} 클릭 → ${linkLabel(map, hit.found.links[0])}` : `${LINK_KEY} 클릭 → «${hit.name}» ${hit.found.links.length}곳 중 고르기`
+      if (hint.current && hint.current.textContent !== text) hint.current.textContent = text
+      const peek = hit && held && hit.found.sure ? hit.found.links[0].target : undefined
+      if (peek !== peeked) { peeked = peek; latest.current.onPeek(peek) }
+    }
+    const soon = () => { frame ||= requestAnimationFrame(show) }
+    const move = (e: PointerEvent) => { point = { x: e.clientX, y: e.clientY }; held = linkKey(e); soon() }
+    const leave = () => { point = undefined; soon() }
+    const key = (e: KeyboardEvent) => { if (linkKey(e) !== held) { held = linkKey(e); soon() } }
+    const blur = () => { held = false; soon() }
+    // Held, the press on a link neither moves the caret nor marks the word: the click goes on to the declaration.
+    const down = (e: MouseEvent) => { if (e.button === 0 && linkKey(e) && linkUnder(e.clientX, e.clientY)) e.preventDefault() }
+    const click = (e: MouseEvent) => {
+      if (e.button !== 0 || !linkKey(e)) return
+      const hit = linkUnder(e.clientX, e.clientY)
+      if (!hit) return
+      e.preventDefault()
+      latest.current.onFollow(hit.found, hit.name, hit.row, { x: e.clientX, y: e.clientY })
+    }
+    el.addEventListener('pointermove', move)
+    el.addEventListener('pointerleave', leave)
+    el.addEventListener('mousedown', down)
+    el.addEventListener('click', click)
+    window.addEventListener('keydown', key)
+    window.addEventListener('keyup', key)
+    window.addEventListener('blur', blur)
+    return () => {
+      cancelAnimationFrame(frame)
+      el.removeEventListener('pointermove', move)
+      el.removeEventListener('pointerleave', leave)
+      el.removeEventListener('mousedown', down)
+      el.removeEventListener('click', click)
+      window.removeEventListener('keydown', key)
+      window.removeEventListener('keyup', key)
+      window.removeEventListener('blur', blur)
+      paint.set('duet-link', [])
+      paint.set('duet-link-hint', [])
+      if (peeked) latest.current.onPeek(undefined)
+    }
+  }, [root, body])
+  return hint
+}
+
+/** A code cell's text nodes, each with the column it starts at. */
+function textNodes(cell: Element): [Text, number][] {
+  const out: [Text, number][] = []
+  const walker = document.createTreeWalker(cell, NodeFilter.SHOW_TEXT)
+  let at = 0
+  for (let n = walker.nextNode(); n; n = walker.nextNode()) { out.push([n as Text, at]); at += (n as Text).data.length }
+  return out
+}
+
+function rangeOf(nodes: [Text, number][], s: number, e: number): Range | undefined {
+  const start = nodes.find(([n, at]) => s >= at && s < at + n.data.length), end = nodes.find(([n, at]) => e > at && e <= at + n.data.length)
+  if (!start || !end) return undefined
+  const r = document.createRange()
+  r.setStart(start[0], s - start[1])
+  r.setEnd(end[0], e - end[1])
+  return r
+}
+
+/** The name under a screen point in a code row, if the point is on its letters (not past the line's end). */
+function nameAt(body: HTMLElement, x: number, y: number): Hit | undefined {
+  const d = document as Document & { caretPositionFromPoint?: (x: number, y: number) => { offsetNode: Node; offset: number } | null; caretRangeFromPoint?: (x: number, y: number) => Range | null }
+  const pos = d.caretPositionFromPoint?.(x, y)
+  const caret = pos ? { node: pos.offsetNode, offset: pos.offset } : (r => r && { node: r.startContainer, offset: r.startOffset })(d.caretRangeFromPoint?.(x, y) ?? null)
+  if (!caret || caret.node.nodeType !== Node.TEXT_NODE || !body.contains(caret.node)) return undefined
+  const cell = caret.node.parentElement?.closest('td.code'), row = cell?.closest<HTMLElement>('tr[data-line]')
+  if (!cell || !row) return undefined
+  const nodes = textNodes(cell)
+  const start = nodes.find(([n]) => n === caret.node)?.[1]
+  if (start === undefined) return undefined
+  const text = nodes.map(([n]) => n.data).join('')
+  const on = (i: number) => {
+    const b = i >= 0 && i < text.length ? rangeOf(nodes, i, i + 1)?.getBoundingClientRect() : undefined
+    return Boolean(b && x >= b.left - 1 && x <= b.right + 1 && y >= b.top - 1 && y <= b.bottom + 1)
+  }
+  const i = [start + caret.offset, start + caret.offset - 1].find(on)
+  const found = i === undefined ? undefined : linkAt(text, i)
+  if (!found || i === undefined) return undefined
+  let s = i
+  while (s > 0 && /[\w$]/.test(text[s - 1])) s--
+  const range = rangeOf(nodes, s, s + found.name.length)
+  return range ? { ...found, range, row: Number(row.dataset.line) } : undefined
 }
 
 /** Each kind's badge, its color group and what the tooltip calls it. */
@@ -337,81 +723,6 @@ function picked(s: string): { text: string; whole: boolean } | undefined {
   const text = s.trim()
   if (!text || text.length > 200 || text.includes('\n')) return undefined
   return { text, whole: isWord(text) }
-}
-
-/**
- * The code's own zoom, apart from the map's: the buttons step by 10%, ⌘ or ctrl + wheel over the pane (a trackpad
- * pinch) follows the hand; remembered. The line at the top of the view stays there as the text grows or shrinks.
- */
-function useZoom(pane: React.RefObject<HTMLElement | null>, body: React.RefObject<HTMLDivElement | null>) {
-  const [scale, setScale] = useState(() => Number(local.get('canvas.codeZoom')) || 1)
-  const scaleRef = useRef(scale)
-  scaleRef.current = scale
-  const anchor = useRef<{ line: number; offset: number }>(undefined)
-  const set = (next: number) => {
-    const s = Math.round(Math.min(MAX_SCALE, Math.max(MIN_SCALE, next)) * 100) / 100
-    const b = body.current?.getBoundingClientRect()
-    const row = b && document.elementFromPoint(b.left + 8, b.top + 1)?.closest<HTMLElement>('tr[data-line]')
-    if (b && row) anchor.current = { line: Number(row.dataset.line), offset: row.getBoundingClientRect().top - b.top }
-    setScale(s)
-    local.set('canvas.codeZoom', String(s))
-  }
-  useLayoutEffect(() => {
-    const a = anchor.current, b = body.current
-    anchor.current = undefined
-    const row = a && b?.querySelector(`tr[data-line="${a.line}"]`)
-    if (a && b && row) b.scrollTop += row.getBoundingClientRect().top - b.getBoundingClientRect().top - a.offset
-  }, [scale])
-  useEffect(() => {
-    const el = pane.current
-    if (!el) return
-    const wheel = (e: WheelEvent) => {
-      if (!e.ctrlKey && !e.metaKey) return
-      e.preventDefault()
-      // A mouse notch is about one 10% step; a pinch sends many small ones.
-      set(scaleRef.current * Math.exp(-Math.max(-10, Math.min(10, e.deltaY)) * 0.01))
-    }
-    el.addEventListener('wheel', wheel, { passive: false })
-    return () => el.removeEventListener('wheel', wheel)
-  }, []) // eslint-disable-line react-hooks/exhaustive-deps
-  return { scale, set, step: (d: 1 | -1) => set(Math.round(scale * 10) / 10 + d * 0.1) }
-}
-
-/**
- * The pane's width: dragged by its left edge and remembered. When the layout narrows (the agent panel opening, a smaller
- * window) the pane gives up room before the canvas does, and takes it back when the room returns.
- */
-function useWidth() {
-  const pane = useRef<HTMLElement>(null)
-  const [wanted, setWanted] = useState(() => Number(local.get('canvas.codeWidth')) || 520)
-  const [room, setRoom] = useState(Infinity)
-  useLayoutEffect(() => {
-    const host = pane.current?.parentElement
-    if (!host) return
-    const measure = () => setRoom(host.getBoundingClientRect().width)
-    measure()
-    const obs = new ResizeObserver(measure)
-    obs.observe(host)
-    return () => obs.disconnect()
-  }, [])
-  const fit = (w: number) => Math.round(Math.max(MIN_WIDTH, Math.min(w, room - STAGE_MIN)))
-  const drag = (e: React.PointerEvent) => {
-    const host = pane.current?.parentElement?.getBoundingClientRect()
-    if (!host) return
-    e.preventDefault()
-    const handle = e.currentTarget as HTMLElement
-    handle.setPointerCapture(e.pointerId)
-    let last = wanted
-    const move = (m: PointerEvent) => { last = fit(host.right - m.clientX); setWanted(last) }
-    const up = () => {
-      handle.removeEventListener('pointermove', move)
-      handle.removeEventListener('pointerup', up)
-      local.set('canvas.codeWidth', String(last))
-    }
-    handle.addEventListener('pointermove', move)
-    handle.addEventListener('pointerup', up)
-  }
-  return { pane, value: fit(wanted), drag }
 }
 
 /**

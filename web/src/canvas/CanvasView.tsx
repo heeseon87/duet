@@ -9,8 +9,8 @@ import { api } from '../api.ts'
 import { local, useApp } from '../state.ts'
 import { Popover, isTypingTarget, relTime, shortcutKey } from '../lib/ui.tsx'
 import { MermaidStage, type StageHandle } from './MermaidStage.tsx'
-import { partIds } from './codeNav.ts'
-import { CodePane } from './CodePane.tsx'
+import { isPart, partIds } from './codeNav.ts'
+import { CodeColumns, navStep } from './CodePane.tsx'
 import { FlowList } from './FlowList.tsx'
 import { flowSteps, stepFrom } from './flow.ts'
 import { ContextMenu, FloatAt, type MenuEntry, type Point } from './ContextMenu.tsx'
@@ -203,15 +203,13 @@ export function CanvasView() {
   const [codeOpen, setCodeOpen] = useState(() => local.get('canvas.code') !== '0')
   const codeOpenRef = useRef(codeOpen)
   codeOpenRef.current = codeOpen
-  const [codeWant, setCodeWant] = useState<{ file: string; nonce: number }>()
   // Opened by the person this render: the pane slides in (a reload or a map switch just shows it).
   const codeSlide = useRef(false)
   useEffect(() => { codeSlide.current = false })
-  const showCode = (open: boolean, file?: string) => {
+  const showCode = (open: boolean) => {
     if (open && !codeOpenRef.current) codeSlide.current = true
     setCodeOpen(open)
     local.set('canvas.code', open ? '1' : '0')
-    if (file) setCodeWant({ file, nonce: Date.now() })
   }
 
   useEffect(() => { if (workspace) void s.loadList() }, [workspace?.path]) // eslint-disable-line react-hooks/exhaustive-deps
@@ -244,19 +242,6 @@ export function CanvasView() {
   const ghosts = useMemo(() => (s.compareMap && s.map && !s.preview ? diffMaps(s.compareMap, s.map) : undefined), [s.compareMap, s.map, s.preview])
   const changes = useMemo(() => (ghosts && s.map ? describeDiff(ghosts, s.map) : []), [ghosts, s.map])
 
-  // The part the code pane shows: the last one picked on this map (an empty click or a decision keeps it). Until then,
-  // or once the part is gone, the pane stays out of the way even while it is on.
-  const isPart = (id: string | undefined) => Boolean(id && shownMap && (shownMap.elements.some(e => e.id === id) || shownMap.relations.some(r => relationKey(r) === id) || shownMap.messages?.some(m => m.id === id)))
-  const mapKey = `${workspace?.path}:${s.mapName}`
-  const [codePart, setCodePart] = useState<{ map: string; id: string }>()
-  const codeTarget = codePart?.map === mapKey && isPart(codePart.id) ? codePart.id : undefined
-  useEffect(() => {
-    if (!isPart(s.selected)) return
-    // Showing up on this pick, the pane slides in.
-    if (!codeTarget && codeOpenRef.current) codeSlide.current = true
-    setCodePart({ map: mapKey, id: s.selected! })
-  }, [s.selected]) // eslint-disable-line react-hooks/exhaustive-deps
-
   // A step of the flow (from its list or its keys) is picked like a click on its line, and brought to the middle at the
   // zoom the map is at.
   const pickStep = (key: string) => {
@@ -273,7 +258,9 @@ export function CanvasView() {
       // A checkbox (the code pane's Viewed) keeps the keys.
       if (isTypingTarget(e.target)) return
       const k = shortcutKey(e)
-      if (k === 'Escape') s.select(undefined)
+      const nav = navStep(e, k)
+      if (nav) { if (nav < 0) s.back(); else s.forward() }
+      else if (k === 'Escape') s.select(undefined)
       else if (k === 'f' && !e.metaKey) stage.current?.fit()
       else if ((k === '=' || k === '+') && !e.metaKey) stage.current?.zoom(1.2)
       else if (k === '-' && !e.metaKey) stage.current?.zoom(1 / 1.2)
@@ -376,7 +363,7 @@ export function CanvasView() {
       }
       const files = el?.files ?? []
       // In the code pane beside the map; the pane links on to the review.
-      const open = (f: string) => () => showCode(true, f)
+      const open = (f: string) => () => { showCode(true); s.showFile(0, f) }
       if (files.length === 1) out.push({ kind: 'item', key: 'file', icon: <FileCode2 size={14} />, label: '코드 열기', sub: files[0].split('/').pop(), run: open(files[0]) })
       else if (files.length > 1) {
         out.push({ kind: 'sep' }, { kind: 'head', label: '코드 열기' })
@@ -495,6 +482,7 @@ export function CanvasView() {
           glow={s.glow}
           selected={s.selected}
           peek={peek}
+          reveal={s.reveal}
           threads={s.threads}
           code={code?.marks}
           revised={s.preview ? undefined : s.revised}
@@ -502,7 +490,7 @@ export function CanvasView() {
           onToggleGroup={s.toggleCollapse}
           onContext={(t, at) => {
             // A known part is picked (lit) so the menu clearly speaks about it.
-            const known = isPart(t)
+            const known = isPart(shownMap, t)
             if (known) s.select(t)
             setMenu({ target: known ? t : undefined, at })
           }}
@@ -527,7 +515,7 @@ export function CanvasView() {
           </FloatAt>
         )}
         </div>
-        {codeOpen && codeTarget && <CodePane key={stageKey} map={shownMap} target={codeTarget} want={codeWant} slide={codeSlide.current} onClose={() => showCode(false)} />}
+        {codeOpen && <CodeColumns key={stageKey} map={shownMap} slide={codeSlide.current} onPeek={setPeek} onClose={() => showCode(false)} />}
       </div>
       {s.deciding && s.map && !s.preview && <DecisionMode key={stageKey} map={s.map} stageKey={stageKey} onClose={() => s.setDeciding(false)} />}
     </div>

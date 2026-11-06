@@ -74,8 +74,10 @@ type Props = {
   ghostsFrom?: MapDiff
   glow?: MapDiff
   selected?: string
-  /** A relation key lit for a moment (the flow list's row under the pointer); nothing else changes. */
+  /** A part lit for a moment (the flow list's row, a name in the code under the pointer); nothing else changes. */
   peek?: string
+  /** A part to bring to the middle at the zoom the map is at, once per nonce; `afterRender` waits for the next drawing (a fold opened). */
+  reveal?: { ids: string[]; afterRender: boolean; nonce: number }
   threads: CanvasThread[]
   /** How each part stands against the map's code (the review shows the same files). */
   code?: Map<string, CodeMark>
@@ -95,6 +97,8 @@ type Props = {
 type View = { x: number; y: number; k: number }
 /** The camera on the map shown last: back from the review tab it is where it was; any other map opens fitted. */
 let lastView: { key: string; view: View } | undefined
+/** The last reveal acted on: a stage drawn again (back from the review) does not move to it a second time. */
+let revealed = 0
 
 /**
  * A foldable package's frame in drawing units, measured with the drawing it belongs to, and whether that drawing shows
@@ -111,7 +115,7 @@ const MIN_ZOOM = 0.05
 const LINES = '.cv-edge, .cv-edge-hit, .cv-label, .cv-msg, .cv-msg-text'
 
 export const MermaidStage = forwardRef<StageHandle, Props & { viewKey: string }>(function MermaidStage(props, ref) {
-  const { map, collapsed, ghostsFrom, glow, selected, peek, threads, code, revised, onSelect, onToggleGroup, onContext, viewKey } = props
+  const { map, collapsed, ghostsFrom, glow, selected, peek, reveal, threads, code, revised, onSelect, onToggleGroup, onContext, viewKey } = props
   const outer = useRef<HTMLDivElement>(null)
   const inner = useRef<HTMLDivElement>(null)
   const [view, setView] = useState<View>(() => (!props.aside && lastView?.key === viewKey ? lastView.view : { x: 40, y: 40, k: 1 }))
@@ -132,7 +136,7 @@ export const MermaidStage = forwardRef<StageHandle, Props & { viewKey: string }>
   const mapRef = useRef(map)
   mapRef.current = map
   /** Parts to frame once the drawing that is on its way has settled. */
-  const pendingFrame = useRef<string[] | undefined>(undefined)
+  const pendingFrame = useRef<{ ids: string[]; keepZoom?: boolean } | undefined>(undefined)
   const [folds, setFolds] = useState<Fold[]>([])
   /** A fold is sliding into place: the buttons wait for the frames to land. */
   const [settling, setSettling] = useState(false)
@@ -223,7 +227,7 @@ export const MermaidStage = forwardRef<StageHandle, Props & { viewKey: string }>
     setView({ k, x: (aw - w * k) / 2 - l * k, y: (ah - h * k) / 2 - t * k })
   }, [glide])
   const frame = useCallback((ids: string[], afterRender = false) => {
-    if (afterRender) pendingFrame.current = ids
+    if (afterRender) pendingFrame.current = { ids }
     else frameNow(ids)
   }, [frameNow])
 
@@ -342,7 +346,7 @@ export const MermaidStage = forwardRef<StageHandle, Props & { viewKey: string }>
         if (want) {
           pendingFrame.current = undefined
           // After the fold has slid into place, so the boxes are measured where they end up.
-          setTimeout(() => { if (live) frameNow(want) }, running.current ? 480 : 0)
+          setTimeout(() => { if (live) frameNow(want.ids, want.keepZoom) }, running.current ? 480 : 0)
         }
       } catch (e) {
         document.getElementById(`d${id}`)?.remove()
@@ -368,6 +372,14 @@ export const MermaidStage = forwardRef<StageHandle, Props & { viewKey: string }>
     if (r.top + dy < top) dy = top - r.top
     if (dx || dy) { glide(); setView(v => ({ ...v, x: v.x + dx, y: v.y + dy })) }
   }, [selected, glide])
+
+  // After the selection's own slide into view, so the camera move wins.
+  useEffect(() => {
+    if (!reveal || reveal.nonce <= revealed) return
+    revealed = reveal.nonce
+    if (reveal.afterRender) pendingFrame.current = { ids: reveal.ids, keepZoom: true }
+    else requestAnimationFrame(() => frameNow(reveal.ids, true))
+  }, [reveal, frameNow])
 
   // The stage narrows or widens (the code pane, the agent panel, the window): the drawing keeps its middle, gliding
   // when the change is a jump, and a picked part that was in view stays so.
@@ -1008,6 +1020,8 @@ function decorate(svg: SVGSVGElement, map: CanvasMap, o: { selected?: string; pe
   const pins = pinsByBox(map)
   // Everything outside the selection's neighborhood steps back a little.
   const { picked, inside, related, holding, context } = neighborhood(map, o.selected)
+  const peekIn = new Set<string>()
+  for (let p = byId.get(o.peek ?? '')?.parent; p; p = byId.get(p)?.parent) peekIn.add(p)
   const threadCount = new Map<string, number>()
   for (const t of o.threads) if (t.state === 'open') threadCount.set(t.target, (threadCount.get(t.target) ?? 0) + 1)
   const revised = new Set(o.revised?.ids)
@@ -1037,7 +1051,7 @@ function decorate(svg: SVGSVGElement, map: CanvasMap, o: { selected?: string; pe
       else if (keys.some(k => context.has(k))) add('cv-ctx')
       else add('cv-dim')
     }
-    if (o.peek && keys.includes(o.peek)) add('cv-peek')
+    if (o.peek && (keys.includes(o.peek) || (folded && peekIn.has(target)))) add('cv-peek')
     if (o.compare) {
       const c = o.compare
       if (c.addedElements.has(target) || keys.some(k => c.addedRelations.has(k)) || c.addedMessages.has(target)) add('cv-new')
