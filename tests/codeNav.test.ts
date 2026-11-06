@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { CanvasMap } from '../shared/canvas.ts'
-import { EMPTY, HISTORY, addPin, go, layoutColumns, linkView, nextBlock, parsePins, partIds, shown, step, swap, unfoldFor, viewOf, type LiveView, type Trail } from '../web/src/canvas/codeNav.ts'
+import { EMPTY, HISTORY, addPin, go, layoutColumns, linkView, blocksOf, nextBlock, parsePins, partIds, shown, step, swap, unfoldFor, viewOf, type LiveView, type Trail } from '../web/src/canvas/codeNav.ts'
 
 const map: CanvasMap = {
   schema: 1, diagram: 'class', title: 't',
@@ -146,6 +146,14 @@ describe('layoutColumns', () => {
   })
   it('lays out pins with no live column', () => {
     expect(layoutColumns(1440, undefined, [500])).toEqual({ live: undefined, pins: [500], hidden: 0 })
+  })
+})
+
+describe('blocksOf', () => {
+  it('runs consecutive changed lines into blocks, top to bottom, a line twice counted once', () => {
+    expect(blocksOf([16, 15, 40, 3, 4, 4])).toEqual([[3, 4], [15, 16], [40, 40]])
+    expect(blocksOf(new Map([[2, 0], [1, 0]]).keys())).toEqual([[1, 2]])
+    expect(blocksOf([])).toEqual([])
   })
 })
 

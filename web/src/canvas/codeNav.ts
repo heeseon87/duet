@@ -144,13 +144,23 @@ export function layoutColumns(room: number, live: number | undefined, pins: numb
   return { live: liveWidth, pins: out, hidden: pins.length - fit }
 }
 
+/** The blocks of changed lines: each run of consecutive line numbers as its first and last line, top to bottom. */
+export function blocksOf(changed: Iterable<number>): [number, number][] {
+  const out: [number, number][] = []
+  for (const n of [...changed].sort((a, b) => a - b)) {
+    const last = out.at(-1)
+    if (last && n <= last[1] + 1) last[1] = Math.max(last[1], n)
+    else out.push([n, n])
+  }
+  return out
+}
+
 /**
  * The first line of the next (`dir` 1) or previous block of changed lines from `line`, round the file's end as an
  * editor's "next change" does. A line inside a block goes back to that block's start first. Undefined with none.
  */
-export function nextBlock(changed: readonly number[], line: number, dir: -1 | 1): number | undefined {
-  const sorted = [...changed].sort((a, b) => a - b)
-  const starts = sorted.filter((n, i) => i === 0 || sorted[i - 1] !== n - 1)
+export function nextBlock(changed: Iterable<number>, line: number, dir: -1 | 1): number | undefined {
+  const starts = blocksOf(changed).map(([first]) => first)
   if (!starts.length) return undefined
   return dir > 0 ? (starts.find(s => s > line) ?? starts[0]) : (starts.findLast(s => s < line) ?? starts.at(-1))
 }

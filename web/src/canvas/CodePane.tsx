@@ -14,7 +14,7 @@ import { escapeRe, matchRanges } from '../review/FindBar.tsx'
 import { addedLines, widestCols, type Seg } from '../review/diffModel.ts'
 import { setLivePosition, useCanvas } from './store.ts'
 import { lastSeek, linesOf, linkAt, partsOfFile, pinSource, refsFor, resolveLink, sourceOf, targetOf, withNamedFiles, type PartLink, type ReviewSide, type Seek, type Source } from './codeLinks.ts'
-import { MIN_WIDTH, isPart, layoutColumns, linkView, nextBlock, shown, type Doc, type Entry, type Pin } from './codeNav.ts'
+import { MIN_WIDTH, blocksOf, isPart, layoutColumns, linkView, nextBlock, shown, type Doc, type Entry, type Pin } from './codeNav.ts'
 import { ContextMenu, type MenuEntry, type Point } from './ContextMenu.tsx'
 import { painter, type Painter } from './paint.ts'
 import { activeAt, outlineOf, type OutlineItem, type SymbolKind } from './outline.ts'
@@ -450,6 +450,73 @@ function readTop(b: HTMLElement): { line: number; offset: number } | undefined {
 }
 
 /**
+ * The column's own vertical scrollbar, in place of the native one: the blocks of changed lines as ticks that always show
+ * (a click goes to the block as `]` does), over a thin thumb that shows only while scrolling, dragged, or under the
+ * pointer. Its state lives here so a scroll redraws the rail, not the file's rows.
+ */
+function ScrollRail({ body, lines, changed, onJump }: {
+  body: React.RefObject<HTMLDivElement | null>; lines: number; changed: ReadonlyMap<number, unknown>; onJump: (line: number) => void
+}) {
+  const [view, setView] = useState<{ top: number; size: number; bottom: number }>()
+  const [scrolling, setScrolling] = useState(false)
+  const [over, setOver] = useState(false)
+  const drag = useRef<{ y: number; top: number }>(undefined)
+  useEffect(() => {
+    const b = body.current
+    if (!b) return
+    let idle: ReturnType<typeof setTimeout>
+    const measure = () => setView(b.scrollHeight > b.clientHeight + 1 ? { top: b.scrollTop / b.scrollHeight, size: b.clientHeight / b.scrollHeight, bottom: b.offsetHeight - b.clientHeight } : undefined)
+    // The native horizontal bar shows on the same beat (`.scrolling`, canvas.css).
+    const scrolled = () => {
+      measure()
+      setScrolling(true)
+      b.classList.add('scrolling')
+      clearTimeout(idle)
+      idle = setTimeout(() => { setScrolling(false); b.classList.remove('scrolling') }, 900)
+    }
+    const sizes = new ResizeObserver(measure)
+    sizes.observe(b)
+    const table = b.querySelector('table')
+    if (table) sizes.observe(table)
+    b.addEventListener('scroll', scrolled, { passive: true })
+    measure()
+    return () => { sizes.disconnect(); b.removeEventListener('scroll', scrolled); clearTimeout(idle); b.classList.remove('scrolling') }
+  }, [body, lines])
+  const blocks = useMemo(() => blocksOf(changed.keys()), [changed])
+  if (!view || !lines) return null
+  // Pressed off the thumb, the view centers there first; either way the thumb then follows the pointer.
+  const press = (e: React.PointerEvent<HTMLDivElement>) => {
+    const b = body.current
+    if (!b || e.button !== 0) return
+    e.preventDefault()
+    const r = e.currentTarget.getBoundingClientRect()
+    if (!(e.target as Element).classList.contains('code-rail-thumb')) b.scrollTop = ((e.clientY - r.top) / r.height) * b.scrollHeight - b.clientHeight / 2
+    drag.current = { y: e.clientY, top: b.scrollTop }
+    e.currentTarget.setPointerCapture(e.pointerId)
+  }
+  const move = (e: React.PointerEvent<HTMLDivElement>) => {
+    const b = body.current, d = drag.current
+    if (b && d) b.scrollTop = d.top + ((e.clientY - d.y) * b.scrollHeight) / e.currentTarget.getBoundingClientRect().height
+  }
+  const release = () => { drag.current = undefined }
+  // The rail stands beside the scrolling body, so a wheel over it scrolls the code by hand (⌘/ctrl+wheel stays the zoom's).
+  const wheel = (e: React.WheelEvent) => { if (!e.metaKey && !e.ctrlKey) body.current?.scrollBy({ top: e.deltaY, left: e.deltaX }) }
+  const pct = (n: number) => `${n * 100}%`
+  return (
+    <div className={`code-rail${scrolling || over ? ' shown' : ''}`} style={{ bottom: view.bottom }}
+      onPointerDown={press} onPointerMove={move} onPointerUp={release} onPointerCancel={release}
+      onPointerEnter={() => setOver(true)} onPointerLeave={() => setOver(false)} onWheel={wheel}>
+      <div className="code-rail-thumb" style={{ top: `min(${pct(view.top)}, calc(100% - max(16px, ${pct(view.size)})))`, height: pct(view.size) }} />
+      {blocks.map(([first, last]) => (
+        <span key={first} className="code-rail-tick" title={first === last ? `바뀐 줄 ${first}` : `바뀐 줄 ${first}–${last}`}
+          style={{ top: pct((first - 1) / lines), height: `max(3px, ${pct((last - first + 1) / lines)})` }}
+          onPointerDown={e => { e.stopPropagation(); e.preventDefault() }} onClick={() => onJump(first)} />
+      ))}
+    </div>
+  )
+}
+
+/**
  * One file of a column: it opens where its view says (a declaration, a reference's lines, or where the reader left it),
  * marks the lines the map's code changed, reads like an editor, and makes the names the map draws links.
  */
@@ -471,6 +538,11 @@ function CodeDoc({ map, file: { refs, ref, source }, seek, label, nonce, at, lea
   const [paint] = useState(painter)
   useEffect(() => () => paint.clear(), [paint])
   const marks = useWordMarks(body, key, tokens, paint, word, onWord)
+  // A block of changed lines gone to (`]`, `+n`, a tick on the rail): its first line clicked, in the middle.
+  const goToChange = (line: number) => {
+    marks.setCaret(line)
+    body.current?.querySelector(`tr[data-line="${line}"]`)?.scrollIntoView({ block: 'center' })
+  }
   if (spot) {
     spot.top = () => (body.current ? readTop(body.current)?.line : undefined)
     spot.target = from > 0 ? from : undefined
@@ -478,10 +550,9 @@ function CodeDoc({ map, file: { refs, ref, source }, seek, label, nonce, at, lea
     // From the line clicked, else from the top in view; the block's first line becomes the line clicked.
     spot.step = dir => {
       const b = body.current
-      const to = nextBlock([...changed.keys()], marks.caret ?? (b ? (readTop(b)?.line ?? 1) - 1 : 0), dir)
+      const to = nextBlock(changed.keys(), marks.caret ?? (b ? (readTop(b)?.line ?? 1) - 1 : 0), dir)
       if (!to) return false
-      marks.setCaret(to)
-      b?.querySelector(`tr[data-line="${to}"]`)?.scrollIntoView({ block: 'center' })
+      goToChange(to)
       return true
     }
   }
@@ -598,6 +669,7 @@ function CodeDoc({ map, file: { refs, ref, source }, seek, label, nonce, at, lea
                   </table>
                 )}
             </div>
+            {!loading && !missing && <ScrollRail body={body} lines={lines.length} changed={changed} onJump={goToChange} />}
             </div>
           </>
         )}

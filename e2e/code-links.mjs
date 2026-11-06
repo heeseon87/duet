@@ -358,6 +358,29 @@ await page.click(`${live} .code-pane-head .code-added`)
 check('the head\'s +n steps on', await until(async () => (await caretAt()) === '[15]'), await caretAt())
 await page.click(`${live} .code-pane-head .code-added`, { modifiers: ['Shift'] })
 check('and with ⇧ steps back', await until(async () => (await caretAt()) === `[${auditLine}]`), await caretAt())
+const rail = `${live} .code-rail`, codeBody = `${live} .code-pane-body`
+const ticks = await page.$$(`${rail} .code-rail-tick`)
+check('the rail beside the code has a tick for each block of changed lines', ticks.length === 2, String(ticks.length))
+await ticks[0].click()
+check('a tick goes to its block as ] does', await until(async () => (await caretAt()) === '[15]') && await until(() => inView(15)), await caretAt())
+const railShown = () => page.$eval(rail, r => r.classList.contains('shown'))
+const barShown = () => page.$eval(codeBody, b => b.classList.contains('scrolling'))
+await page.mouse.move(40, 400); await sleep(1200)
+check('away from it and still, the rail shows only its ticks', !(await railShown()) && !(await barShown()))
+await page.$eval(codeBody, b => { b.scrollTop = b.scrollHeight })
+check('scrolling shows its thumb and the horizontal bar', await until(railShown, 500) && await barShown())
+await sleep(350); await shot('rail')
+const thumbAt = () => page.evaluate(([r, c]) => {
+  const rail = document.querySelector(r).getBoundingClientRect(), t = document.querySelector(`${r} .code-rail-thumb`).getBoundingClientRect(), b = document.querySelector(c)
+  return { thumb: (t.bottom - rail.top) / rail.height, view: (b.scrollTop + b.clientHeight) / b.scrollHeight, top: b.scrollTop, y: t.top + t.height / 2, x: t.left + t.width / 2 }
+}, [rail, codeBody])
+let th = await thumbAt()
+check('the thumb stands where the view is', Math.abs(th.thumb - th.view) < 0.02, JSON.stringify(th))
+await sleep(1200)
+check('and both hide again once it stops', !(await railShown()) && !(await barShown()))
+await page.mouse.move(th.x, th.y); await page.mouse.down(); await page.mouse.move(th.x, th.y - 60, { steps: 4 }); await page.mouse.up()
+const dragged = await thumbAt()
+check('dragging the thumb scrolls the code', dragged.top < th.top - 60, `${th.top} → ${dragged.top}`)
 
 // 12. A box the map gives no files (drawn only for context) opens the file named after its type.
 const ctx = 'code-links-ctx'
