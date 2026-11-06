@@ -8,11 +8,12 @@ import { local, useApp } from '../state.ts'
 import { Popover, useAnchor } from '../lib/ui.tsx'
 import { useReview } from '../review/store.ts'
 import { PathLabel } from '../review/DiffView.tsx'
-import { escapeRe, matchRanges, registry } from '../review/FindBar.tsx'
+import { escapeRe, matchRanges } from '../review/FindBar.tsx'
 import { widestCols } from '../review/diffModel.ts'
 import { useCanvas } from './store.ts'
 import { linesOf, refsFor, sourceOf, targetOf } from './codeLinks.ts'
 import { viewOf } from './codeNav.ts'
+import { painter, type Painter } from './paint.ts'
 import { activeAt, outlineOf, type OutlineItem, type SymbolKind } from './outline.ts'
 import { VAR_COLORS, varLangOf, type Span, type VarMark } from './variables.ts'
 import { variableMarks } from './variablesLoader.ts'
@@ -92,12 +93,14 @@ export function CodePane({ map, target, want, slide, onClose }: { map: CanvasMap
     })
   }, [text, from])
 
-  const marks = useWordMarks(body, key, tokens)
+  const [paint] = useState(painter)
+  useEffect(() => () => paint.clear(), [paint])
+  const marks = useWordMarks(body, key, tokens, paint)
   const [outlineOpen, setOutlineOpen] = useState(() => local.get('canvas.codeOutline') === '1')
   const toggleOutline = () => setOutlineOpen(o => { local.set('canvas.codeOutline', o ? '0' : '1'); return !o })
   const [varsOn, setVarsOn] = useState(() => local.get('canvas.codeVars') === '1')
   const toggleVars = () => setVarsOn(o => { local.set('canvas.codeVars', o ? '0' : '1'); return !o })
-  const varsPainted = useVariableColors(body, text, source?.path, tokens, varsOn)
+  const varsPainted = useVariableColors(body, text, source?.path, tokens, varsOn, paint)
   const outline = useMemo(() => (outlineOpen && text !== undefined && source ? outlineOf(lines, source.path) : undefined), [outlineOpen, text, lines, source?.path]) // eslint-disable-line react-hooks/exhaustive-deps
   const active = outline && marks.caret !== undefined ? activeAt(outline, marks.caret) : undefined
 
@@ -227,7 +230,7 @@ function Outline({ items, active, floating, width, onPick }: { items?: OutlineIt
  * The word under the click (or the text selected on one line) marked wherever it stands in the file, as an editor does;
  * the clicked line is the caret line. Painted with the CSS highlight API, so the rows are left as they are.
  */
-function useWordMarks(body: React.RefObject<HTMLDivElement | null>, key: string, tokens: unknown) {
+function useWordMarks(body: React.RefObject<HTMLDivElement | null>, key: string, tokens: unknown, paint: Painter) {
   const [word, setWord] = useState<{ text: string; whole: boolean }>()
   const [caret, setCaret] = useState<number>()
   const [hits, setHits] = useState(0)
@@ -248,15 +251,13 @@ function useWordMarks(body: React.RefObject<HTMLDivElement | null>, key: string,
   }, [body])
   // Colors arriving replace the rows' text nodes, so the marks are found again with them.
   useEffect(() => {
-    const reg = registry(), b = body.current
-    if (!reg) return
-    if (!word || !b) { reg.highlights.delete('duet-word'); setHits(0); return }
+    const b = body.current
+    if (!word || !b) { paint.set('duet-word', []); setHits(0); return }
     const esc = escapeRe(word.text)
     const ranges = matchRanges(b, new RegExp(word.whole ? `(?<![\\p{L}\\p{N}_$])${esc}(?![\\p{L}\\p{N}_$])` : esc, 'gu'))
-    reg.highlights.set('duet-word', new reg.Highlight(...ranges))
+    paint.set('duet-word', ranges)
     setHits(ranges.length)
-  }, [word, tokens, body])
-  useEffect(() => () => registry()?.highlights.delete('duet-word'), [])
+  }, [word, tokens, body, paint])
   return { word, setWord, hits, caret, setCaret }
 }
 
@@ -265,7 +266,7 @@ function useWordMarks(body: React.RefObject<HTMLDivElement | null>, key: string,
  * Painted with the CSS highlight API like the word marks, and found again when the colors replace the rows' text nodes.
  * True once painted: the rest of the code then goes gray (`vars-on`), so the variables' colors stand alone.
  */
-function useVariableColors(body: React.RefObject<HTMLDivElement | null>, text: string | undefined, path: string | undefined, tokens: unknown, on: boolean) {
+function useVariableColors(body: React.RefObject<HTMLDivElement | null>, text: string | undefined, path: string | undefined, tokens: unknown, on: boolean, paint: Painter) {
   const [marks, setMarks] = useState<{ vars: VarMark[]; keywords: Span[] }>()
   useEffect(() => {
     setMarks(undefined)
@@ -275,49 +276,47 @@ function useVariableColors(body: React.RefObject<HTMLDivElement | null>, text: s
     return () => { live = false }
   }, [on, text, path])
   useEffect(() => {
-    const reg = registry(), b = body.current
-    if (!reg) return
-    clearVars()
-    if (!marks?.vars.length || !b) return
-    // Keywords ride along as their own highlight.
-    const all: (Span & { name: string })[] = [...marks.vars.map(m => ({ ...m, name: varHighlight(m.color, m.field) })), ...marks.keywords.map(k => ({ ...k, name: 'duet-kw' }))]
-    const byLine = new Map<number, (Span & { name: string })[]>()
-    for (const m of all) byLine.set(m.line, [...(byLine.get(m.line) ?? []), m])
-    const ranges = new Map<string, Range[]>()
-    for (const [line, ms] of byLine) {
-      const cell = b.querySelector(`tr[data-line="${line + 1}"] > td.code`)
-      if (!cell) continue
-      // Each text node with the column it starts at; a column falls in the last node that starts at or before it.
-      const nodes: [Text, number][] = []
-      const walker = document.createTreeWalker(cell, NodeFilter.SHOW_TEXT)
-      let at = 0
-      for (let n = walker.nextNode(); n; n = walker.nextNode()) { nodes.push([n as Text, at]); at += (n as Text).data.length }
-      const point = (col: number): [Text, number] | undefined => {
-        for (let i = nodes.length - 1; i >= 0; i--) if (nodes[i][1] <= col) return [nodes[i][0], Math.min(col - nodes[i][1], nodes[i][0].data.length)]
-        return undefined
-      }
-      for (const m of ms) {
-        const s = point(m.start), e = point(m.end)
-        if (!s || !e) continue
-        const r = document.createRange()
-        r.setStart(...s)
-        r.setEnd(...e)
-        ranges.set(m.name, [...(ranges.get(m.name) ?? []), r])
-      }
-    }
-    for (const [name, rs] of ranges) reg.highlights.set(name, new reg.Highlight(...rs))
-  }, [marks, tokens, body])
-  useEffect(() => clearVars, [])
+    const b = body.current
+    const ranges = marks?.vars.length && b ? varRanges(b, marks) : undefined
+    for (const name of VAR_NAMES) paint.set(name, ranges?.get(name) ?? [])
+  }, [marks, tokens, body, paint])
   return Boolean(on && marks?.vars.length)
+}
+
+/** Each mark as a range over its line's text nodes, by highlight name. */
+function varRanges(b: HTMLElement, marks: { vars: VarMark[]; keywords: Span[] }): Map<string, Range[]> {
+  // Keywords ride along as their own highlight.
+  const all: (Span & { name: string })[] = [...marks.vars.map(m => ({ ...m, name: varHighlight(m.color, m.field) })), ...marks.keywords.map(k => ({ ...k, name: 'duet-kw' }))]
+  const byLine = new Map<number, (Span & { name: string })[]>()
+  for (const m of all) byLine.set(m.line, [...(byLine.get(m.line) ?? []), m])
+  const ranges = new Map<string, Range[]>()
+  for (const [line, ms] of byLine) {
+    const cell = b.querySelector(`tr[data-line="${line + 1}"] > td.code`)
+    if (!cell) continue
+    // Each text node with the column it starts at; a column falls in the last node that starts at or before it.
+    const nodes: [Text, number][] = []
+    const walker = document.createTreeWalker(cell, NodeFilter.SHOW_TEXT)
+    let at = 0
+    for (let n = walker.nextNode(); n; n = walker.nextNode()) { nodes.push([n as Text, at]); at += (n as Text).data.length }
+    const point = (col: number): [Text, number] | undefined => {
+      for (let i = nodes.length - 1; i >= 0; i--) if (nodes[i][1] <= col) return [nodes[i][0], Math.min(col - nodes[i][1], nodes[i][0].data.length)]
+      return undefined
+    }
+    for (const m of ms) {
+      const s = point(m.start), e = point(m.end)
+      if (!s || !e) continue
+      const r = document.createRange()
+      r.setStart(...s)
+      r.setEnd(...e)
+      ranges.set(m.name, [...(ranges.get(m.name) ?? []), r])
+    }
+  }
+  return ranges
 }
 
 /** A color's highlight; a class's property or field has its own, underlined, so it stands apart from a local of that color. */
 const varHighlight = (color: number, field: boolean) => `duet-var-${color}${field ? '-f' : ''}`
-function clearVars() {
-  const reg = registry()
-  for (let i = 0; i < VAR_COLORS; i++) for (const field of [false, true]) reg?.highlights.delete(varHighlight(i, field))
-  reg?.highlights.delete('duet-kw')
-}
+const VAR_NAMES = [...Array.from({ length: VAR_COLORS }, (_, i) => [varHighlight(i, false), varHighlight(i, true)]).flat(), 'duet-kw']
 
 /** The word around a caret in a code cell. */
 function wordAt(node: Node, offset: number): { text: string; whole: boolean } | undefined {

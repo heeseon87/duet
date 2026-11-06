@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { ChevronDown, ChevronUp, Search, X } from 'lucide-react'
 
-type HighlightRegistry = { set(name: string, h: unknown): void; delete(name: string): void }
-type HighlightCtor = new (...ranges: Range[]) => unknown
+type Highlight = { add(r: Range): unknown; delete(r: Range): boolean; readonly size: number }
+type HighlightRegistry = { get(name: string): Highlight | undefined; set(name: string, h: Highlight): void; delete(name: string): void }
+type HighlightCtor = new (...ranges: Range[]) => Highlight
 
 export function registry(): { highlights: HighlightRegistry; Highlight: HighlightCtor } | null {
   const css = (globalThis as unknown as { CSS?: { highlights?: HighlightRegistry } }).CSS
