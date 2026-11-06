@@ -1,17 +1,19 @@
 import { api, q } from '../api.ts'
 
-let cache: { ws: string; files: string[]; at: number } | undefined
+// Per tree: the workspace's (the palette, the composer) and a map's code in another repository (the code columns).
+const cache = new Map<string, { files: string[]; at: number }>()
 
 /** The repo's files (tracked and untracked, ignored left out), cached for half a minute. */
 export async function repoFiles(ws: string): Promise<string[]> {
-  if (cache && cache.ws === ws && Date.now() - cache.at < 30_000) return cache.files
+  const known = cache.get(ws)
+  if (known && Date.now() - known.at < 30_000) return known.files
   const files = await api.get<string[]>(`/api/git/files${q({ ws })}`)
-  cache = { ws, files, at: Date.now() }
+  cache.set(ws, { files, at: Date.now() })
   return files
 }
 
 export function cachedFiles(ws: string | undefined): string[] {
-  return cache && cache.ws === ws ? cache.files : []
+  return (ws && cache.get(ws)?.files) || []
 }
 
 /** Subsequence match with a score: consecutive hits and hits after `/` count more, the file name most. */

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { CanvasMap } from '../shared/canvas.ts'
-import { lastSeek, linkAt, partsOfFile, pinSource, refsFor, resolveLink, seekOfVia, sourceOf, targetOf, usesOf } from '../web/src/canvas/codeLinks.ts'
+import { lastSeek, linkAt, partsOfFile, pinSource, refsFor, resolveLink, seekOfVia, sourceOf, targetOf, usesOf, withNamedFiles } from '../web/src/canvas/codeLinks.ts'
 
 const map: CanvasMap = {
   schema: 1, diagram: 'class', title: 't',
@@ -176,6 +176,49 @@ describe('a relation\'s two ends at the call its label names (멤버십 해지)'
 
   it('without names in the label, keeps the via\'s evidence alone', () => {
     expect(from('멤버십 목록')).toEqual({ names: ['membershipRepo'], kind: 'field' })
+  })
+})
+
+describe('withNamedFiles: an untouched box drawn for context (구독 판정에 멤버십 반영)', () => {
+  const root = '/repo'
+  const files = [
+    'backend/src/main/kotlin/user/controller/UserController.kt',
+    'backend/src/test/kotlin/user/controller/UserController.kt',
+    'backend/src/main/kotlin/payment/SubscriptionInfoReader.kt',
+    'common/global/model/CursorPageable.kt', 'common/global/model/ListRes4.kt',
+    'backend/src/main/kotlin/Entity.kt', 'db/membership.sql', 'docs/UserControllerGuide.md',
+  ]
+  const drawn: CanvasMap = {
+    schema: 1, diagram: 'class', title: 'm', relations: [],
+    elements: [
+      { id: 'userctl', label: 'UserController' },
+      { id: 'SubscriptionInfoReader', kind: 'class' },
+      { id: 'paging', label: 'CursorPageable / ListRes4 (공용)' },
+      { id: 'group', label: 'MembershipGroup (Entity)' },
+      { id: 'usersvc', label: 'UserService', files: ['backend/UserService.kt'] },
+      { id: 't_member', label: 'membership', kind: 'table' },
+      { id: 'app', label: 'UserController', kind: 'actor' },
+      { id: 'pkg', kind: 'group', label: 'UserController' },
+    ],
+  }
+  const read = withNamedFiles(drawn, root, files)
+  const filesOf = (id: string) => read.elements.find(e => e.id === id)?.files
+
+  it('gives a type box without files the files named after it, sources before tests', () => {
+    expect(filesOf('userctl')).toEqual([`${root}/backend/src/main/kotlin/user/controller/UserController.kt`, `${root}/backend/src/test/kotlin/user/controller/UserController.kt`])
+    expect(filesOf('SubscriptionInfoReader')).toEqual([`${root}/backend/src/main/kotlin/payment/SubscriptionInfoReader.kt`])
+    expect(filesOf('paging')).toEqual([`${root}/common/global/model/CursorPageable.kt`, `${root}/common/global/model/ListRes4.kt`])
+  })
+
+  it('leaves alone a note in parentheses, a box with files, and boxes that are not types', () => {
+    expect(filesOf('group')).toBeUndefined()
+    expect(filesOf('usersvc')).toEqual(['backend/UserService.kt'])
+    expect(['t_member', 'app', 'pkg'].map(filesOf)).toEqual([undefined, undefined, undefined])
+  })
+
+  it('opens such a box on its file as the code columns read it', () => {
+    expect(refsFor(read, 'userctl')[0]).toBe(`${root}/backend/src/main/kotlin/user/controller/UserController.kt`)
+    expect(withNamedFiles(drawn, root, ['other/Thing.kt'])).toBe(drawn)
   })
 })
 

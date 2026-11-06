@@ -6,13 +6,14 @@ import { absoluteRef, refBase } from '../../../shared/mapFiles.ts'
 import { api, q } from '../api.ts'
 import { Line, useTokens } from '../lib/Code.tsx'
 import { local, useApp } from '../state.ts'
+import { repoFiles } from '../lib/files.ts'
 import { Popover, useAnchor } from '../lib/ui.tsx'
 import { useReview } from '../review/store.ts'
 import { PathLabel } from '../review/DiffView.tsx'
 import { escapeRe, matchRanges } from '../review/FindBar.tsx'
 import { widestCols } from '../review/diffModel.ts'
 import { setLivePosition, useCanvas } from './store.ts'
-import { lastSeek, linesOf, linkAt, partsOfFile, pinSource, refsFor, resolveLink, sourceOf, targetOf, type PartLink, type ReviewSide, type Seek, type Source } from './codeLinks.ts'
+import { lastSeek, linesOf, linkAt, partsOfFile, pinSource, refsFor, resolveLink, sourceOf, targetOf, withNamedFiles, type PartLink, type ReviewSide, type Seek, type Source } from './codeLinks.ts'
 import { MIN_WIDTH, isPart, layoutColumns, linkView, nextBlock, shown, type Doc, type Entry, type Pin } from './codeNav.ts'
 import { ContextMenu, type MenuEntry, type Point } from './ContextMenu.tsx'
 import { painter, type Painter } from './paint.ts'
@@ -103,7 +104,8 @@ type Choice = { at: Point; name: string; links: PartLink[]; go: (link: PartLink)
  * Pinned files stand to its left and never move; when the room runs out the oldest hide. A word clicked in any column
  * is lit in all of them. `slide`: opened just now by the person, so the column slides in beside the gliding map.
  */
-export function CodeColumns({ map, slide, onPeek, onClose }: { map: CanvasMap; slide: boolean; onPeek: (target?: string) => void; onClose: () => void }) {
+export function CodeColumns({ map: drawn, slide, onPeek, onClose }: { map: CanvasMap; slide: boolean; onPeek: (target?: string) => void; onClose: () => void }) {
+  const map = useNamedFiles(drawn)
   const entry = useCanvas(s => shown(s.trail))
   const pins = useCanvas(s => s.pins), resizePin = useCanvas(s => s.resizePin)
   const toast = useApp(s => s.toast)
@@ -155,6 +157,20 @@ export function CodeColumns({ map, slide, onPeek, onClose }: { map: CanvasMap; s
       {choice && <ContextMenu at={choice.at} entries={chooserEntries(map, choice)} onClose={() => setChoice(undefined)} />}
     </div>
   )
+}
+
+/** The map as the code columns read it: a type box drawn without files opens the files named after it. */
+function useNamedFiles(map: CanvasMap): CanvasMap {
+  const codeRoot = useCanvas(s => s.code?.root), workspace = useApp(s => s.workspace?.path)
+  const root = codeRoot ?? workspace
+  const [list, setList] = useState<{ root: string; files: string[] }>()
+  useEffect(() => {
+    if (!root) return
+    let live = true
+    repoFiles(root).then(files => { if (live) setList({ root, files }) }, () => undefined)
+    return () => { live = false }
+  }, [root])
+  return useMemo(() => (root && list?.root === root ? withNamedFiles(map, root, list.files) : map), [map, root, list])
 }
 
 /** The canvas body's width, which the columns and the map share. */

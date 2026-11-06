@@ -5,6 +5,7 @@
 // the word. ⌘[ ⌘], the head's ‹ › and the mouse's back and forward buttons retrace the way, back to the line read.
 // A relation or a message shows its two ends stacked: `from` at its via's evidence (or the call), `to` at its declaration;
 // a relation whose label names a call opens at that call and its declaration. The pair's toggle puts them side by side.
+// A box drawn without files opens the file named after its type.
 // ⌥ with a ⌘-click (or a map click) pins the file read beside the live column; a word lights in every column; the
 // room hides the oldest pin, never taking the map below 360px. `]` `[` and the head's +n step through changed lines.
 //   DUET_PORT=7981 DUET_TOKEN=... [DUET_SCRATCH=<folder>] DUET_SHOTS=/dir node e2e/code-links.mjs
@@ -354,6 +355,23 @@ check('the head\'s +n steps on', await until(async () => (await caretAt()) === '
 await page.click(`${live} .code-pane-head .code-added`, { modifiers: ['Shift'] })
 check('and with ⇧ steps back', await until(async () => (await caretAt()) === `[${auditLine}]`), await caretAt())
 
+// 12. A box the map gives no files (drawn only for context) opens the file named after its type.
+const ctx = 'code-links-ctx'
+await call('POST', '/api/canvas', { ws, name: ctx, diagram: 'class', title: '맥락 상자' })
+await call('POST', `/api/canvas/${ctx}/patch`, { ws, note: 'm', patch: { elements: [{ id: 'cli', label: 'Client (호출하는 쪽)' }, { id: 'gone', label: 'Nowhere' }] } })
+await page.evaluate(([w, m]) => localStorage.setItem(`duet.canvas.current:${w}`, m), [ws, ctx])
+await page.reload({ waitUntil: 'domcontentloaded' })
+await page.waitForSelector('.stage-inner > svg .cv-node[data-target="cli"]', { timeout: 20000 }); await sleep(1200)
+await pickBox('cli')
+check('a box without files opens the file named after it', await until(async () => (await shownPath()) === 'src/client/Client.kt'), await shownPath())
+check('at its declaration', await until(async () => JSON.stringify(await rows('target')) === '[3]'), JSON.stringify(await rows('target')))
+await page.click(`${live} .code-pane-head button[aria-label="고정"]`)
+check('and pins it as any file', await until(async () => (await pinned()).includes('src/client/Client.kt')), JSON.stringify(await pinned()))
+await sleep(800) // the map glides into the room the pin left it
+await pickBox('gone')
+check('a name no file has still says there is none', await until(() => page.$eval(`${live} .code-pane-empty`, e => e.textContent.includes('연결된 파일이 없어')).catch(() => false)))
+
+await call('DELETE', `/api/canvas/${ctx}?ws=${encodeURIComponent(ws)}`)
 await call('DELETE', `/api/canvas/${seq}?ws=${encodeURIComponent(ws)}`)
 await call('DELETE', `/api/canvas/${name}?ws=${encodeURIComponent(ws)}`)
 console.log('workspace left at', ws)

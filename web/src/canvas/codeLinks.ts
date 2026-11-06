@@ -241,6 +241,35 @@ export function sourceOf(abs: string, workspace: string, mapName: string | undef
   return r ? pinSource({ root: r, path: abs.slice(r.length + 1) }, mapName, review) : undefined
 }
 
+/** The type names a box is drawn for: its id and label's words that read as types, notes in parentheses left out. */
+function typeNames(el: CanvasElement): string[] {
+  const words = (t: string) => t.replace(/\([^)]*\)|~[^~]*~|<[^>]*>/g, ' ').match(/(?<![\w$])[A-Z][\w$]{2,}/g) ?? []
+  return [...new Set([...words(el.id), ...words(el.label ?? '')])]
+}
+const isTest = (path: string) => /(^|\/)(test|tests|__tests__)\/|\.(test|spec)\./.test(path)
+
+/**
+ * The map with the files named after a box's types (`UserController` → `…/UserController.kt`, sources before tests)
+ * given to each class, interface or enum box the map gives none, so a box drawn only for context still opens its
+ * code. `files` are the repository's paths under `root`; the found ones are absolute. The map itself when none is found.
+ */
+export function withNamedFiles(map: CanvasMap, root: string, files: readonly string[]): CanvasMap {
+  const byName = new Map<string, string[]>()
+  for (const f of files) {
+    const name = f.slice(f.lastIndexOf('/') + 1).replace(/\.[^.]*$/, '')
+    byName.set(name, [...(byName.get(name) ?? []), f])
+  }
+  let found = false
+  const elements = map.elements.map(el => {
+    if (el.files?.length || !['class', 'interface', 'enum', undefined].includes(el.kind)) return el
+    const named = typeNames(el).flatMap(n => byName.get(n) ?? [])
+    if (!named.length) return el
+    found = true
+    return { ...el, files: [...named.filter(f => !isTest(f)), ...named.filter(isTest)].slice(0, 5).map(f => `${root}/${f}`) }
+  })
+  return found ? { ...map, elements } : map
+}
+
 /** The file references a part stands for: a box's own (with their lines), a package's everything inside, a line's or a message's two ends'. */
 function codeRefsOf(map: CanvasMap, target: string): string[] {
   const own = (id: string) => map.elements.find(e => e.id === id)?.files ?? []
