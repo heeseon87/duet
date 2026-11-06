@@ -64,7 +64,7 @@ export type WordSeg = { text: string; changed: boolean }
 /** Syntax colors and changed-word marks together: tokens are cut where the word marks start and end. */
 export function CodeText({ tokens, text, words, kind }: { tokens?: TokenLines[number]; text: string; words?: WordSeg[]; kind?: 'add' | 'del' }) {
   const toks = tokens && tokens.map(t => t.content).join('') === text ? tokens : [{ content: text }]
-  if (!words || !kind) return <Line tokens={toks} />
+  if (!words || !kind || words.map(w => w.text).join('') !== text) return <Line tokens={toks} />
   const out: React.ReactNode[] = []
   let ti = 0, off = 0, key = 0
   for (const seg of words) {

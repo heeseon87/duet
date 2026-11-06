@@ -4,14 +4,14 @@ import { fileOfRef, labelOf, relationKey, type CanvasMap } from '../../../shared
 import type { DiffFile } from '../../../shared/protocol.ts'
 import { absoluteRef, refBase } from '../../../shared/mapFiles.ts'
 import { api, q } from '../api.ts'
-import { Line, useTokens } from '../lib/Code.tsx'
+import { CodeText, Line, useTokens } from '../lib/Code.tsx'
 import { local, useApp } from '../state.ts'
 import { repoFiles } from '../lib/files.ts'
 import { Popover, useAnchor } from '../lib/ui.tsx'
 import { useReview } from '../review/store.ts'
 import { PathLabel } from '../review/DiffView.tsx'
 import { escapeRe, matchRanges } from '../review/FindBar.tsx'
-import { widestCols } from '../review/diffModel.ts'
+import { addedLines, widestCols, type Seg } from '../review/diffModel.ts'
 import { setLivePosition, useCanvas } from './store.ts'
 import { lastSeek, linesOf, linkAt, partsOfFile, pinSource, refsFor, resolveLink, sourceOf, targetOf, withNamedFiles, type PartLink, type ReviewSide, type Seek, type Source } from './codeLinks.ts'
 import { MIN_WIDTH, isPart, layoutColumns, linkView, nextBlock, shown, type Doc, type Entry, type Pin } from './codeNav.ts'
@@ -235,14 +235,11 @@ function resolveDoc(map: CanvasMap, doc: Doc, c: ReadContext): DocFile {
   return { refs, ref, source: ref ? sourceOf(absoluteRef(c.base, ref), c.workspace, c.mapName, c.review, c.codeRoot) : undefined }
 }
 
-/** The file as the map's code changed it: its new lines are marked, and it is marked viewed as in the review. */
-function useChanged(source?: Source): { changedFile?: DiffFile; changed: Set<number> } {
+/** The file as the map's code changed it: its new lines and their changed words are marked, and it is marked viewed as in the review. */
+function useChanged(source?: Source): { changedFile?: DiffFile; changed: Map<number, Seg[] | undefined> } {
   const diff = useReview(s => s.diff)
   const changedFile = useMemo(() => (source?.marks && diff ? diff.files.find(x => x.path === source.path) : undefined), [source?.marks, source?.path, diff])
-  const changed = useMemo(() => {
-    const f = changedFile
-    return new Set(f && !f.binary && !f.large ? f.hunks.flatMap(h => h.lines.filter(l => l.type === 'add' && l.newNo).map(l => l.newNo!)) : [])
-  }, [changedFile])
+  const changed = useMemo(() => addedLines(changedFile), [changedFile])
   return { changedFile, changed }
 }
 
@@ -481,7 +478,7 @@ function CodeDoc({ map, file: { refs, ref, source }, seek, label, nonce, at, lea
     // From the line clicked, else from the top in view; the block's first line becomes the line clicked.
     spot.step = dir => {
       const b = body.current
-      const to = nextBlock([...changed], marks.caret ?? (b ? (readTop(b)?.line ?? 1) - 1 : 0), dir)
+      const to = nextBlock([...changed.keys()], marks.caret ?? (b ? (readTop(b)?.line ?? 1) - 1 : 0), dir)
       if (!to) return false
       marks.setCaret(to)
       b?.querySelector(`tr[data-line="${to}"]`)?.scrollIntoView({ block: 'center' })
@@ -589,11 +586,11 @@ function CodeDoc({ map, file: { refs, ref, source }, seek, label, nonce, at, lea
                     <colgroup><col className="c-no" /><col /></colgroup>
                     <tbody>
                       {lines.map((l, i) => {
-                        const no = i + 1
+                        const no = i + 1, words = changed.get(no)
                         return (
                           <tr key={no} data-line={no} className={`line ctx${no >= from && no <= to ? ' target' : ''}${changed.has(no) ? ' changed' : ''}${marks.caret === no ? ' cursor-line' : ''}`}>
                             <td className="no">{no}</td>
-                            <td className="code"><Line tokens={tokens[i]} /></td>
+                            <td className="code">{words ? <CodeText tokens={tokens[i]} text={l} words={words} kind="add" /> : <Line tokens={tokens[i]} />}</td>
                           </tr>
                         )
                       })}

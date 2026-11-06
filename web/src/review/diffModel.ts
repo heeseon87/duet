@@ -87,6 +87,14 @@ export function withWords(lines: DiffLine[]): (DiffLine & { words?: Seg[] })[] {
   return out
 }
 
+/** The new file's added lines by number, with the changed words of those that replaced a line much like them. */
+export function addedLines(file?: DiffFile): Map<number, Seg[] | undefined> {
+  const out = new Map<number, Seg[] | undefined>()
+  if (!file || file.binary || file.large) return out
+  for (const h of file.hunks) for (const l of withWords(h.lines)) if (l.type === 'add' && l.newNo) out.set(l.newNo, l.words)
+  return out
+}
+
 function gapRows<T>(gap: Gap, hunkCount: number, exp: Expansion, newLines: string[], make: (newNo: number, oldNo: number, text: string) => T, gapRow: (hidden: number, canUp: boolean, canDown: boolean, from: number, to: number) => T): T[] {
   const size = gap.newTo - gap.newFrom + 1
   if (size <= 0) return []

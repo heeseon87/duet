@@ -3,10 +3,11 @@ import { Check, FileCode2, Loader2, Map as MapIcon, MessageSquare, Undo2, X } fr
 import { deliveryLabel, fileOfRef, type CanvasDecision, type CanvasMap } from '../../../shared/canvas.ts'
 import { absoluteRef, refBase } from '../../../shared/mapFiles.ts'
 import { api, q } from '../api.ts'
-import { Line, useTokens } from '../lib/Code.tsx'
+import { CodeText, Line, useTokens } from '../lib/Code.tsx'
 import { isTypingTarget, shortcutKey } from '../lib/ui.tsx'
 import { local, useApp } from '../state.ts'
 import { useReview } from '../review/store.ts'
+import { addedLines } from '../review/diffModel.ts'
 import { linesOf, sourceOf, targetOf, type Source } from './codeLinks.ts'
 import { Ask, DeliveryLine, ThreadView, WhyAsk, letterOf } from './DecisionParts.tsx'
 import { MermaidStage, type StageHandle } from './MermaidStage.tsx'
@@ -397,10 +398,7 @@ function Snippet({ label, names, refText, source }: { label: string; names: stri
   const [from, to] = span ?? (decl ? [decl, decl] : [1, 0])
   const first = Math.max(1, (span || decl ? from : 1) - (span ? AROUND : 1))
   const last = Math.min(lines.length, span ? Math.min(to + AROUND, from + SPAN_MAX) : decl ? decl + PLAIN : PLAIN)
-  const changed = useMemo(() => {
-    const f = source?.marks ? diff?.files.find(x => x.path === source.path) : undefined
-    return new Set(f && !f.binary && !f.large ? f.hunks.flatMap(h => h.lines.filter(l => l.type === 'add' && l.newNo).map(l => l.newNo!)) : [])
-  }, [source?.marks, source?.path, diff])
+  const changed = useMemo(() => addedLines(source?.marks ? diff?.files.find(x => x.path === source.path) : undefined), [source?.marks, source?.path, diff])
   return (
     <div className="dm-snippet">
       <div className="dm-snippet-head"><b>{label}</b><span className="dm-snippet-path" title={source?.path ?? fileOfRef(refText)}>{(source?.path ?? fileOfRef(refText)).split('/').slice(-3).join('/')}</span>
@@ -412,12 +410,12 @@ function Snippet({ label, names, refText, source }: { label: string; names: stri
           <table className="diff unified hl">
             <colgroup><col className="c-no" /><col /></colgroup>
             <tbody>
-              {lines.slice(first - 1, last).map((_, i) => {
-                const no = first + i
+              {lines.slice(first - 1, last).map((l, i) => {
+                const no = first + i, words = changed.get(no)
                 return (
                   <tr key={no} className={`line ctx${no >= from && no <= to ? ' target' : ''}${changed.has(no) ? ' changed' : ''}`}>
                     <td className="no">{no}</td>
-                    <td className="code"><Line tokens={tokens[no - 1]} /></td>
+                    <td className="code">{words ? <CodeText tokens={tokens[no - 1]} text={l} words={words} kind="add" /> : <Line tokens={tokens[no - 1]} />}</td>
                   </tr>
                 )
               })}
