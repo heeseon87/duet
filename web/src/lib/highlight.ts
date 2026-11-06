@@ -90,10 +90,6 @@ export const PALETTES: { id: string; label: string; light: string }[] = [
   { id: 'ayu', label: 'Ayu', light: 'ayu-light' },
   { id: 'vscode', label: 'VS Code', light: 'light-plus' },
   { id: 'min', label: 'Min', light: 'min-light' },
-  { id: 'tokyo-night', label: 'Tokyo Night', light: 'github-light' },
-  { id: 'nord', label: 'Nord', light: 'min-light' },
-  { id: 'dracula', label: 'Dracula', light: 'github-light' },
-  { id: 'monokai', label: 'Monokai', light: 'snazzy-light' },
 ]
 
 let palette = PALETTES[0]

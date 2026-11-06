@@ -2,7 +2,7 @@ import { create } from 'zustand'
 import type { ContextItem, ServerEvent, TerminalInfo, Workspace } from '../../shared/protocol.ts'
 import { api, q, setReconnectHandler, subscribe } from './api.ts'
 import { sendingTo, targetTerminal } from './terminalTarget.ts'
-import { setPalette } from './lib/highlight.ts'
+import { PALETTES, setPalette } from './lib/highlight.ts'
 
 export type Tab = 'canvas' | 'review'
 
@@ -44,7 +44,8 @@ let toastSeq = 0
 export const useApp = create<AppState>((set, get) => ({
   workspaces: [],
   tab: (store.get('tab') as Tab) || 'review',
-  codePalette: store.get('codePalette') || 'github',
+  // A palette remembered from before it was dropped (a dark-only one) falls back to the first.
+  codePalette: PALETTES.find(p => p.id === store.get('codePalette'))?.id ?? PALETTES[0].id,
   paletteOpen: false,
   toasts: [],
   terminals: [],

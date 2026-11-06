@@ -61,17 +61,15 @@ function CodeColorButton() {
   )
 }
 
-/** A few signature colors per palette (keyword, string, function, type) for the picker. */
+/** A few signature colors per palette (keyword, string, function, type), as its light theme paints them, for the picker. */
 const SWATCH: Record<string, string[]> = {
-  github: ['#cf222e', '#0a3069', '#8250df', '#953800'], vitesse: ['#1e754f', '#b56959', '#59873a', '#2e8f82'],
-  one: ['#a626a4', '#50a14f', '#4078f2', '#c18401'], catppuccin: ['#cba6f7', '#a6e3a1', '#89b4fa', '#f9e2af'],
-  'rose-pine': ['#31748f', '#f6c177', '#ebbcba', '#9ccfd8'], solarized: ['#859900', '#2aa198', '#268bd2', '#b58900'],
-  everforest: ['#e67e80', '#a7c080', '#7fbbb3', '#dbbc7f'], kanagawa: ['#957fb8', '#98bb6c', '#7e9cd8', '#c0a36e'],
-  gruvbox: ['#fb4934', '#b8bb26', '#83a598', '#fabd2f'], material: ['#c792ea', '#c3e88d', '#82aaff', '#ffcb6b'],
-  'night-owl': ['#c792ea', '#ecc48d', '#82aaff', '#addb67'], ayu: ['#ff8f40', '#aad94c', '#ffb454', '#59c2ff'],
-  vscode: ['#569cd6', '#ce9178', '#dcdcaa', '#4ec9b0'], min: ['#d73a49', '#22863a', '#6f42c1', '#005cc5'],
-  'tokyo-night': ['#bb9af7', '#9ece6a', '#7aa2f7', '#e0af68'], nord: ['#81a1c1', '#a3be8c', '#88c0d0', '#ebcb8b'],
-  dracula: ['#ff79c6', '#f1fa8c', '#50fa7b', '#8be9fd'], monokai: ['#f92672', '#e6db74', '#a6e22e', '#66d9ef'],
+  github: ['#d73a49', '#032f62', '#6f42c1', '#6f42c1'], vitesse: ['#ab5959', '#b56959', '#59873a', '#2e8f82'],
+  one: ['#a626a4', '#50a14f', '#4078f2', '#c18401'], catppuccin: ['#8839ef', '#40a02b', '#1e66f5', '#df8e1d'],
+  'rose-pine': ['#286983', '#ea9d34', '#d7827e', '#56949f'], solarized: ['#586e75', '#2aa198', '#268bd2', '#cb4b16'],
+  everforest: ['#f57d26', '#dfa000', '#8da101', '#35a77c'], kanagawa: ['#624c83', '#6f894e', '#4d699b', '#597b75'],
+  gruvbox: ['#af3a03', '#79740e', '#b57614', '#b57614'], material: ['#9c3eda', '#91b859', '#6182b8', '#e2931d'],
+  'night-owl': ['#994cc3', '#c96765', '#4876d6', '#111111'], ayu: ['#fa8532', '#86b300', '#eba400', '#22a4e6'],
+  vscode: ['#0000ff', '#a31515', '#795e26', '#267f99'], min: ['#d32f2f', '#22863a', '#6f42c1', '#6f42c1'],
 }
 
 function Toasts() {
