@@ -3,6 +3,7 @@
 // the map; ⌘-click selects the part (unfolding its package), centers it, and opens its declaring code at the name. A
 // receiver named in a relation's via picks that relation's end; an unknown one offers a menu. A plain click still marks
 // the word. ⌘[ ⌘], the head's ‹ › and the mouse's back and forward buttons retrace the way, back to the line read.
+// A relation or a message shows its two ends stacked: `from` at its via's evidence (or the call), `to` at its declaration.
 //   DUET_PORT=7981 DUET_TOKEN=... [DUET_SCRATCH=<folder>] DUET_SHOTS=/dir node e2e/code-links.mjs
 //   (makes a repo under DUET_SCRATCH, else the temp folder, opens it as a workspace and leaves it there.)
 import { execFileSync } from 'node:child_process'
@@ -54,7 +55,13 @@ await call('POST', `/api/canvas/${name}/patch`, { ws, note: 'm', patch: {
     { id: 'OrderRepository', parent: 'repo', kind: 'interface', files: ['src/repo/OrderRepository.kt'], members: [{ text: '+save(order: Order)' }] },
     { id: 'UserRepository', parent: 'repo', files: ['src/repo/UserRepository.kt'], members: [{ text: '+save(user: User)' }] },
   ],
-  relations: [{ from: 'OrderService', to: 'OrderRepository', via: 'field orderRepository' }],
+  relations: [{ from: 'OrderService', to: 'OrderRepository', label: 'saves', via: 'field orderRepository' }],
+} })
+const seq = 'code-links-seq'
+await call('POST', '/api/canvas', { ws, name: seq, diagram: 'sequence', title: '코드 링크 시퀀스' })
+await call('POST', `/api/canvas/${seq}/patch`, { ws, note: 'm', patch: {
+  elements: [{ id: 'Client', files: ['src/client/Client.kt'] }, { id: 'OrderService', files: ['src/order/OrderService.kt'] }],
+  messages: [{ id: 'm1', from: 'Client', to: 'OrderService', label: 'place(order)' }],
 } })
 
 const { browser, page, errors } = await open({ port, token: T, ws, width: 1500, height: 940 })
@@ -187,6 +194,41 @@ check('⌘-click on a field goes to its declaration in the same file', await unt
 await page.keyboard.press('Meta+BracketLeft')
 check('and back returns to the call', await until(async () => JSON.stringify(await rows('target')) !== `[${field}]`) && await until(() => inView(saveCall)))
 
+// 8. A relation: its two ends stacked in the live column, the map's room unchanged.
+/** Each half of the live column: its file, its marked lines and its evidence chip. */
+const halves = () => page.$$eval('.code-pane.live .code-doc', ds => ds.map(d => ({
+  path: d.querySelector('.code-pane-path .file-path')?.getAttribute('title') ?? '',
+  target: [...d.querySelectorAll('tr.target')].map(t => Number(t.getAttribute('data-line'))),
+  via: d.querySelector('.code-via')?.textContent ?? '',
+})))
+const liveWidth = () => page.$eval(live, e => Math.round(e.getBoundingClientRect().width))
+const widthBefore = await liveWidth()
+const label = await center('.stage-inner > svg .cv-label')
+await page.mouse.click(label.x, label.y)
+const pair = await until(async () => { const h = await halves(); return h.length === 2 && h[0].target.length && h[1].target.length ? h : undefined })
+check('a relation stacks its two ends', pair?.[0].path === 'src/order/OrderService.kt' && pair?.[1].path === 'src/repo/OrderRepository.kt', JSON.stringify(await halves()))
+check('from at its via\'s evidence, with the chip', JSON.stringify(pair?.[0].target) === `[${field}]` && pair?.[0].via === '근거: field orderRepository', JSON.stringify(pair?.[0]))
+check('to at its declaration', JSON.stringify(pair?.[1].target) === `[${repoDecl}]` && pair?.[1].via === '', JSON.stringify(pair?.[1]))
+check('the evidence is in view and the map keeps its room', await until(() => inView(field)) && (await liveWidth()) === widthBefore, `${widthBefore} → ${await liveWidth()}`)
+await sleep(600)
+await shot('pair')
+
+// 9. A sequence: ⌘-click a call selects its message and stacks the caller's line over the called function.
+await page.evaluate(([w, m]) => localStorage.setItem(`duet.canvas.current:${w}`, m), [ws, seq])
+await page.reload({ waitUntil: 'domcontentloaded' })
+await page.waitForSelector('.stage-inner > svg .cv-actor[data-target="Client"]', { timeout: 20000 }); await sleep(1200)
+p = await center('.stage-inner > svg .cv-actor[data-target="Client"]')
+await page.mouse.click(p.x, p.y)
+check('a participant opens its file', await until(async () => (await shownPath()) === 'src/client/Client.kt'), await shownPath())
+await until(() => page.$(`${live} tr[data-line="5"]`)); await sleep(300)
+p = await at(5, 'place')
+await page.keyboard.down('Meta'); await page.mouse.move(p.x, p.y); await sleep(200); await page.mouse.click(p.x, p.y); await page.keyboard.up('Meta')
+check('⌘-click on a call selects its message', await until(() => page.evaluate(() => Boolean(document.querySelector('.stage-inner > svg .cv-msg[data-target="m1"].cv-sel')))))
+const seqPair = await until(async () => { const h = await halves(); return h.length === 2 && h[0].target.length && h[1].target.length ? h : undefined })
+check('and stacks the call over the function called', seqPair?.[0].path === 'src/client/Client.kt' && JSON.stringify(seqPair?.[0].target) === '[5]'
+  && seqPair?.[1].path === 'src/order/OrderService.kt' && JSON.stringify(seqPair?.[1].target) === `[${placeLine}]`, JSON.stringify(await halves()))
+
+await call('DELETE', `/api/canvas/${seq}?ws=${encodeURIComponent(ws)}`)
 await call('DELETE', `/api/canvas/${name}?ws=${encodeURIComponent(ws)}`)
 console.log('workspace left at', ws)
 if (errors.length) { failed++; console.log('page errors', errors.slice(0, 3)) }

@@ -38,7 +38,7 @@ function memberName(text: string): { name: string; kind: 'function' | 'field' } 
 }
 
 /** A message's call: the name its label starts with (`place(order)`, `repo.save(o)`), when a `(` follows or the label is that word alone. */
-function callName(label: string | undefined): string | undefined {
+export function callName(label: string | undefined): string | undefined {
   const m = /^(?:[A-Za-z_$][\w$]*\s*(?:\?\.|\.|::|->)\s*)*([A-Za-z_$][\w$]*)\s*(?:\(|$)/.exec((label ?? '').trim().replace(/^\d+[.)]\s*/, ''))
   return m?.[1]
 }

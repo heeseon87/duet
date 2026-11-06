@@ -19,9 +19,26 @@ describe('viewOf', () => {
   it('opens a box on its own declaration, quietly', () => {
     expect(viewOf(map, 'OrderRepository')).toEqual({ target: 'OrderRepository', docs: [{ part: 'OrderRepository', seek: { names: ['OrderRepository', 'Repo'], kind: 'type', soft: true } }] })
   })
-  it('opens a package on the files under it, and a relation on both ends\' files', () => {
+  it('opens a package on the files under it', () => {
     expect(viewOf(map, 'repo')).toEqual({ target: 'repo', docs: [{ part: 'repo' }] })
-    expect(viewOf(map, rel)).toEqual({ target: rel, docs: [{ part: rel }] })
+  })
+  it('stacks a relation\'s two ends: from at its via\'s evidence, to at its declaration; one end for a line to itself', () => {
+    expect(viewOf(map, rel)).toEqual({ target: rel, docs: [
+      { part: 'OrderService', seek: { names: ['orderRepository'], kind: 'field' } },
+      { part: 'OrderRepository', seek: { names: ['OrderRepository', 'Repo'], kind: 'type', soft: true } },
+    ] })
+    const self: CanvasMap = { ...map, relations: [{ from: 'OrderService', to: 'OrderService', kind: 'dependency', via: 'call place' }] }
+    expect(viewOf(self, 'OrderService->OrderService:dependency')).toEqual({ target: 'OrderService->OrderService:dependency', docs: [{ part: 'OrderService', seek: { mention: 'place' } }] })
+  })
+  it('stacks a message\'s sender at the call over the receiver at the function; a message to no one is its sender', () => {
+    const seq: CanvasMap = {
+      schema: 1, diagram: 'sequence', title: 's', relations: [],
+      elements: [{ id: 'Client' }, { id: 'OrderService' }],
+      messages: [{ id: 'm1', from: 'Client', to: 'OrderService', label: 'place(order)' }, { id: 'm2', from: 'Client', label: '로그' }],
+    }
+    expect(viewOf(seq, 'm1')).toEqual({ target: 'm1', docs: [{ part: 'Client', seek: { mention: 'place' } }, { part: 'OrderService', seek: { names: ['place'], kind: 'function' } }] })
+    expect(viewOf(seq, 'm2')).toEqual({ target: 'm2', docs: [{ part: 'Client', seek: { names: ['Client'], kind: 'type', soft: true } }] })
+    expect(linkView(seq, { name: 'place', target: 'm1', owner: 'OrderService', kind: 'function' })).toEqual(viewOf(seq, 'm1'))
   })
   it('shows nothing for what has no code', () => {
     expect(viewOf(map, 'D1')).toBeUndefined()

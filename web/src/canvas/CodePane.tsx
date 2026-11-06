@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { ChevronLeft, ChevronRight, Copy, Ellipsis, FileCode2, FileDiff, ListTree, Loader2, Minus, Palette, Plus, X } from 'lucide-react'
-import { fileOfRef, labelOf, type CanvasMap } from '../../../shared/canvas.ts'
+import { fileOfRef, labelOf, relationKey, type CanvasMap } from '../../../shared/canvas.ts'
 import type { DiffFile } from '../../../shared/protocol.ts'
 import { absoluteRef, refBase } from '../../../shared/mapFiles.ts'
 import { api, q } from '../api.ts'
@@ -219,6 +219,8 @@ function LiveColumn({ map, entry, width, settings, slide, onWidth, onPeek, onCho
   }, [])
   const solo = docs.length === 1
   const soloChanged = useChanged(solo ? files[0].source : undefined)
+  // A relation's two ends: the code its via names is the evidence for the line.
+  const via = map.relations.find(r => relationKey(r) === entry.view.target)?.via
   const drag = (e: React.PointerEvent) => {
     const host = pane.current?.closest('.canvas-body')?.getBoundingClientRect()
     if (!host) return
@@ -274,9 +276,22 @@ function LiveColumn({ map, entry, width, settings, slide, onWidth, onPeek, onCho
       )}
       {docs.map((doc, i) => (
         <CodeDoc key={i} map={map} doc={doc} index={i} file={files[i]} nonce={entry.nonce} at={entry.at?.[i]} lead={i === 0} width={width}
-          settings={settings} spot={spots.current[i]} onPeek={onPeek} onChoose={onChoose} />
+          settings={settings} spot={spots.current[i]} onPeek={onPeek} onChoose={onChoose}
+          head={solo ? undefined : <DocHead label={labelOf(map, doc.part)} source={files[i].source} via={i === 0 ? via : undefined} />} />
       ))}
     </aside>
+  )
+}
+
+/** One end of a pair: its part, how its file stands in the review, and for the `from` end the relation's evidence. */
+function DocHead({ label, source, via }: { label: string; source?: Source; via?: string }) {
+  const changed = useChanged(source)
+  return (
+    <div className="code-doc-head">
+      <b>{label}</b>
+      <ChangedMarks {...changed} />
+      {via && <span className="code-via" title="이 선을 그린 근거(via): 그 코드가 표시된 줄">근거: {via}</span>}
+    </div>
   )
 }
 
@@ -329,9 +344,9 @@ function readTop(b: HTMLElement): { line: number; offset: number } | undefined {
  * One file of the live column: it opens where its view says (a declaration, a reference's lines, or where the reader
  * left it), marks the lines the map's code changed, reads like an editor, and makes the names the map draws links.
  */
-function CodeDoc({ map, doc, index, file: { refs, ref, source }, nonce, at, lead, width, settings, spot, onPeek, onChoose }: {
+function CodeDoc({ map, doc, index, file: { refs, ref, source }, nonce, at, lead, width, settings, spot, head, onPeek, onChoose }: {
   map: CanvasMap; doc: Doc; index: number; file: DocFile; nonce: number; at?: number; lead: boolean; width: number; settings: Settings; spot: DocSpot
-  onPeek: (target?: string) => void; onChoose: (c: Choice) => void
+  head?: React.ReactNode; onPeek: (target?: string) => void; onChoose: (c: Choice) => void
 }) {
   const { base } = useReadContext()
   const { key, text, missing, loading } = useFileText(source)
@@ -415,6 +430,7 @@ function CodeDoc({ map, doc, index, file: { refs, ref, source }, nonce, at, lead
   const label = labelOf(map, doc.part)
   return (
     <div className="code-doc" ref={root}>
+      {head}
       {refs.length > 1 && (
         <div className="code-tabs">
           {refs.map(r => (
@@ -431,7 +447,7 @@ function CodeDoc({ map, doc, index, file: { refs, ref, source }, nonce, at, lead
               <span className="muted">{source.ref === 'WORKTREE' ? 'Working tree' : source.ref.slice(0, 7)}{text !== undefined && ` · ${lines.length}줄`}
                 {marks.word && marks.hits > 0 && <> · <code>{marks.word.text.length > 24 ? `${marks.word.text.slice(0, 23)}…` : marks.word.text}</code> {marks.hits > 2000 ? '2000+' : marks.hits}곳</>}
               </span>
-              {target?.missed && <span className="code-missed">«{target.missed}» 선언을 이 파일에서 못 찾았어{refs.length > 1 ? ' · 탭의 다른 파일도 봐' : ''}</span>}
+              {target?.missed && <span className="code-missed">«{target.missed}» {doc.seek && 'mention' in doc.seek ? '쓰는 곳을' : '선언을'} 이 파일에서 못 찾았어{refs.length > 1 ? ' · 탭의 다른 파일도 봐' : ''}</span>}
               <span className="code-link-hint" ref={hint} />
             </div>
             <div className="code-pane-view">

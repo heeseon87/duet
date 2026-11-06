@@ -2,7 +2,7 @@
 // forward), the pinned files beside it, and how much room each gets. Pure, so the store and the tests share it.
 
 import { relationKey, type CanvasElement, type CanvasMap } from '../../../shared/canvas.ts'
-import type { PartLink, Seek } from './codeLinks.ts'
+import { callName, seekOfVia, type PartLink, type Seek } from './codeLinks.ts'
 
 /** One file read for a part. `ref` is set only when a person picked it (a tab, the menu); otherwise refsFor(...)[0]. */
 export type Doc = { part: string; ref?: string; seek?: Seek }
@@ -32,17 +32,29 @@ export const isPart = (map: CanvasMap, id: string | undefined): id is string =>
   Boolean(id && (map.elements.some(e => e.id === id) || map.relations.some(r => relationKey(r) === id) || map.messages?.some(m => m.id === id)))
 
 /** A box's own declaration: found if it is there, else the box's lines or the top, quietly. */
-const ownDeclaration = (el: CanvasElement): Seek => ({ names: [el.id, ...(el.label ? [el.label] : [])], kind: 'type', soft: true })
+const ownDeclaration = (el?: CanvasElement): Seek | undefined => el && el.kind !== 'group' ? { names: [el.id, ...(el.label ? [el.label] : [])], kind: 'type', soft: true } : undefined
+const doc = (part: string, seek?: Seek): Doc => (seek ? { part, seek } : { part })
 
 /**
- * What picking a target shows. A box: its declaration. A package: the files under it. A relation or a message: both
- * ends' files. Undefined for what has no code (a decision pin, nothing).
+ * What picking a target shows. A box: its declaration. A package: the files under it. A relation: its two ends stacked,
+ * `from` at the code its `via` names and `to` at its declaration. A message: the sender at the call, the receiver at
+ * the function called. Undefined for what has no code (a decision pin, nothing).
  */
 export function viewOf(map: CanvasMap, target: string): LiveView | undefined {
-  const el = map.elements.find(e => e.id === target)
-  if (el) return { target, docs: [el.kind === 'group' ? { part: target } : { part: target, seek: ownDeclaration(el) }] }
-  if (map.relations.some(r => relationKey(r) === target) || map.messages?.some(m => m.id === target)) return { target, docs: [{ part: target }] }
-  return undefined
+  const byId = (id?: string) => map.elements.find(e => e.id === id)
+  const el = byId(target)
+  if (el) return { target, docs: [doc(target, ownDeclaration(el))] }
+  const rel = map.relations.find(r => relationKey(r) === target)
+  if (rel) {
+    const to = byId(rel.to) ?? { id: rel.to }, from = doc(rel.from, seekOfVia(rel.via, to))
+    return { target, docs: rel.from === rel.to ? [from] : [from, doc(rel.to, ownDeclaration(to))] }
+  }
+  const msg = map.messages?.find(m => m.id === target)
+  if (!msg) return undefined
+  const call = callName(msg.label)
+  const called = call ? doc(msg.to ?? msg.from, { names: [call], kind: 'function' }) : doc(msg.to ?? msg.from, ownDeclaration(byId(msg.to)))
+  if (!msg.to || msg.to === msg.from) return { target, docs: [msg.to ? called : doc(msg.from, ownDeclaration(byId(msg.from)))] }
+  return { target, docs: [doc(msg.from, call ? { mention: call } : ownDeclaration(byId(msg.from))), called] }
 }
 
 /** What a link shows. A message → as picked on the map. A member or a type → its box's code, at that name's declaration. */
