@@ -142,6 +142,13 @@ const someBox = await page.$eval('.stage-inner > svg .cv-node:not([data-group])'
 const picked = () => page.evaluate(() => Boolean(document.querySelector('.stage-inner > svg .cv-sel')))
 await page.mouse.click(someBox.x, someBox.y); await sleep(300)
 const pickedNow = await picked()
+const ring = await page.evaluate(() => {
+  const r = document.querySelector('.stage-inner > svg .cv-ring'), c = r && getComputedStyle(r)
+  const probe = document.createElement('i'); probe.style.color = 'var(--accent)'; document.body.append(probe)
+  const accent = getComputedStyle(probe).color; probe.remove()
+  return c && { stroke: c.stroke, fill: c.fill, width: c.strokeWidth, accent }
+})
+check('the picked box is ringed in the accent, 2px, unfilled (not painted like the box by Mermaid)', ring?.stroke === ring?.accent && ring.fill === 'none' && ring.width === '2px', JSON.stringify(ring))
 const empty = await page.evaluate(() => { const r = document.querySelector('.stage-canvas').getBoundingClientRect(); return { x: r.left + r.width - 80, y: r.bottom - 80 } })
 await page.mouse.click(empty.x, empty.y); await sleep(300)
 check('a click picks a box; clicking empty canvas lets go', pickedNow && !(await picked()))

@@ -283,8 +283,9 @@ svg[id^='cv'] g.node > .label-group p { font-family: var(--font-ui); font-size: 
 .stage-inner .cv-edge.cv-dim, .stage-inner .cv-msg.cv-dim { opacity: 0.33; }
 .stage-inner .cv-label.cv-dim, .stage-inner .cv-msg-text.cv-dim { opacity: 0.44; }
 .stage-inner .cv-cluster.cv-dim { opacity: 0.87; }
-/* A picked box keeps its own look inside a ring a little off its edge, 2px on screen at any zoom. */
-.stage-inner .cv-ring { fill: none; stroke: var(--accent); stroke-width: 2px; vector-effect: non-scaling-stroke; pointer-events: none; }
+/* A picked box keeps its own look inside a ring a little off its edge, 2px on screen at any zoom. The ring is a rect in
+   Mermaid's node, which Mermaid's id rule paints like the box, so these must win outright. */
+.stage-inner .cv-ring { fill: none !important; stroke: var(--accent) !important; stroke-width: 2px !important; vector-effect: non-scaling-stroke; pointer-events: none; }
 .stage-inner .cv-node.cv-in .label-container path:last-child { stroke: color-mix(in srgb, var(--accent) 70%, var(--cv-keep-line)) !important; stroke-width: 1.8 !important; }
 .stage-inner .cv-node.cv-rel .label-container path:last-child { stroke-width: 1.8 !important; }
 .stage-inner .cv-cluster.cv-sel rect { stroke: var(--accent) !important; stroke-width: 2.4px; fill: color-mix(in srgb, var(--accent) 7%, var(--cv-group-fill)) !important; }
