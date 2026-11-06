@@ -127,8 +127,8 @@ button.code-added:hover { background: var(--hover); }
 .code-rail { position: absolute; top: 0; right: 0; width: 10px; z-index: 3; }
 .code-rail-thumb { position: absolute; left: 2px; right: 2px; min-height: 16px; border-radius: 4px; background: var(--ink-3); opacity: 0; transition: opacity 0.25s; }
 .code-rail.shown .code-rail-thumb { opacity: 0.55; }
-.code-rail-tick { position: absolute; left: 2px; right: 1px; border-radius: 1px; background: var(--add); cursor: pointer; }
-.code-rail-tick:hover { left: 0; right: 0; }
+.code-rail-tick { position: absolute; right: 2px; width: 3px; border-radius: 2px; background: var(--wax) 0 0 / 140px 140px, var(--cv-add-line); opacity: 0.85; cursor: pointer; }
+.code-rail-tick:hover { right: 1px; width: 5px; opacity: 1; }
 .code-pane-empty { padding: 24px 16px; font-size: 12.5px; display: flex; justify-content: center; }
 /* The code's own zoom (--code-scale), apart from the map's. */
 .code-pane table.diff { font-size: calc(12px * var(--code-scale, 1)); line-height: calc(20px * var(--code-scale, 1)); }
@@ -193,7 +193,18 @@ button.code-added:hover { background: var(--hover); }
 /* The part's declaration (or the lines its reference names), and the lines the map's code changed. */
 .code-pane table.diff tr.target td { background: var(--accent-soft); }
 .code-pane table.diff tr.target td.no { color: var(--accent-ink); }
-.code-pane table.diff tr.changed td.no { box-shadow: inset -3px 0 var(--add); }
+/* A changed line's mark is a crayon stroke beside its number: the wax's grain runs on from row to row, as seven rows
+   make the 140px tile (td.no is sticky, so it holds the stroke). */
+.code-pane table.diff tr.changed td.no::after {
+  content: ''; position: absolute; top: 0; bottom: 0; right: 1px; width: 3px;
+  background: var(--wax) 0 var(--wax-y, 0px) / calc(140px * var(--code-scale, 1)) calc(140px * var(--code-scale, 1)), var(--cv-add-line);
+}
+.code-pane table.diff tbody > tr:nth-child(7n+2) { --wax-y: calc(-20px * var(--code-scale, 1)); }
+.code-pane table.diff tbody > tr:nth-child(7n+3) { --wax-y: calc(-40px * var(--code-scale, 1)); }
+.code-pane table.diff tbody > tr:nth-child(7n+4) { --wax-y: calc(-60px * var(--code-scale, 1)); }
+.code-pane table.diff tbody > tr:nth-child(7n+5) { --wax-y: calc(-80px * var(--code-scale, 1)); }
+.code-pane table.diff tbody > tr:nth-child(7n+6) { --wax-y: calc(-100px * var(--code-scale, 1)); }
+.code-pane table.diff tbody > tr:nth-child(7n+7) { --wax-y: calc(-120px * var(--code-scale, 1)); }
 .stage-canvas {
   flex: 1; position: relative; overflow: hidden; cursor: grab; touch-action: none; user-select: none;
   background-color: var(--cv-bg);
