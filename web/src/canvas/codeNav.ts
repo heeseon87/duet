@@ -2,11 +2,11 @@
 // forward), the pinned files beside it, and how much room each gets. Pure, so the store and the tests share it.
 
 import { relationKey, type CanvasElement, type CanvasMap } from '../../../shared/canvas.ts'
-import { callName, seekOfVia, type PartLink, type Seek } from './codeLinks.ts'
+import { callName, seekOfVia, usesOf, type PartLink, type Seek } from './codeLinks.ts'
 
 /** One file read for a part. `ref` is set only when a person picked it (a tab, the menu); otherwise refsFor(...)[0]. */
 export type Doc = { part: string; ref?: string; seek?: Seek }
-/** The live column: one part's code, or a relation's or message's two ends stacked (from above, to below). */
+/** The live column: one part's code, or a relation's or message's two ends (from first: above, or left when side by side). */
 export type LiveView = { target: string; docs: [Doc] | [from: Doc, to: Doc] }
 /** A place in history. `at` is the top line of each doc when the reader left it; `nonce` makes a re-visit scroll again. */
 export type Entry = { view: LiveView; at?: number[]; nonce: number }
@@ -36,9 +36,10 @@ const ownDeclaration = (el?: CanvasElement): Seek | undefined => el && el.kind !
 const doc = (part: string, seek?: Seek): Doc => (seek ? { part, seek } : { part })
 
 /**
- * What picking a target shows. A box: its declaration. A package: the files under it. A relation: its two ends stacked,
- * `from` at the code its `via` names and `to` at its declaration. A message: the sender at the call, the receiver at
- * the function called. Undefined for what has no code (a decision pin, nothing).
+ * What picking a target shows. A box: its declaration. A package: the files under it. A relation: its two ends, `from`
+ * where it uses what the label names (`isActive(uid)` → `subscribePaymentService.isActive(`) and `to` at that name's
+ * declaration, each falling back to the code its `via` names and to `to`'s own declaration. A message: the sender at the
+ * call, the receiver at the function called. Undefined for what has no code (a decision pin, nothing).
  */
 export function viewOf(map: CanvasMap, target: string): LiveView | undefined {
   const byId = (id?: string) => map.elements.find(e => e.id === id)
@@ -46,8 +47,10 @@ export function viewOf(map: CanvasMap, target: string): LiveView | undefined {
   if (el) return { target, docs: [doc(target, ownDeclaration(el))] }
   const rel = map.relations.find(r => relationKey(r) === target)
   if (rel) {
-    const to = byId(rel.to) ?? { id: rel.to }, from = doc(rel.from, seekOfVia(rel.via, to))
-    return { target, docs: rel.from === rel.to ? [from] : [from, doc(rel.to, ownDeclaration(to))] }
+    const to = byId(rel.to) ?? { id: rel.to }, uses = usesOf(rel.label, to)
+    const from = doc(rel.from, seekOfVia(rel.via, to, uses.map(u => u.name)))
+    const used = uses.reduceRight<Seek | undefined>((or, u) => ({ names: [u.name], kind: u.kind, ...(or && { or }) }), ownDeclaration(to))
+    return { target, docs: rel.from === rel.to ? [from] : [from, doc(rel.to, used)] }
   }
   const msg = map.messages?.find(m => m.id === target)
   if (!msg) return undefined

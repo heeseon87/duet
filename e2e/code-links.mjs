@@ -3,7 +3,8 @@
 // the map; ⌘-click selects the part (unfolding its package), centers it, and opens its declaring code at the name. A
 // receiver named in a relation's via picks that relation's end; an unknown one offers a menu. A plain click still marks
 // the word. ⌘[ ⌘], the head's ‹ › and the mouse's back and forward buttons retrace the way, back to the line read.
-// A relation or a message shows its two ends stacked: `from` at its via's evidence (or the call), `to` at its declaration.
+// A relation or a message shows its two ends stacked: `from` at its via's evidence (or the call), `to` at its declaration;
+// a relation whose label names a call opens at that call and its declaration. The pair's toggle puts them side by side.
 // ⌥ with a ⌘-click (or a map click) pins the file read beside the live column; a word lights in every column; the
 // room hides the oldest pin, never taking the map below 360px. `]` `[` and the head's +n step through changed lines.
 //   DUET_PORT=7981 DUET_TOKEN=... [DUET_SCRATCH=<folder>] DUET_SHOTS=/dir node e2e/code-links.mjs
@@ -75,6 +76,7 @@ const { browser, page, errors } = await open({ port, token: T, ws, width: 1500, 
 await page.evaluate(([w, m]) => {
   localStorage.setItem('duet.tab', 'canvas'); localStorage.setItem(`duet.canvas.current:${w}`, m)
   localStorage.setItem('duet.canvas.code', '1'); localStorage.removeItem('duet.canvas.codeWidth')
+  localStorage.removeItem('duet.canvas.codeWidthSide'); localStorage.removeItem('duet.canvas.codePair')
   localStorage.setItem(`duet.canvas.collapsed:${w}:${m}`, JSON.stringify(['repo']))
 }, [ws, name])
 await page.reload({ waitUntil: 'domcontentloaded' })
@@ -209,6 +211,7 @@ const halves = () => page.$$eval('.code-pane.live .code-doc', ds => ds.map(d => 
   via: d.querySelector('.code-via')?.textContent ?? '',
 })))
 const liveWidth = () => page.$eval(live, e => Math.round(e.getBoundingClientRect().width))
+const widthOf = sel => page.$eval(sel, e => Math.round(e.getBoundingClientRect().width)).catch(() => 0)
 const widthBefore = await liveWidth()
 const label = await center('.stage-inner > svg .cv-label')
 await page.mouse.click(label.x, label.y)
@@ -220,9 +223,36 @@ check('the evidence is in view and the map keeps its room', await until(() => in
 await sleep(600)
 await shot('pair')
 
+// 8b. A label that names the call: `from` at the call through its via's field, `to` at the function's declaration.
+await call('POST', `/api/canvas/${name}/patch`, { ws, note: 'label', patch: { relations: [{ from: 'OrderService', to: 'OrderRepository', kind: 'association', label: 'save(order)' }] } })
+await until(() => page.evaluate(() => [...document.querySelectorAll('.stage-inner > svg .cv-label')].some(e => e.textContent.includes('save(order)'))))
+await sleep(400)
+// The line shown again is not a move, so leave it for its box first.
+await pickBox('OrderService')
+await until(async () => (await halves()).length === 1)
+const called = await center('.stage-inner > svg .cv-label')
+await page.mouse.click(called.x, called.y)
+const atCall = await until(async () => { const h = await halves(); return h.length === 2 && JSON.stringify(h[0].target) === `[${saveCall}]` && h[1].target.length ? h : undefined })
+check('a label naming the call opens from at the call', Boolean(atCall) && await until(() => inView(saveCall)), JSON.stringify(await halves()))
+check('and to at the function called', JSON.stringify(atCall?.[1].target) === `[${repoSave}]`, JSON.stringify(atCall?.[1]))
+const docRects = () => page.$$eval(`${live} .code-doc`, ds => ds.map(d => { const r = d.getBoundingClientRect(); return { l: Math.round(r.left), r: Math.round(r.right), t: Math.round(r.top) } }))
+const room = await page.$eval('.code-columns', e => Math.round(e.parentElement.getBoundingClientRect().width))
+await page.click(`${live} .code-pane-head button[aria-label="나란히 보기"]`)
+await until(async () => { const d = await docRects(); return d.length === 2 && d[1].l >= d[0].r - 1 })
+const sideBySide = await docRects()
+check('the toggle puts the two ends side by side, from on the left', sideBySide.length === 2 && sideBySide[1].l >= sideBySide[0].r - 1 && sideBySide[0].t === sideBySide[1].t, JSON.stringify(sideBySide))
+check('the column first takes twice its stacked width, the map kept at its least', Math.abs((await liveWidth()) - Math.min(2 * widthBefore, room - 360)) <= 2 && (await widthOf('.canvas-main')) >= 360,
+  `${widthBefore} → ${await liveWidth()} of ${room}`)
+check('both ends stay at the call and its declaration', JSON.stringify((await halves()).map(h => h.target)) === `[[${saveCall}],[${repoSave}]]`, JSON.stringify(await halves()))
+check('the choice is remembered', await page.evaluate(() => localStorage.getItem('duet.canvas.codePair')) === 'side')
+await sleep(400)
+await shot('pair-side')
+await page.click(`${live} .code-pane-head button[aria-label="나란히 보기"]`)
+const stacked = await until(async () => { const d = await docRects(); return d.length === 2 && d[1].t > d[0].t ? d : undefined })
+check('toggled back, they stack again at the stacked width', Boolean(stacked) && await until(async () => (await liveWidth()) === widthBefore), `${await liveWidth()} vs ${widthBefore}`)
+
 // 9. Pins. ⌥⌘-click keeps the file read beside the live column, at the line read, and the map gives up that width.
 const pin = '.code-pane.pinned'
-const widthOf = sel => page.$eval(sel, e => Math.round(e.getBoundingClientRect().width)).catch(() => 0)
 const pinned = () => page.$$eval('.code-pane.pinned', ps => ps.map(p => p.querySelector('.code-pane-path .file-path')?.getAttribute('title') ?? ''))
 const wordIn = scope => page.$eval(`${scope} .code-pane-path`, e => e.textContent).catch(() => '')
 const varRanges = () => page.evaluate(() => [...CSS.highlights.keys()].filter(k => k.startsWith('duet-var-')).reduce((n, k) => n + CSS.highlights.get(k).size, 0))

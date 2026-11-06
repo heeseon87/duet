@@ -30,6 +30,14 @@ describe('viewOf', () => {
     const self: CanvasMap = { ...map, relations: [{ from: 'OrderService', to: 'OrderService', kind: 'dependency', via: 'call place' }] }
     expect(viewOf(self, 'OrderService->OrderService:dependency')).toEqual({ target: 'OrderService->OrderService:dependency', docs: [{ part: 'OrderService', seek: { mention: 'place' } }] })
   })
+  it('opens a relation\'s two ends at the call its label names and that name\'s declaration, then as without it', () => {
+    const called: CanvasMap = { ...map, relations: [{ from: 'OrderService', to: 'OrderRepository', via: 'field orderRepository', label: 'save(o) · flush(o)' }] }
+    const repo = { names: ['OrderRepository', 'Repo'], kind: 'type', soft: true }
+    expect(viewOf(called, rel)).toEqual({ target: rel, docs: [
+      { part: 'OrderService', seek: { uses: ['save', 'flush'], on: ['orderRepository', 'OrderRepository', 'Repo'], or: { names: ['orderRepository'], kind: 'field' } } },
+      { part: 'OrderRepository', seek: { names: ['save'], kind: 'function', or: { names: ['flush'], kind: 'function', or: repo } } },
+    ] })
+  })
   it('stacks a message\'s sender at the call over the receiver at the function; a message to no one is its sender', () => {
     const seq: CanvasMap = {
       schema: 1, diagram: 'sequence', title: 's', relations: [],

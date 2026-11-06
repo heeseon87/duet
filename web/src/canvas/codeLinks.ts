@@ -123,18 +123,43 @@ export function resolveLink(map: CanvasMap, at: { name: string; receiver?: strin
   return { links: [...top, ...all.filter(l => !top.includes(l))], sure: top.length === 1 }
 }
 
-/** What a file is searched for once its text is in. A `soft` seek (a part's own declaration) gives way to a ref's span. */
-export type Seek = { names: string[]; kind: DeclKind; soft?: true } | { mention: string }
+/**
+ * What a file is searched for once its text is in. A `soft` seek (a part's own declaration) gives way to a ref's span.
+ * `uses`: where the file uses one of these names, in order (a relation's call). `or` is searched when this finds nothing.
+ */
+export type Seek = ({ names: string[]; kind: DeclKind; soft?: true } | { mention: string } | { uses: string[]; on: string[] }) & { or?: Seek }
+/** The seek a miss is reported for: the last of an `or` chain. */
+export const lastSeek = (s: Seek): Seek => (s.or ? lastSeek(s.or) : s)
+
+/**
+ * What a relation's label says its `from` end uses of `to`, in the label's order: a name a `(` follows at once
+ * (`isActive(uid)`, not prose's `HOST (…)`), a member `to` lists (`findByUserId · existsByUserId`), or the label's one
+ * word (`findById`).
+ */
+export function usesOf(label: string | undefined, to: CanvasElement): { name: string; kind: 'function' | 'field' }[] {
+  const text = (label ?? '').trim()
+  const listed = new Map((to.members ?? []).flatMap(m => memberNames(m.text)).map(m => [m.name, m.kind]))
+  const out = new Map<string, 'function' | 'field'>()
+  for (const m of text.matchAll(/(?<![\w$])([A-Za-z_$][\w$]*)(\()?/g)) {
+    const kind = m[2] ? 'function' : (listed.get(m[1]) ?? (m[1] === text ? 'function' : undefined))
+    if (kind && isName(m[1]) && !out.has(m[1])) out.set(m[1], kind)
+  }
+  return [...out].map(([name, kind]) => ({ name, kind }))
+}
 
 /**
  * A relation's evidence in its `from` file. `field x` and `constructor x` → x's declaration. Any other word → the first
- * use of its name (`extends AuditEntity` → AuditEntity). No via → the first use of `to`'s id.
+ * use of its name (`extends AuditEntity` → AuditEntity). No via → the first use of `to`'s id. With the names its label
+ * uses, the place it uses them comes first and the evidence is the fallback: reached through the variable the via names
+ * or through `to`'s own name (`repo.save`, `Model.map`), else called (`save(`).
  */
-export function seekOfVia(via: string | undefined, to: CanvasElement): Seek {
+export function seekOfVia(via: string | undefined, to: CanvasElement, uses: string[] = []): Seek {
   const m = /^\s*([A-Za-z]+)\s+([A-Za-z_$][\w$.]*)/.exec(via ?? '')
-  if (!m) return { mention: to.id }
-  const name = m[2].split('.').filter(Boolean).at(-1) ?? to.id
-  return /^(field|constructor)$/i.test(m[1]) ? { names: [name], kind: 'field' } : { mention: name }
+  const name = m && (m[2].split('.').filter(Boolean).at(-1) ?? to.id)
+  const evidence: Seek = !m || !name ? { mention: to.id } : /^(field|constructor)$/i.test(m[1]) ? { names: [name], kind: 'field' } : { mention: name }
+  if (!uses.length) return evidence
+  const held = name && /^(field|constructor|param|local)$/i.test(m[1]) ? [name] : []
+  return { uses, on: [...new Set([...held, to.id, to.label ?? ''])].filter(isName), or: evidence }
 }
 
 const DECL_KINDS: Record<DeclKind, readonly SymbolKind[]> = {
@@ -149,11 +174,22 @@ const DECL_KINDS: Record<DeclKind, readonly SymbolKind[]> = {
  *    declarationOf for types (languages the outline does not read). Then an outline declaration with that name of
  *    any kind (a member listed bare, a call reached through its receiver). Then the first mention past the imports.
  *  - A soft seek on a ref with a span → the span; a soft seek lights nothing and never says it missed.
- *  - Nothing found → the span, else the top, and `missed` names it.
+ *  - Uses seek: the first line past the imports reaching a name through `on` (`repo.save`), else calling it
+ *    (`save(`) on a line that does not declare it; names in order.
+ *  - Nothing found → its `or`, else the span, else the top, and `missed` names it.
  */
 export function targetOf(lines: string[], path: string, ref: string, seek?: Seek): { rows?: [number, number]; lit?: string; missed?: string } {
   const span = linesOf(ref)
   if (!seek) return { rows: span }
+  const found = lookup(lines, path, span, seek)
+  return found.missed && seek.or ? targetOf(lines, path, ref, seek.or) : found
+}
+
+function lookup(lines: string[], path: string, span: [number, number] | undefined, seek: Seek): { rows?: [number, number]; lit?: string; missed?: string } {
+  if ('uses' in seek) {
+    const at = useOf(lines, path, seek)
+    return at ? { rows: [at.line, at.line], lit: at.name } : { rows: span, lit: seek.uses[0], missed: seek.uses[0] }
+  }
   if ('mention' in seek) {
     const at = firstUse(lines, seek.mention)
     return at ? { rows: [at, at], lit: seek.mention } : { rows: span, lit: seek.mention, missed: seek.mention }
@@ -173,7 +209,7 @@ export function targetOf(lines: string[], path: string, ref: string, seek?: Seek
 /** A part's refs, in the order a seek should try them: a type link's file named like the name (`OrderRepository.kt`) first. */
 export function refsFor(map: CanvasMap, part: string, seek?: Seek): string[] {
   const refs = codeRefsOf(map, part)
-  if (!seek || 'mention' in seek || seek.kind !== 'type' || seek.soft) return refs
+  if (!seek || !('kind' in seek) || seek.kind !== 'type' || seek.soft) return refs
   const named = (r: string) => seek.names.includes(fileOfRef(r).split('/').pop()!.replace(/\.[^.]*$/, ''))
   return [...refs.filter(named), ...refs.filter(r => !named(r))]
 }
@@ -230,11 +266,33 @@ function declarationOf(lines: string[], names: string[]): number | undefined {
 }
 
 const IMPORT = /^\s*(import|package|using|#include|from)\b/
+const esc = (name: string) => name.replace(/\$/g, '\\$')
 /** The first line past the imports that has the word, whole. */
 function firstUse(lines: string[], word: string): number | undefined {
-  const re = new RegExp(`(?<![\\w$])${word.replace(/\$/g, '\\$')}(?![\\w$])`)
+  const re = new RegExp(`(?<![\\w$])${esc(word)}(?![\\w$])`)
   const i = lines.findIndex(l => re.test(l) && !IMPORT.test(l))
   return i >= 0 ? i + 1 : undefined
+}
+
+/** Where a uses seek lands: its names reached through one of `on` first, then called anywhere but where they are declared. */
+function useOf(lines: string[], path: string, { uses, on }: { uses: string[]; on: string[] }): { line: number; name: string } | undefined {
+  const at = (re: RegExp, skip?: Set<number>) => {
+    const i = lines.findIndex((l, i) => re.test(l) && !IMPORT.test(l) && !skip?.has(i + 1))
+    return i >= 0 ? i + 1 : undefined
+  }
+  if (on.length) {
+    const through = `(?<![\\w$])(?:${on.map(esc).join('|')})\\s*(?:\\?\\.|!!\\.|\\.|::|->)\\s*`
+    for (const name of uses) {
+      const line = at(new RegExp(`${through}${esc(name)}(?![\\w$])`))
+      if (line) return { line, name }
+    }
+  }
+  const outline = outlineOf(lines, path)
+  for (const name of uses) {
+    const line = at(new RegExp(`(?<![\\w$])${esc(name)}\\s*\\(`), new Set(outline?.filter(it => it.name === name).map(it => it.line)))
+    if (line) return { line, name }
+  }
+  return undefined
 }
 
 /** A box named after a function or a file ("User.kt authorizeUser()"): the first line past the imports naming the longest word of its name. */

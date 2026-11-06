@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { CanvasMap } from '../shared/canvas.ts'
-import { linkAt, partsOfFile, pinSource, refsFor, resolveLink, seekOfVia, sourceOf, targetOf } from '../web/src/canvas/codeLinks.ts'
+import { lastSeek, linkAt, partsOfFile, pinSource, refsFor, resolveLink, seekOfVia, sourceOf, targetOf, usesOf } from '../web/src/canvas/codeLinks.ts'
 
 const map: CanvasMap = {
   schema: 1, diagram: 'class', title: 't',
@@ -124,6 +124,58 @@ describe('a call through a field the map draws (구독 판정에 멤버십 반�
       '}',
     ]
     expect(targetOf(jpa, 'MembershipJpaRepo.kt', 'MembershipJpaRepo.kt', { names: ['findByMembershipGroup'], kind: 'field' })).toEqual({ rows: [8, 8], lit: 'findByMembershipGroup' })
+  })
+})
+
+describe('a relation\'s two ends at the call its label names (멤버십 해지)', () => {
+  const memberrepo = { id: 'memberrepo', label: 'MembershipRepo', members: [{ text: 'findByMembershipGroup(group): List<Membership>' }] }
+  const cancelSvc = [
+    'package com.example.membership.service',
+    '',
+    'import com.example.membership.domain.MembershipRepo',
+    '',
+    'class MembershipCancelSvc(',
+    '    private val membershipRepo: MembershipRepo,',
+    ') {',
+    '    fun findByMembershipGroup(group: MembershipGroup) = listOf<Membership>()',
+    '',
+    '    fun cancel(hostUserId: String, membershipGroupId: Int) {',
+    '        val memberships = membershipRepo.findByMembershipGroup(membershipGroup)',
+    '    }',
+    '}',
+  ]
+  const from = (label: string, via = 'field membershipRepo') => seekOfVia(via, memberrepo, usesOf(label, memberrepo).map(u => u.name))
+
+  it('reads the names the label calls, in its order, and the members the box lists', () => {
+    expect(usesOf('tx { findActiveByUserId(host) · findByMembershipGroup }', memberrepo)).toEqual([
+      { name: 'findActiveByUserId', kind: 'function' }, { name: 'findByMembershipGroup', kind: 'function' },
+    ])
+    expect(usesOf('findById', memberrepo)).toEqual([{ name: 'findById', kind: 'function' }])
+    expect(usesOf('SELECT 본인 행 + 같은 그룹 HOST (firstOrNull)', memberrepo)).toEqual([])
+    expect(usesOf('문서', memberrepo)).toEqual([])
+    expect(usesOf(undefined, memberrepo)).toEqual([])
+  })
+
+  it('opens the from end where it calls through the via\'s field, not where it declares the same name', () => {
+    expect(from('findByMembershipGroup(group)')).toEqual({ uses: ['findByMembershipGroup'], on: ['membershipRepo', 'memberrepo', 'MembershipRepo'], or: { names: ['membershipRepo'], kind: 'field' } })
+    expect(targetOf(cancelSvc, 'MembershipCancelSvc.kt', 'MembershipCancelSvc.kt', from('findByMembershipGroup(group)'))).toEqual({ rows: [11, 11], lit: 'findByMembershipGroup' })
+  })
+
+  it('reaches a static call through the to box\'s own name, and a bare call where nothing names a receiver', () => {
+    const jdbc = ['class Repo {', '    fun all() = rows.map(SubscribeModel::map)', '    fun one() = query { rs -> MembershipRepo.map(rs) }', '    fun two() = save(x)', '}']
+    expect(targetOf(jdbc, 'Repo.kt', 'Repo.kt', from('MembershipRepo.map(rs)', 'return one'))).toEqual({ rows: [3, 3], lit: 'map' })
+    expect(targetOf(jdbc, 'Repo.kt', 'Repo.kt', from('save(x)', 'new Repo'))).toEqual({ rows: [4, 4], lit: 'save' })
+  })
+
+  it('falls back to the via\'s evidence when the label\'s names are not used, and reports a miss for that', () => {
+    const seek = from('purge(group)')
+    expect(targetOf(cancelSvc, 'MembershipCancelSvc.kt', 'MembershipCancelSvc.kt', seek)).toEqual({ rows: [6, 6], lit: 'membershipRepo' })
+    expect(targetOf(cancelSvc, 'MembershipCancelSvc.kt', 'MembershipCancelSvc.kt', from('purge(group)', 'local gone'))).toEqual({ rows: undefined, lit: 'gone', missed: 'gone' })
+    expect(lastSeek(from('purge(group)', 'local gone'))).toEqual({ mention: 'gone' })
+  })
+
+  it('without names in the label, keeps the via\'s evidence alone', () => {
+    expect(from('멤버십 목록')).toEqual({ names: ['membershipRepo'], kind: 'field' })
   })
 })
 

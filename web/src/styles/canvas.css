@@ -97,8 +97,12 @@
 .code-pane.slide { animation: slide-in .2s var(--ease); }
 .code-columns { display: contents; }
 .code-doc { flex: 1; display: flex; flex-direction: column; min-height: 0; }
-/* A relation's or message's two ends share the column's height; each half has a short head. */
+/* A relation's or message's two ends share the column's height, or side by side its width; each half has a short head. */
+.code-docs { flex: 1; display: flex; flex-direction: column; min-height: 0; }
+.code-docs.side { flex-direction: row; }
+.code-docs.side > .code-doc { min-width: 0; }
 .code-doc + .code-doc { border-top: 1px solid var(--line-strong); }
+.code-docs.side > .code-doc + .code-doc { border-top: 0; border-left: 1px solid var(--line-strong); }
 .code-doc-head { display: flex; align-items: center; gap: 6px; padding: 6px 8px 4px 14px; font-size: 12.5px; min-width: 0; }
 .code-doc-head > b { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .code-doc-head .toggle { flex: none; margin-left: 4px; }

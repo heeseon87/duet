@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
-import { ChevronLeft, ChevronRight, Copy, Ellipsis, FileCode2, FileDiff, ListTree, Loader2, Minus, Palette, Pin as PinIcon, Plus, X } from 'lucide-react'
+import { ChevronLeft, ChevronRight, Columns2, Copy, Ellipsis, FileCode2, FileDiff, ListTree, Loader2, Minus, Palette, Pin as PinIcon, Plus, X } from 'lucide-react'
 import { fileOfRef, labelOf, relationKey, type CanvasMap } from '../../../shared/canvas.ts'
 import type { DiffFile } from '../../../shared/protocol.ts'
 import { absoluteRef, refBase } from '../../../shared/mapFiles.ts'
@@ -12,7 +12,7 @@ import { PathLabel } from '../review/DiffView.tsx'
 import { escapeRe, matchRanges } from '../review/FindBar.tsx'
 import { widestCols } from '../review/diffModel.ts'
 import { setLivePosition, useCanvas } from './store.ts'
-import { linesOf, linkAt, partsOfFile, pinSource, refsFor, resolveLink, sourceOf, targetOf, type PartLink, type ReviewSide, type Seek, type Source } from './codeLinks.ts'
+import { lastSeek, linesOf, linkAt, partsOfFile, pinSource, refsFor, resolveLink, sourceOf, targetOf, type PartLink, type ReviewSide, type Seek, type Source } from './codeLinks.ts'
 import { MIN_WIDTH, isPart, layoutColumns, linkView, nextBlock, shown, type Doc, type Entry, type Pin } from './codeNav.ts'
 import { ContextMenu, type MenuEntry, type Point } from './ContextMenu.tsx'
 import { painter, type Painter } from './paint.ts'
@@ -66,11 +66,15 @@ type Settings = {
   closeOutline: () => void
   vars: boolean
   toggleVars: () => void
+  /** A relation's or message's two ends side by side rather than one above the other. */
+  side: boolean
+  toggleSide: () => void
 }
 function useSettings(): Settings {
   const [scale, setScale] = useState(() => Number(local.get('canvas.codeZoom')) || 1)
   const [outline, setOutline] = useState(() => local.get('canvas.codeOutline') === '1')
   const [vars, setVars] = useState(() => local.get('canvas.codeVars') === '1')
+  const [side, setSide] = useState(() => local.get('canvas.codePair') === 'side')
   const [anchors] = useState(() => new Set<() => void>())
   return {
     scale, anchors,
@@ -85,6 +89,8 @@ function useSettings(): Settings {
     closeOutline: () => { setOutline(false); local.set('canvas.codeOutline', '0') },
     vars,
     toggleVars: () => setVars(o => { local.set('canvas.codeVars', o ? '0' : '1'); return !o }),
+    side,
+    toggleSide: () => setSide(o => { local.set('canvas.codePair', o ? 'stack' : 'side'); return !o }),
   }
 }
 
@@ -104,12 +110,15 @@ export function CodeColumns({ map, slide, onPeek, onClose }: { map: CanvasMap; s
   const live = entry && isPart(map, entry.view.target) ? entry : undefined
   const host = useRef<HTMLDivElement>(null)
   const room = useRoom(host)
-  const [wanted, setWanted] = useState(() => Number(local.get('canvas.codeWidth')) || 520)
+  const settings = useSettings()
+  // The live column's width as last left, kept apart for two ends side by side, which first take twice the room.
+  const [wanted, setWanted] = useState(() => ({ stack: Number(local.get('canvas.codeWidth')) || 520, side: Number(local.get('canvas.codeWidthSide')) || 0 }))
+  const mode = live?.view.docs.length === 2 && settings.side ? 'side' : 'stack'
+  const want = live ? wanted[mode] || wanted.stack * 2 : undefined
   // A pin's width while its edge is dragged; the store gets it on release.
   const [draft, setDraft] = useState<{ id: string; width: number }>()
   const widths = (id?: string, w?: number) => pins.map(p => (p.id === id ? w! : p.id === draft?.id ? draft.width : p.width))
-  const layout = layoutColumns(room, live ? wanted : undefined, widths())
-  const settings = useSettings()
+  const layout = layoutColumns(room, want, widths())
   const [word, setWord] = useState<Word>()
   const [choice, setChoice] = useState<Choice>()
   // Shown up on a pick after the columns were already there, the live column slides in.
@@ -128,15 +137,19 @@ export function CodeColumns({ map, slide, onPeek, onClose }: { map: CanvasMap; s
         <PinColumn key={pin.id} map={map} pin={pin} width={width} settings={settings} word={word} onWord={setWord}
           hidden={!live && n === shownPins.length - 1 ? layout.hidden : 0} onPeek={onPeek} onChoose={setChoice}
           onWidth={(w, done) => {
-            const want = Math.max(MIN_WIDTH, Math.round(w))
-            if (!done) return setDraft({ id: pin.id, width: want })
+            const asked = Math.max(MIN_WIDTH, Math.round(w))
+            if (!done) return setDraft({ id: pin.id, width: asked })
             setDraft(undefined)
-            resizePin(pin.id, layoutColumns(room, live ? wanted : undefined, widths(pin.id, want)).pins[i] ?? want)
+            resizePin(pin.id, layoutColumns(room, live ? want : undefined, widths(pin.id, asked)).pins[i] ?? asked)
           }} />
       ))}
       {live && layout.live !== undefined && (
         <LiveColumn map={map} entry={live} width={layout.live} settings={settings} word={word} onWord={setWord} hidden={layout.hidden} slide={slide || mounted.current}
-          onWidth={(w, done) => { const fit = layoutColumns(room, w, []).live!; setWanted(fit); if (done) local.set('canvas.codeWidth', String(fit)) }}
+          onWidth={(w, done) => {
+            const fit = layoutColumns(room, w, []).live!
+            setWanted(o => ({ ...o, [mode]: fit }))
+            if (done) local.set(mode === 'side' ? 'canvas.codeWidthSide' : 'canvas.codeWidth', String(fit))
+          }}
           onPeek={onPeek} onChoose={setChoice} onClose={onClose} />
       )}
       {choice && <ContextMenu at={choice.at} entries={chooserEntries(map, choice)} onClose={() => setChoice(undefined)} />}
@@ -307,6 +320,7 @@ function LiveColumn({ map, entry, width, settings, word, onWord, hidden, slide, 
     return () => { setLivePosition(() => undefined); liveStep = undefined }
   }, [])
   const solo = docs.length === 1
+  const side = !solo && settings.side
   const soloChanged = useChanged(solo ? files[0].source : undefined)
   // A relation's two ends: the code its via names is the evidence for the line.
   const via = map.relations.find(r => relationKey(r) === entry.view.target)?.via
@@ -323,6 +337,7 @@ function LiveColumn({ map, entry, width, settings, word, onWord, hidden, slide, 
         <span className="grow" />
         {hidden > 0 && <HiddenPins n={hidden} />}
         {solo && files[0].source && <button className="iconbtn" aria-label="고정" title={pinTitle} onClick={() => pin()}><PinIcon size={14} /></button>}
+        {!solo && <button className="iconbtn" aria-pressed={side} aria-label="나란히 보기" title={side ? '위아래로 보기' : '나란히 보기: 두 끝을 옆으로 나눠서'} onClick={settings.toggleSide}><Columns2 size={14} /></button>}
         <button className="iconbtn" aria-pressed={settings.outline} title={settings.outline ? '구조 닫기' : '구조: 이 파일의 클래스·함수 목록'} onClick={settings.toggleOutline}><ListTree size={14} /></button>
         {files.some(f => varLangOf(f.source?.path)) && (
           <button className="iconbtn" aria-pressed={settings.vars} title={settings.vars ? '변수 색 끄기' : '변수 색: 변수마다 선언부터 쓰는 곳까지 한 색으로, 스코프별로'} onClick={settings.toggleVars}><Palette size={14} /></button>
@@ -350,11 +365,13 @@ function LiveColumn({ map, entry, width, settings, word, onWord, hidden, slide, 
           ))}
         </Popover>
       )}
-      {docs.map((doc, i) => (
-        <CodeDoc key={i} map={map} file={files[i]} seek={doc.seek} label={labelOf(map, doc.part)} nonce={entry.nonce} at={entry.at?.[i]} lead={i === 0} width={width}
-          settings={settings} word={word} onWord={onWord} spot={spots.current[i]} onTab={r => useCanvas.getState().showFile(i, r)} onPeek={onPeek} onChoose={onChoose}
-          head={solo ? undefined : <DocHead label={labelOf(map, doc.part)} source={files[i].source} via={i === 0 ? via : undefined} onPin={files[i].source && (() => pin(i))} pinTitle={pinTitle} onStep={d => spots.current[i].step?.(d)} />} />
-      ))}
+      <div className={`code-docs${side ? ' side' : ''}`}>
+        {docs.map((doc, i) => (
+          <CodeDoc key={i} map={map} file={files[i]} seek={doc.seek} label={labelOf(map, doc.part)} nonce={entry.nonce} at={entry.at?.[i]} lead={i === 0} width={side ? width / 2 : width}
+            settings={settings} word={word} onWord={onWord} spot={spots.current[i]} onTab={r => useCanvas.getState().showFile(i, r)} onPeek={onPeek} onChoose={onChoose}
+            head={solo ? undefined : <DocHead label={labelOf(map, doc.part)} source={files[i].source} via={i === 0 ? via : undefined} onPin={files[i].source && (() => pin(i))} pinTitle={pinTitle} onStep={d => spots.current[i].step?.(d)} />} />
+        ))}
+      </div>
     </aside>
   )
 }
@@ -540,7 +557,7 @@ function CodeDoc({ map, file: { refs, ref, source }, seek, label, nonce, at, lea
               <span className="muted">{source.ref === 'WORKTREE' ? 'Working tree' : source.ref.slice(0, 7)}{text !== undefined && ` · ${lines.length}줄`}
                 {word && marks.hits > 0 && <> · <code>{word.text.length > 24 ? `${word.text.slice(0, 23)}…` : word.text}</code> {marks.hits > 2000 ? '2000+' : marks.hits}곳</>}
               </span>
-              {target?.missed && <span className="code-missed">«{target.missed}» {seek && 'mention' in seek ? '쓰는 곳을' : '선언을'} 이 파일에서 못 찾았어{refs.length > 1 ? ' · 탭의 다른 파일도 봐' : ''}</span>}
+              {target?.missed && <span className="code-missed">«{target.missed}» {seek && 'mention' in lastSeek(seek) ? '쓰는 곳을' : '선언을'} 이 파일에서 못 찾았어{refs.length > 1 ? ' · 탭의 다른 파일도 봐' : ''}</span>}
               <span className="code-link-hint" ref={hint} />
             </div>
             <div className="code-pane-view">
