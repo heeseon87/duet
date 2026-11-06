@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
-import { ChevronLeft, ChevronRight, Copy, Ellipsis, FileCode2, FileDiff, ListTree, Loader2, Minus, Palette, Plus, X } from 'lucide-react'
+import { ChevronLeft, ChevronRight, Copy, Ellipsis, FileCode2, FileDiff, ListTree, Loader2, Minus, Palette, Pin as PinIcon, Plus, X } from 'lucide-react'
 import { fileOfRef, labelOf, relationKey, type CanvasMap } from '../../../shared/canvas.ts'
 import type { DiffFile } from '../../../shared/protocol.ts'
 import { absoluteRef, refBase } from '../../../shared/mapFiles.ts'
@@ -12,8 +12,8 @@ import { PathLabel } from '../review/DiffView.tsx'
 import { escapeRe, matchRanges } from '../review/FindBar.tsx'
 import { widestCols } from '../review/diffModel.ts'
 import { setLivePosition, useCanvas } from './store.ts'
-import { linesOf, linkAt, partsOfFile, refsFor, resolveLink, sourceOf, targetOf, type PartLink, type ReviewSide, type Source } from './codeLinks.ts'
-import { isPart, layoutColumns, linkView, shown, type Doc, type Entry } from './codeNav.ts'
+import { linesOf, linkAt, partsOfFile, pinSource, refsFor, resolveLink, sourceOf, targetOf, type PartLink, type ReviewSide, type Seek, type Source } from './codeLinks.ts'
+import { MIN_WIDTH, isPart, layoutColumns, linkView, shown, type Doc, type Entry, type Pin } from './codeNav.ts'
 import { ContextMenu, type MenuEntry, type Point } from './ContextMenu.tsx'
 import { painter, type Painter } from './paint.ts'
 import { activeAt, outlineOf, type OutlineItem, type SymbolKind } from './outline.ts'
@@ -44,6 +44,12 @@ export function navStep(e: KeyboardEvent, key: string): -1 | 1 | undefined {
   return undefined
 }
 export const NAV_KEYS = MAC ? ['⌘[', '⌘]'] : ['Alt+←', 'Alt+→']
+/** Held with a click that moves the live column (on the map, or a link), it first pins what the column showed. */
+export const PIN_KEY = MAC ? '⌥' : 'Alt'
+
+/** The word lit in every column: a click on a word, a selection on one line, or the name a move went to. */
+type Word = { text: string; whole: boolean }
+type SetWord = React.Dispatch<React.SetStateAction<Word | undefined>>
 
 /** What every code column shares: the code's zoom, and whether the structure and the variable colors are on. Remembered. */
 type Settings = {
@@ -84,25 +90,48 @@ type Choice = { at: Point; name: string; links: PartLink[]; go: (link: PartLink)
 /**
  * The code beside the map. The live column shows the code of what the map has selected and follows every pick; a name
  * drawn on the map is a link in it (⌘-click goes to its declaration and its part), and back and forward retrace the way.
- * `slide`: opened just now by the person, so the column slides in beside the gliding map.
+ * Pinned files stand to its left and never move; when the room runs out the oldest hide. A word clicked in any column
+ * is lit in all of them. `slide`: opened just now by the person, so the column slides in beside the gliding map.
  */
 export function CodeColumns({ map, slide, onPeek, onClose }: { map: CanvasMap; slide: boolean; onPeek: (target?: string) => void; onClose: () => void }) {
   const entry = useCanvas(s => shown(s.trail))
+  const pins = useCanvas(s => s.pins), resizePin = useCanvas(s => s.resizePin)
+  const toast = useApp(s => s.toast)
   const live = entry && isPart(map, entry.view.target) ? entry : undefined
   const host = useRef<HTMLDivElement>(null)
   const room = useRoom(host)
   const [wanted, setWanted] = useState(() => Number(local.get('canvas.codeWidth')) || 520)
-  const layout = layoutColumns(room, live ? wanted : undefined, [])
+  // A pin's width while its edge is dragged; the store gets it on release.
+  const [draft, setDraft] = useState<{ id: string; width: number }>()
+  const widths = (id?: string, w?: number) => pins.map(p => (p.id === id ? w! : p.id === draft?.id ? draft.width : p.width))
+  const layout = layoutColumns(room, live ? wanted : undefined, widths())
   const settings = useSettings()
+  const [word, setWord] = useState<Word>()
   const [choice, setChoice] = useState<Choice>()
   // Shown up on a pick after the columns were already there, the live column slides in.
   const mounted = useRef(false)
   useEffect(() => { mounted.current = true }, [])
+  const hiddenBefore = useRef(0)
+  useEffect(() => {
+    if (layout.hidden > hiddenBefore.current) toast('창이 좁아서 오래된 고정 칸을 숨겼어')
+    hiddenBefore.current = layout.hidden
+  }, [layout.hidden, toast])
   useBackButtons()
+  const shownPins = pins.flatMap((pin, i) => (layout.pins[i] === undefined ? [] : [{ pin, i, width: layout.pins[i]! }]))
   return (
     <div className="code-columns" ref={host}>
+      {shownPins.map(({ pin, i, width }, n) => (
+        <PinColumn key={pin.id} map={map} pin={pin} width={width} settings={settings} word={word} onWord={setWord}
+          hidden={!live && n === shownPins.length - 1 ? layout.hidden : 0} onPeek={onPeek} onChoose={setChoice}
+          onWidth={(w, done) => {
+            const want = Math.max(MIN_WIDTH, Math.round(w))
+            if (!done) return setDraft({ id: pin.id, width: want })
+            setDraft(undefined)
+            resizePin(pin.id, layoutColumns(room, live ? wanted : undefined, widths(pin.id, want)).pins[i] ?? want)
+          }} />
+      ))}
       {live && layout.live !== undefined && (
-        <LiveColumn map={map} entry={live} width={layout.live} settings={settings} slide={slide || mounted.current}
+        <LiveColumn map={map} entry={live} width={layout.live} settings={settings} word={word} onWord={setWord} hidden={layout.hidden} slide={slide || mounted.current}
           onWidth={(w, done) => { const fit = layoutColumns(room, w, []).live!; setWanted(fit); if (done) local.set('canvas.codeWidth', String(fit)) }}
           onPeek={onPeek} onChoose={setChoice} onClose={onClose} />
       )}
@@ -192,15 +221,66 @@ function ChangedMarks({ changedFile, changed }: ReturnType<typeof useChanged>) {
   </>
 }
 
-/** What the live column knows of each doc it shows, for the store (where the reader was) and its own menu. */
-type DocSpot = { top?: () => number | undefined; target?: number }
+/** What the live column knows of each doc it shows, for the store (where the reader is, to go back or pin) and its own menu. */
+type DocSpot = { top?: () => number | undefined; target?: number; file?: { root: string; path: string } }
 
-function LiveColumn({ map, entry, width, settings, slide, onWidth, onPeek, onChoose, onClose }: {
-  map: CanvasMap; entry: Entry; width: number; settings: Settings; slide: boolean
+/** Dragging a column's left edge sets its width: as it moves, then `done` on release. */
+function edgeDrag(pane: React.RefObject<HTMLElement | null>, width: number, onWidth: (w: number, done: boolean) => void) {
+  return (e: React.PointerEvent) => {
+    const right = pane.current?.getBoundingClientRect().right
+    if (right === undefined) return
+    e.preventDefault()
+    const handle = e.currentTarget as HTMLElement
+    handle.setPointerCapture(e.pointerId)
+    let last = width
+    const move = (m: PointerEvent) => { last = right - m.clientX; onWidth(last, false) }
+    const up = () => {
+      handle.removeEventListener('pointermove', move)
+      handle.removeEventListener('pointerup', up)
+      onWidth(last, true)
+    }
+    handle.addEventListener('pointermove', move)
+    handle.addEventListener('pointerup', up)
+  }
+}
+
+/** Pins that did not fit: the person learns why a column went. */
+const HiddenPins = ({ n }: { n: number }) => <span className="code-hidden" title="창을 넓히거나 코드 칸을 좁히면 다시 보여">고정 {n}개 숨김</span>
+
+/** A file kept beside the live column. It never follows; its links do move the live column, as any link does. */
+function PinColumn({ map, pin, width, settings, word, onWord, hidden, onWidth, onPeek, onChoose }: {
+  map: CanvasMap; pin: Pin; width: number; settings: Settings; word?: Word; onWord: SetWord; hidden: number
+  onWidth: (w: number, done: boolean) => void; onPeek: (target?: string) => void; onChoose: (c: Choice) => void
+}) {
+  const unpin = useCanvas(s => s.unpin)
+  const { mapName, review } = useReadContext()
+  const source = pinSource(pin, mapName, review)
+  const changed = useChanged(source)
+  const pane = useRef<HTMLElement>(null)
+  useWheelZoom(pane, settings)
+  return (
+    <aside className="code-pane pinned" ref={pane} style={{ width, '--code-scale': settings.scale } as React.CSSProperties}>
+      <div className="code-split" onPointerDown={edgeDrag(pane, width, onWidth)} title="끌어서 폭 조절" />
+      <div className="code-pane-head">
+        <PinIcon size={13} className="code-pin-mark" aria-hidden />
+        <b className="ellipsis" title={pin.path}>{pin.label}</b>
+        <ChangedMarks {...changed} />
+        <span className="grow" />
+        {hidden > 0 && <HiddenPins n={hidden} />}
+        <button className="iconbtn" aria-label="고정 풀기" title="고정 풀기" onClick={() => unpin(pin.id)}><X size={14} /></button>
+      </div>
+      <CodeDoc map={map} file={{ refs: [], ref: pin.path, source }} label={pin.label} nonce={0} at={pin.line} lead={false} width={width}
+        settings={settings} word={word} onWord={onWord} onPeek={onPeek} onChoose={onChoose} />
+    </aside>
+  )
+}
+
+function LiveColumn({ map, entry, width, settings, word, onWord, hidden, slide, onWidth, onPeek, onChoose, onClose }: {
+  map: CanvasMap; entry: Entry; width: number; settings: Settings; word?: Word; onWord: SetWord; hidden: number; slide: boolean
   onWidth: (w: number, done: boolean) => void; onPeek: (target?: string) => void; onChoose: (c: Choice) => void; onClose: () => void
 }) {
   const setTab = useApp(s => s.setTab), toast = useApp(s => s.toast), openFile = useReview(s => s.openFile)
-  const back = useCanvas(s => s.back), forward = useCanvas(s => s.forward)
+  const back = useCanvas(s => s.back), forward = useCanvas(s => s.forward), pin = useCanvas(s => s.pin)
   const canBack = useCanvas(s => s.trail.entries.slice(0, s.trail.index).some(e => isPart(map, e.view.target)))
   const canForward = useCanvas(s => s.trail.entries.slice(s.trail.index + 1).some(e => isPart(map, e.view.target)))
   const more = useAnchor()
@@ -214,39 +294,26 @@ function LiveColumn({ map, entry, width, settings, slide, onWidth, onPeek, onCho
   const count = useRef(docs.length)
   count.current = docs.length
   useEffect(() => {
-    setLivePosition(() => spots.current.slice(0, count.current).map(s => s.top?.() ?? 1))
+    setLivePosition(() => spots.current.slice(0, count.current).map(s => ({ line: s.top?.() ?? 1, file: s.file })))
     return () => setLivePosition(() => undefined)
   }, [])
   const solo = docs.length === 1
   const soloChanged = useChanged(solo ? files[0].source : undefined)
   // A relation's two ends: the code its via names is the evidence for the line.
   const via = map.relations.find(r => relationKey(r) === entry.view.target)?.via
-  const drag = (e: React.PointerEvent) => {
-    const host = pane.current?.closest('.canvas-body')?.getBoundingClientRect()
-    if (!host) return
-    e.preventDefault()
-    const handle = e.currentTarget as HTMLElement
-    handle.setPointerCapture(e.pointerId)
-    let last = width
-    const move = (m: PointerEvent) => { last = host.right - m.clientX; onWidth(last, false) }
-    const up = () => {
-      handle.removeEventListener('pointermove', move)
-      handle.removeEventListener('pointerup', up)
-      onWidth(last, true)
-    }
-    handle.addEventListener('pointermove', move)
-    handle.addEventListener('pointerup', up)
-  }
   const head = labelOf(map, entry.view.target)
+  const pinTitle = `고정: 이 파일을 옆 칸에 남기기 (${PIN_KEY} + 클릭으로 옮기면서도)`
   return (
     <aside className={`code-pane live${slideIn ? ' slide' : ''}`} ref={pane} style={{ width, '--code-scale': settings.scale } as React.CSSProperties}>
-      <div className="code-split" onPointerDown={drag} title="끌어서 폭 조절" />
+      <div className="code-split" onPointerDown={edgeDrag(pane, width, onWidth)} title="끌어서 폭 조절" />
       <div className="code-pane-head">
         <button className="iconbtn code-nav" disabled={!canBack} aria-label="뒤로" title={`뒤로 (${NAV_KEYS[0]})`} onClick={back}><ChevronLeft size={14} /></button>
         <button className="iconbtn code-nav" disabled={!canForward} aria-label="앞으로" title={`앞으로 (${NAV_KEYS[1]})`} onClick={forward}><ChevronRight size={14} /></button>
         <b className="ellipsis">{head}</b>
         {solo && <ChangedMarks {...soloChanged} />}
         <span className="grow" />
+        {hidden > 0 && <HiddenPins n={hidden} />}
+        {solo && files[0].source && <button className="iconbtn" aria-label="고정" title={pinTitle} onClick={() => pin()}><PinIcon size={14} /></button>}
         <button className="iconbtn" aria-pressed={settings.outline} title={settings.outline ? '구조 닫기' : '구조: 이 파일의 클래스·함수 목록'} onClick={settings.toggleOutline}><ListTree size={14} /></button>
         {files.some(f => varLangOf(f.source?.path)) && (
           <button className="iconbtn" aria-pressed={settings.vars} title={settings.vars ? '변수 색 끄기' : '변수 색: 변수마다 선언부터 쓰는 곳까지 한 색으로, 스코프별로'} onClick={settings.toggleVars}><Palette size={14} /></button>
@@ -275,22 +342,23 @@ function LiveColumn({ map, entry, width, settings, slide, onWidth, onPeek, onCho
         </Popover>
       )}
       {docs.map((doc, i) => (
-        <CodeDoc key={i} map={map} doc={doc} index={i} file={files[i]} nonce={entry.nonce} at={entry.at?.[i]} lead={i === 0} width={width}
-          settings={settings} spot={spots.current[i]} onPeek={onPeek} onChoose={onChoose}
-          head={solo ? undefined : <DocHead label={labelOf(map, doc.part)} source={files[i].source} via={i === 0 ? via : undefined} />} />
+        <CodeDoc key={i} map={map} file={files[i]} seek={doc.seek} label={labelOf(map, doc.part)} nonce={entry.nonce} at={entry.at?.[i]} lead={i === 0} width={width}
+          settings={settings} word={word} onWord={onWord} spot={spots.current[i]} onTab={r => useCanvas.getState().showFile(i, r)} onPeek={onPeek} onChoose={onChoose}
+          head={solo ? undefined : <DocHead label={labelOf(map, doc.part)} source={files[i].source} via={i === 0 ? via : undefined} onPin={files[i].source && (() => pin(i))} pinTitle={pinTitle} />} />
       ))}
     </aside>
   )
 }
 
 /** One end of a pair: its part, how its file stands in the review, and for the `from` end the relation's evidence. */
-function DocHead({ label, source, via }: { label: string; source?: Source; via?: string }) {
+function DocHead({ label, source, via, onPin, pinTitle }: { label: string; source?: Source; via?: string; onPin?: () => void; pinTitle: string }) {
   const changed = useChanged(source)
   return (
     <div className="code-doc-head">
       <b>{label}</b>
       <ChangedMarks {...changed} />
       {via && <span className="code-via" title="이 선을 그린 근거(via): 그 코드가 표시된 줄">근거: {via}</span>}
+      {onPin && <button className="iconbtn" aria-label="고정" title={pinTitle} onClick={onPin}><PinIcon size={13} /></button>}
     </div>
   )
 }
@@ -341,19 +409,19 @@ function readTop(b: HTMLElement): { line: number; offset: number } | undefined {
 }
 
 /**
- * One file of the live column: it opens where its view says (a declaration, a reference's lines, or where the reader
- * left it), marks the lines the map's code changed, reads like an editor, and makes the names the map draws links.
+ * One file of a column: it opens where its view says (a declaration, a reference's lines, or where the reader left it),
+ * marks the lines the map's code changed, reads like an editor, and makes the names the map draws links.
  */
-function CodeDoc({ map, doc, index, file: { refs, ref, source }, nonce, at, lead, width, settings, spot, head, onPeek, onChoose }: {
-  map: CanvasMap; doc: Doc; index: number; file: DocFile; nonce: number; at?: number; lead: boolean; width: number; settings: Settings; spot: DocSpot
-  head?: React.ReactNode; onPeek: (target?: string) => void; onChoose: (c: Choice) => void
+function CodeDoc({ map, file: { refs, ref, source }, seek, label, nonce, at, lead, width, settings, word, onWord, spot, head, onTab, onPeek, onChoose }: {
+  map: CanvasMap; file: DocFile; seek?: Seek; label: string; nonce: number; at?: number; lead: boolean; width: number; settings: Settings
+  word?: Word; onWord: SetWord; spot?: DocSpot; head?: React.ReactNode; onTab?: (ref: string) => void; onPeek: (target?: string) => void; onChoose: (c: Choice) => void
 }) {
   const { base } = useReadContext()
   const { key, text, missing, loading } = useFileText(source)
   const lines = useMemo(() => (text ?? '').replace(/\n$/, '').split('\n'), [text])
   const tokens = useTokens(text ?? '', source?.path)
-  const seekKey = JSON.stringify(doc.seek)
-  const target = useMemo(() => (text === undefined || !ref || !source ? undefined : targetOf(lines, source.path, ref, doc.seek)), [text, lines, ref, source?.path, seekKey]) // eslint-disable-line react-hooks/exhaustive-deps
+  const seekKey = JSON.stringify(seek)
+  const target = useMemo(() => (text === undefined || !ref || !source ? undefined : targetOf(lines, source.path, ref, seek)), [text, lines, ref, source?.path, seekKey]) // eslint-disable-line react-hooks/exhaustive-deps
   const [from, to] = target?.rows ?? (ref ? linesOf(ref) : undefined) ?? [0, -1]
   const { changed } = useChanged(source)
 
@@ -361,9 +429,12 @@ function CodeDoc({ map, doc, index, file: { refs, ref, source }, nonce, at, lead
   const body = useRef<HTMLDivElement>(null)
   const [paint] = useState(painter)
   useEffect(() => () => paint.clear(), [paint])
-  const marks = useWordMarks(body, key, tokens, paint)
-  spot.top = () => (body.current ? readTop(body.current)?.line : undefined)
-  spot.target = from > 0 ? from : undefined
+  const marks = useWordMarks(body, key, tokens, paint, word, onWord)
+  if (spot) {
+    spot.top = () => (body.current ? readTop(body.current)?.line : undefined)
+    spot.target = from > 0 ? from : undefined
+    spot.file = source && { root: source.root, path: source.path }
+  }
 
   // Arrived (a pick, a link, back or forward): to where the reader left it, else the target in the middle, else the top.
   useEffect(() => {
@@ -379,8 +450,8 @@ function CodeDoc({ map, doc, index, file: { refs, ref, source }, nonce, at, lead
   // The name it went to is lit; the lead doc clears what the last place lit when it lights nothing.
   useEffect(() => {
     if (text === undefined) return
-    if (target?.lit) marks.setWord({ text: target.lit, whole: true })
-    else if (lead) marks.setWord(undefined)
+    if (target?.lit) onWord({ text: target.lit, whole: true })
+    else if (lead) onWord(undefined)
   }, [text, nonce, seekKey]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Zooming keeps the line at the top where it is.
@@ -406,7 +477,7 @@ function CodeDoc({ map, doc, index, file: { refs, ref, source }, nonce, at, lead
   const pickOutline = (it: OutlineItem) => {
     body.current?.querySelector(`[data-line="${it.line}"]`)?.scrollIntoView({ block: 'center' })
     marks.setCaret(it.line)
-    marks.setWord(isWord(it.name) ? { text: it.name, whole: true } : undefined)
+    onWord(isWord(it.name) ? { text: it.name, whole: true } : undefined)
     if (floating) settings.closeOutline()
   }
 
@@ -414,27 +485,29 @@ function CodeDoc({ map, doc, index, file: { refs, ref, source }, nonce, at, lead
    * Follows a link from this file. Its declaration in this very file is gone to here (on it already: the map only
    * shows its part); a message goes to its call's two ends.
    */
-  const follow = (link: PartLink, row: number) => {
+  const follow = (link: PartLink, row: number, keep: boolean) => {
     const goTo = useCanvas.getState().goTo
     if (link.target === link.owner && source && text !== undefined) {
       const seek = linkView(map, link).docs[0].seek
       const here = refsFor(map, link.owner, seek).find(r => absoluteRef(base, r) === `${source.root}/${source.path}`)
       const found = here ? targetOf(lines, source.path, here, seek) : undefined
-      if (here && found?.rows && !found.missed) return goTo(link, found.rows[0] === row ? { stay: true } : { ref: here })
+      if (here && found?.rows && !found.missed) return goTo(link, found.rows[0] === row ? { stay: true } : { ref: here, keep })
     }
-    goTo(link)
+    goTo(link, { keep })
   }
   const here = useMemo(() => (source ? partsOfFile(map, source, base) : []), [map, source?.root, source?.path, base]) // eslint-disable-line react-hooks/exhaustive-deps
-  const hint = useLinks(root, body, { map, here, paint, onPeek, onFollow: (found, name, row, p) => (found.sure ? follow(found.links[0], row) : onChoose({ at: p, name, links: found.links, go: l => follow(l, row) })) })
+  const hint = useLinks(root, body, {
+    map, here, paint, onPeek,
+    onFollow: (found, name, row, p, keep) => (found.sure ? follow(found.links[0], row, keep) : onChoose({ at: p, name, links: found.links, go: l => follow(l, row, keep) })),
+  })
 
-  const label = labelOf(map, doc.part)
   return (
     <div className="code-doc" ref={root}>
       {head}
       {refs.length > 1 && (
         <div className="code-tabs">
           {refs.map(r => (
-            <button key={r} aria-selected={r === ref} title={r} onClick={() => useCanvas.getState().showFile(index, r)}>{fileOfRef(r).split('/').pop()}</button>
+            <button key={r} aria-selected={r === ref} title={r} onClick={() => onTab?.(r)}>{fileOfRef(r).split('/').pop()}</button>
           ))}
         </div>
       )}
@@ -445,9 +518,9 @@ function CodeDoc({ map, doc, index, file: { refs, ref, source }, nonce, at, lead
             <div className="code-pane-path">
               <PathLabel path={source.path} />
               <span className="muted">{source.ref === 'WORKTREE' ? 'Working tree' : source.ref.slice(0, 7)}{text !== undefined && ` · ${lines.length}줄`}
-                {marks.word && marks.hits > 0 && <> · <code>{marks.word.text.length > 24 ? `${marks.word.text.slice(0, 23)}…` : marks.word.text}</code> {marks.hits > 2000 ? '2000+' : marks.hits}곳</>}
+                {word && marks.hits > 0 && <> · <code>{word.text.length > 24 ? `${word.text.slice(0, 23)}…` : word.text}</code> {marks.hits > 2000 ? '2000+' : marks.hits}곳</>}
               </span>
-              {target?.missed && <span className="code-missed">«{target.missed}» {doc.seek && 'mention' in doc.seek ? '쓰는 곳을' : '선언을'} 이 파일에서 못 찾았어{refs.length > 1 ? ' · 탭의 다른 파일도 봐' : ''}</span>}
+              {target?.missed && <span className="code-missed">«{target.missed}» {seek && 'mention' in seek ? '쓰는 곳을' : '선언을'} 이 파일에서 못 찾았어{refs.length > 1 ? ' · 탭의 다른 파일도 봐' : ''}</span>}
               <span className="code-link-hint" ref={hint} />
             </div>
             <div className="code-pane-view">
@@ -491,7 +564,7 @@ type Hit = { name: string; receiver?: string; range: Range; row: number }
  * decorated ahead and no row re-renders: one range is painted per pointer frame. Returns the hint's element ref.
  */
 function useLinks(root: React.RefObject<HTMLElement | null>, body: React.RefObject<HTMLElement | null>, o: {
-  map: CanvasMap; here: string[]; paint: Painter; onPeek: (target?: string) => void; onFollow: (found: Found, name: string, row: number, at: Point) => void
+  map: CanvasMap; here: string[]; paint: Painter; onPeek: (target?: string) => void; onFollow: (found: Found, name: string, row: number, at: Point, keep: boolean) => void
 }) {
   const hint = useRef<HTMLSpanElement>(null)
   const latest = useRef(o)
@@ -530,7 +603,7 @@ function useLinks(root: React.RefObject<HTMLElement | null>, body: React.RefObje
       const hit = linkUnder(e.clientX, e.clientY)
       if (!hit) return
       e.preventDefault()
-      latest.current.onFollow(hit.found, hit.name, hit.row, { x: e.clientX, y: e.clientY })
+      latest.current.onFollow(hit.found, hit.name, hit.row, { x: e.clientX, y: e.clientY }, e.altKey)
     }
     el.addEventListener('pointermove', move)
     el.addEventListener('pointerleave', leave)
@@ -630,13 +703,13 @@ function Outline({ items, active, floating, width, onPick }: { items?: OutlineIt
 
 /**
  * The word under the click (or the text selected on one line) marked wherever it stands in the file, as an editor does;
- * the clicked line is the caret line. Painted with the CSS highlight API, so the rows are left as they are.
+ * the clicked line is the caret line. The word is every column's; the caret line is this file's. Painted with the CSS
+ * highlight API, so the rows are left as they are.
  */
-function useWordMarks(body: React.RefObject<HTMLDivElement | null>, key: string, tokens: unknown, paint: Painter) {
-  const [word, setWord] = useState<{ text: string; whole: boolean }>()
+function useWordMarks(body: React.RefObject<HTMLDivElement | null>, key: string, tokens: unknown, paint: Painter, word: Word | undefined, setWord: SetWord) {
   const [caret, setCaret] = useState<number>()
   const [hits, setHits] = useState(0)
-  useEffect(() => { setWord(undefined); setCaret(undefined) }, [key])
+  useEffect(() => { setCaret(undefined) }, [key])
   useEffect(() => {
     let t: ReturnType<typeof setTimeout>
     const read = () => {
@@ -650,7 +723,7 @@ function useWordMarks(body: React.RefObject<HTMLDivElement | null>, key: string,
     const change = () => { clearTimeout(t); t = setTimeout(read, 60) }
     document.addEventListener('selectionchange', change)
     return () => { document.removeEventListener('selectionchange', change); clearTimeout(t) }
-  }, [body])
+  }, [body, setWord])
   // Colors arriving replace the rows' text nodes, so the marks are found again with them.
   useEffect(() => {
     const b = body.current
@@ -660,7 +733,7 @@ function useWordMarks(body: React.RefObject<HTMLDivElement | null>, key: string,
     paint.set('duet-word', ranges)
     setHits(ranges.length)
   }, [word, tokens, body, paint])
-  return { word, setWord, hits, caret, setCaret }
+  return { hits, caret, setCaret }
 }
 
 /**

@@ -4,6 +4,8 @@
 // receiver named in a relation's via picks that relation's end; an unknown one offers a menu. A plain click still marks
 // the word. ⌘[ ⌘], the head's ‹ › and the mouse's back and forward buttons retrace the way, back to the line read.
 // A relation or a message shows its two ends stacked: `from` at its via's evidence (or the call), `to` at its declaration.
+// ⌥ with a ⌘-click (or a map click) pins the file read beside the live column; a word lights in every column; the
+// room hides the oldest pin, never taking the map below 360px.
 //   DUET_PORT=7981 DUET_TOKEN=... [DUET_SCRATCH=<folder>] DUET_SHOTS=/dir node e2e/code-links.mjs
 //   (makes a repo under DUET_SCRATCH, else the temp folder, opens it as a workspace and leaves it there.)
 import { execFileSync } from 'node:child_process'
@@ -82,9 +84,9 @@ const size = h => page.evaluate(h => CSS.highlights.get(h)?.size ?? 0, h)
 const selected = id => page.evaluate(id => Boolean(document.querySelector(`.stage-inner > svg [data-target="${id}"].cv-sel`)), id)
 const folded = () => page.evaluate(([w, m]) => JSON.parse(localStorage.getItem(`duet.canvas.collapsed:${w}:${m}`) ?? '[]'), [ws, name])
 const hint = () => page.$eval(`${live} .code-link-hint`, e => e.textContent).catch(() => '')
-/** The middle of the first character of `text` on a line of the live column (the first match when `nth` is 0). */
-const at = (no, text, o = 0) => page.evaluate(([no, text, o]) => {
-  const cell = document.querySelector(`.code-pane.live tr[data-line="${no}"] td.code`)
+/** The middle of the character `o` past where `text` starts on a line of a column (the live one unless `scope` says). */
+const at = (no, text, o = 0, scope = '.code-pane.live') => page.evaluate(([no, text, o, scope]) => {
+  const cell = document.querySelector(`${scope} tr[data-line="${no}"] td.code`)
   const walker = document.createTreeWalker(cell, NodeFilter.SHOW_TEXT)
   const nodes = []
   let all = ''
@@ -93,12 +95,12 @@ const at = (no, text, o = 0) => page.evaluate(([no, text, o]) => {
   const r = document.createRange(); r.setStart(node, i - off); r.setEnd(node, i - off + 1)
   const b = r.getBoundingClientRect()
   return { x: b.left + b.width / 2, y: b.top + b.height / 2 }
-}, [no, text, o])
-/** Whether the row sits inside the live column's scrolled view. */
-const inView = no => page.evaluate(no => {
-  const body = document.querySelector('.code-pane.live .code-pane-body').getBoundingClientRect(), r = document.querySelector(`.code-pane.live tr[data-line="${no}"]`)?.getBoundingClientRect()
-  return Boolean(r && r.top >= body.top - 1 && r.bottom <= body.bottom + 1)
-}, no)
+}, [no, text, o, scope])
+/** Whether the row sits inside a column's scrolled view (the live one unless `scope` says). */
+const inView = (no, scope = '.code-pane.live') => page.evaluate(([no, scope]) => {
+  const body = document.querySelector(`${scope} .code-pane-body`)?.getBoundingClientRect(), r = document.querySelector(`${scope} tr[data-line="${no}"]`)?.getBoundingClientRect()
+  return Boolean(body && r && r.top >= body.top - 1 && r.bottom <= body.bottom + 1)
+}, [no, scope])
 /** Presses a key and says whether the page kept the browser from acting on it. */
 const pressKept = async key => {
   await page.evaluate(() => {
@@ -213,10 +215,76 @@ check('the evidence is in view and the map keeps its room', await until(() => in
 await sleep(600)
 await shot('pair')
 
-// 9. A sequence: ⌘-click a call selects its message and stacks the caller's line over the called function.
+// 9. Pins. ⌥⌘-click keeps the file read beside the live column, at the line read, and the map gives up that width.
+const pin = '.code-pane.pinned'
+const widthOf = sel => page.$eval(sel, e => Math.round(e.getBoundingClientRect().width)).catch(() => 0)
+const pinned = () => page.$$eval('.code-pane.pinned', ps => ps.map(p => p.querySelector('.code-pane-path .file-path')?.getAttribute('title') ?? ''))
+const wordIn = scope => page.$eval(`${scope} .code-pane-path`, e => e.textContent).catch(() => '')
+const varRanges = () => page.evaluate(() => [...CSS.highlights.keys()].filter(k => k.startsWith('duet-var-')).reduce((n, k) => n + CSS.highlights.get(k).size, 0))
+await pickBox('OrderService')
+await until(async () => (await halves()).length === 1 && (await shownPath()) === 'src/order/OrderService.kt')
+await until(() => page.$(`${live} tr[data-line="${saveCall}"]`)); await sleep(300)
+await page.$eval(`${live} .code-pane-body`, (b, no) => b.querySelector(`tr[data-line="${no}"]`).scrollIntoView({ block: 'center' }), saveCall); await sleep(200)
+const mainBefore = await widthOf('.canvas-main'), liveBefore = await liveWidth()
+p = await at(saveCall, 'save')
+await page.keyboard.down('Alt'); await page.keyboard.down('Meta'); await page.mouse.click(p.x, p.y); await page.keyboard.up('Meta'); await page.keyboard.up('Alt')
+check('⌥⌘-click pins the file read', await until(async () => JSON.stringify(await pinned()) === '["src/order/OrderService.kt"]'), JSON.stringify(await pinned()))
+check('and the live column goes on to the declaration', await until(async () => (await shownPath()) === 'src/repo/OrderRepository.kt'), await shownPath())
+check('the pin opens at the line read', await until(() => inView(saveCall, pin)))
+const side = await page.evaluate(() => [document.querySelector('.code-pane.pinned').getBoundingClientRect().right, document.querySelector('.code-pane.live').getBoundingClientRect().left])
+const pinWidth = await widthOf(pin), mainAfter = await widthOf('.canvas-main')
+check('left of the live column, the map giving up its width', Math.abs(side[0] - side[1]) <= 1 && Math.abs(mainBefore - mainAfter - pinWidth) <= 2 && (await liveWidth()) === liveBefore,
+  JSON.stringify({ side, mainBefore, mainAfter, pinWidth }))
+await sleep(1000)
+const middle = await page.evaluate(() => {
+  const b = document.querySelector('.stage-inner > svg .cv-node[data-target="OrderRepository"]').getBoundingClientRect(), s = document.querySelector('.stage-canvas').getBoundingClientRect()
+  return { box: Math.round(b.left + b.width / 2), stage: Math.round(s.left + s.width / 2) }
+})
+check('the part it went to is in the middle of the narrower map', Math.abs(middle.box - middle.stage) < 60, JSON.stringify(middle))
+// A word clicked in the pin lights in both columns; the caret line stays in the pin.
+await until(() => inView(saveCall, pin)); await sleep(300)
+p = await at(saveCall, 'order)', 1, pin)
+await page.mouse.click(p.x, p.y); await sleep(400)
+const hits = async scope => Number(/order\s+(\d+)곳/.exec(await wordIn(scope))?.[1] ?? 0)
+const [inPin, inLive] = [await hits(pin), await hits(live)]
+check('a word clicked in the pin lights in every column', inPin > 0 && inLive > 0 && (await size('duet-word')) === inPin + inLive, `${inPin}+${inLive} vs ${await size('duet-word')}`)
+check('the caret line is the pin\'s alone', JSON.stringify(await page.$$eval(`${pin} tr.cursor-line`, t => t.map(r => Number(r.dataset.line)))) === `[${saveCall}]` && (await rows('cursor-line')).length === 0)
+await shot('pinned')
+// Variable colors in both; unpinning takes only the pin's.
+await page.click(`${live} .code-pane-head button[title^="변수 색"]`)
+const bothVars = await until(async () => { const n = await varRanges(); return n > 0 && (await page.$(`${pin} .code-pane-body.vars-on`)) && (await page.$(`${live} .code-pane-body.vars-on`)) ? n : 0 }, 15000)
+await page.click(`${pin} button[aria-label="고정 풀기"]`)
+await until(async () => (await pinned()).length === 0)
+await sleep(300)
+const liveVars = await varRanges()
+check('unpinned, the live column keeps its variable colors', bothVars > 0 && liveVars > 0 && liveVars < bothVars, `${bothVars} → ${liveVars}`)
+await page.click(`${live} .code-pane-head button[title^="변수 색"]`)
+// ⌥-click on the map pins too; two pins in this room hide the older, and a narrow window hides both.
+await page.keyboard.press('f'); await sleep(900)
+await page.keyboard.down('Alt'); await pickBox('UserRepository'); await page.keyboard.up('Alt')
+check('⌥-click on the map pins the file read, and the live column follows', await until(async () => JSON.stringify(await pinned()) === '["src/repo/OrderRepository.kt"]' && (await shownPath()) === 'src/repo/UserRepository.kt'),
+  `${JSON.stringify(await pinned())} ${await shownPath()}`)
+await page.click(`${live} .code-pane-head button[aria-label="고정"]`)
+const toasted = () => page.$$eval('.toast', ts => ts.some(t => t.textContent.includes('오래된 고정 칸을 숨겼어')))
+const hiddenNote = () => page.$eval(`${live} .code-hidden`, e => e.textContent).catch(() => '')
+check('a second pin with no room for both hides the older, and says so', await until(async () => JSON.stringify(await pinned()) === '["src/repo/UserRepository.kt"]' && await toasted()) && (await hiddenNote()) === '고정 1개 숨김',
+  `${JSON.stringify(await pinned())} ${await hiddenNote()}`)
+check('the map keeps its least', (await widthOf('.canvas-main')) >= 360, await widthOf('.canvas-main'))
+await page.setViewportSize({ width: 1100, height: 940 }); await sleep(700)
+check('a narrow window hides every pin, the map still at its least', (await pinned()).length === 0 && (await hiddenNote()) === '고정 2개 숨김' && (await widthOf('.canvas-main')) >= 360,
+  `${JSON.stringify(await pinned())} ${await hiddenNote()} ${await widthOf('.canvas-main')}`)
+await page.setViewportSize({ width: 1500, height: 940 }); await sleep(700)
+check('widened again, the newest comes back', JSON.stringify(await pinned()) === '["src/repo/UserRepository.kt"]', JSON.stringify(await pinned()))
+
+// 10. Pins are the workspace's: another map and a reload keep them, and the live column waits for a pick.
+// A sequence: ⌘-click a call selects its message and stacks the caller's line over the called function.
 await page.evaluate(([w, m]) => localStorage.setItem(`duet.canvas.current:${w}`, m), [ws, seq])
 await page.reload({ waitUntil: 'domcontentloaded' })
 await page.waitForSelector('.stage-inner > svg .cv-actor[data-target="Client"]', { timeout: 20000 }); await sleep(1200)
+check('after a reload on another map the pins stay, and the live column waits', JSON.stringify(await until(async () => { const l = await pinned(); return l.length === 2 ? l : undefined })) === '["src/repo/OrderRepository.kt","src/repo/UserRepository.kt"]' && !(await page.$(live)),
+  JSON.stringify(await pinned()))
+await page.click(`${pin} button[aria-label="고정 풀기"]`)
+await until(async () => (await pinned()).length === 1)
 p = await center('.stage-inner > svg .cv-actor[data-target="Client"]')
 await page.mouse.click(p.x, p.y)
 check('a participant opens its file', await until(async () => (await shownPath()) === 'src/client/Client.kt'), await shownPath())

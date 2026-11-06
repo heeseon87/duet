@@ -486,7 +486,7 @@ export function CanvasView() {
           threads={s.threads}
           code={code?.marks}
           revised={s.preview ? undefined : s.revised}
-          onSelect={t => s.select(t)}
+          onSelect={(t, o) => s.select(t, o)}
           onToggleGroup={s.toggleCollapse}
           onContext={(t, at) => {
             // A known part is picked (lit) so the menu clearly speaks about it.

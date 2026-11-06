@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import { diffMaps, type CanvasMap, type Delivery, type MapDiff } from '../../../shared/canvas.ts'
+import { diffMaps, labelOf, type CanvasMap, type Delivery, type MapDiff } from '../../../shared/canvas.ts'
 import type { CanvasSummary, CanvasThread, MapCode } from '../../../shared/protocol.ts'
 import { ApiError, api, q, subscribe } from '../api.ts'
 import { local, useApp } from '../state.ts'
@@ -7,7 +7,7 @@ import { sendingTo } from '../terminalTarget.ts'
 import { lastAgentRevision, revisedBoxes } from './revised.ts'
 import { withDecision } from './decisionQueue.ts'
 import type { PartLink } from './codeLinks.ts'
-import { EMPTY, go, isPart, linkView, partIds, shown, step, swap, unfoldFor, viewOf, type LiveView, type Trail } from './codeNav.ts'
+import { EMPTY, addPin, go, isPart, linkView, parsePins, partIds, shown, step, swap, unfoldFor, viewOf, type LiveView, type Pin, type Trail } from './codeNav.ts'
 
 export type HistoryItem = { revision: number; by: 'agent' | 'person'; note?: string; ts: number }
 
@@ -27,6 +27,8 @@ type CanvasState = {
   selected?: string
   /** The live code column's history; its shown entry is the code of what is selected. */
   trail: Trail
+  /** Files kept beside the live column, oldest first; per workspace, remembered. */
+  pins: Pin[]
   /** A part to bring on screen once (a link followed, back, forward); the stage centers it, after the next drawing when a fold opened. */
   reveal?: { ids: string[]; afterRender: boolean; nonce: number }
   /** Showing an older revision instead of the current one. */
@@ -47,17 +49,22 @@ type CanvasState = {
   open: (name: string) => Promise<void>
   reload: () => Promise<void>
   refreshThreads: () => Promise<void>
-  /** Selects a part; the live code column follows to its code unless it shows that part already. */
-  select: (target: string | undefined) => void
+  /** Selects a part; the live code column follows to its code unless it shows that part already. `keep` pins what it showed first. */
+  select: (target: string | undefined, o?: { keep?: boolean }) => void
   /**
    * Follows a link from code: selects its part (unfolding its packages), shows the declaring code and reveals the part.
-   * `stay` only selects and reveals (the reader is on the declaration); `ref` opens that one of the part's files.
+   * `stay` only selects and reveals (the reader is on the declaration); `ref` opens that one of the part's files;
+   * `keep` pins what the live column showed first.
    */
-  goTo: (link: PartLink, o?: { stay?: boolean; ref?: string }) => void
+  goTo: (link: PartLink, o?: { stay?: boolean; ref?: string; keep?: boolean }) => void
   back: () => void
   forward: () => void
   /** Shows this file in doc `doc` of the live view (a tab, the menu's 코드 열기): no move in history. */
   showFile: (doc: number, ref: string) => void
+  /** Pins doc `doc` of the live column where the reader is; with no doc, each of them. */
+  pin: (doc?: number) => void
+  unpin: (id: string) => void
+  resizePin: (id: string, width: number) => void
   toggleCollapse: (groupId: string) => void
   /** Fold every package (nested ones too, so unfolding opens one level at a time), or unfold all. */
   setAllCollapsed: (fold: boolean) => void
@@ -135,11 +142,31 @@ function followDeliveries() {
   refreshing = setTimeout(() => { refreshing = undefined; void useCanvas.getState().refreshThreads() }, 400)
 }
 
-/** How the live column reads where its reader is: the top line of each of its docs. The store's only read of the screen. */
-let livePosition: () => number[] | undefined = () => undefined
-export const setLivePosition = (f: typeof livePosition) => { livePosition = f }
+/** Where the reader is in a live doc: its top line, and the file it reads (none for a part without files). */
+export type LivePlace = { line: number; file?: { root: string; path: string } }
+/** How the live column reads where its reader is, doc by doc. The store's only read of the screen. */
+let livePlaces: () => LivePlace[] | undefined = () => undefined
+export const setLivePosition = (f: typeof livePlaces) => { livePlaces = f }
+const livePosition = () => livePlaces()?.map(p => p.line)
 let seq = 0
 const nonce = () => ++seq
+
+/** The pins with the live column's docs (`doc`, else each) added where the reader is; the same array when none has a file. */
+function pinned(s: CanvasState, doc?: number): Pin[] {
+  const map = s.preview?.map ?? s.map, docs = shown(s.trail)?.view.docs, places = livePlaces()
+  if (!map || !docs || !places) return s.pins
+  const width = Number(local.get('canvas.codeWidth')) || 520
+  return docs.reduce((pins, d, i) => {
+    const file = places[i]?.file
+    if ((doc !== undefined && i !== doc) || !file) return pins
+    return addPin(pins, { ...file, line: places[i].line, label: labelOf(map, d.part), width }, `p${Date.now().toString(36)}${nonce()}`)
+  }, s.pins)
+}
+function keepPins(pins: Pin[]) {
+  const w = ws()
+  if (w) local.set(`canvas.codePins:${w}`, JSON.stringify(pins))
+  return pins
+}
 
 /** Opens the folded packages around these parts, remembered like a fold by hand; the same set when none was folded. */
 function unfold(map: CanvasMap, collapsed: Set<string>, ids: string[]): Set<string> {
@@ -150,9 +177,9 @@ function unfold(map: CanvasMap, collapsed: Set<string>, ids: string[]): Set<stri
 }
 
 /** Selects `target` with the live column on `trail`, bringing it on screen. */
-function arrive(map: CanvasMap, target: string, trail: Trail) {
+function arrive(map: CanvasMap, target: string, trail: Trail, pins = useCanvas.getState().pins) {
   const ids = partIds(map, target), was = useCanvas.getState().collapsed, collapsed = unfold(map, was, ids)
-  useCanvas.setState({ selected: target, trail, collapsed, reveal: { ids, afterRender: collapsed !== was, nonce: nonce() } })
+  useCanvas.setState({ selected: target, trail, pins, collapsed, reveal: { ids, afterRender: collapsed !== was, nonce: nonce() } })
 }
 
 /** Back or forward in the live column, past parts the map lost. */
@@ -167,6 +194,7 @@ export const useCanvas = create<CanvasState>((set, get) => ({
   list: [],
   revision: 0,
   trail: EMPTY,
+  pins: [],
   history: [],
   threads: [],
   deliveries: {},
@@ -178,7 +206,7 @@ export const useCanvas = create<CanvasState>((set, get) => ({
     if (!w) return
     const before = new Set(get().list.map(m => m.name))
     const list = await api.get<CanvasSummary[]>(`/api/canvas${q({ ws: w })}`)
-    set({ list })
+    set({ list, pins: parsePins(local.get(`canvas.codePins:${w}`)) })
     // A map that just appeared (the agent made it) opens by itself.
     const fresh = before.size ? list.filter(m => !before.has(m.name)) : []
     if (fresh.length === 1) { await get().open(fresh[0].name); return }
@@ -234,11 +262,12 @@ export const useCanvas = create<CanvasState>((set, get) => ({
     if (get().name === name) set(data)
   },
 
-  select: target => set(s => {
+  select: (target, o) => set(s => {
     const map = s.preview?.map ?? s.map
     const view = map && target ? viewOf(map, target) : undefined
     if (!view || shown(s.trail)?.view.target === target) return { selected: target }
-    return { selected: target, trail: go(s.trail, view, livePosition(), nonce()) }
+    const pins = o?.keep ? pinned(s) : s.pins
+    return { selected: target, trail: go(s.trail, view, livePosition(), nonce()), ...(pins !== s.pins && { pins: keepPins(pins) }) }
   }),
 
   goTo: (link, o) => {
@@ -246,7 +275,8 @@ export const useCanvas = create<CanvasState>((set, get) => ({
     if (!map) return
     const view = linkView(map, link)
     const opened: LiveView = o?.ref ? { ...view, docs: [{ ...view.docs[0], ref: o.ref }, ...view.docs.slice(1)] as LiveView['docs'] } : view
-    arrive(map, link.target, o?.stay ? s.trail : go(s.trail, opened, livePosition(), nonce()))
+    const pins = o?.keep && !o.stay ? pinned(s) : s.pins
+    arrive(map, link.target, o?.stay ? s.trail : go(s.trail, opened, livePosition(), nonce()), pins === s.pins ? pins : keepPins(pins))
   },
   back: () => move(-1),
   forward: () => move(1),
@@ -256,6 +286,12 @@ export const useCanvas = create<CanvasState>((set, get) => ({
     if (!cur || !cur.view.docs[doc]) return {}
     return { trail: swap(s.trail, { ...cur.view, docs: cur.view.docs.map((d, i) => (i === doc ? { ...d, ref } : d)) as LiveView['docs'] }) }
   }),
+  pin: doc => set(s => {
+    const pins = pinned(s, doc)
+    return pins === s.pins ? {} : { pins: keepPins(pins) }
+  }),
+  unpin: id => set(s => ({ pins: keepPins(s.pins.filter(p => p.id !== id)) })),
+  resizePin: (id, width) => set(s => ({ pins: keepPins(s.pins.map(p => (p.id === id ? { ...p, width } : p))) })),
 
   toggleCollapse: groupId => {
     const w = ws(), name = get().name

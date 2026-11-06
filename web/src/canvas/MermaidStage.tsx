@@ -83,7 +83,8 @@ type Props = {
   code?: Map<string, CodeMark>
   /** The boxes the agent's last revision added or changed, marked with a △ and that revision. */
   revised?: { revision: number; ids: string[] }
-  onSelect: (target: string | undefined) => void
+  /** `keep`: ⌥ held, the code column pins what it showed before it follows. */
+  onSelect: (target: string | undefined, o?: { keep?: boolean }) => void
   onToggleGroup: (id: string) => void
   /** Right click on a part (or on empty canvas: undefined), at this screen point. */
   onContext?: (target: string | undefined, at: { x: number; y: number }) => void
@@ -137,6 +138,10 @@ export const MermaidStage = forwardRef<StageHandle, Props & { viewKey: string }>
   mapRef.current = map
   /** Parts to frame once the drawing that is on its way has settled. */
   const pendingFrame = useRef<{ ids: string[]; keepZoom?: boolean } | undefined>(undefined)
+  /** The stage's size the view was last placed for; a resize moves the view by the difference from it. */
+  const seen = useRef<{ left: number; width: number }>(undefined)
+  /** Drops a resize's glide still waiting for its frame. */
+  const dropShift = useRef<() => void>(() => {})
   const [folds, setFolds] = useState<Fold[]>([])
   /** A fold is sliding into place: the buttons wait for the frames to land. */
   const [settling, setSettling] = useState(false)
@@ -223,6 +228,9 @@ export const MermaidStage = forwardRef<StageHandle, Props & { viewKey: string }>
     const w = Math.max(r - l, 40), h = Math.max(b - t, 30)
     const fits = Math.min(1.25, Math.max(0.15, Math.min((aw - 120) / w, (ah - 120) / h)))
     const k = keepZoom ? Math.min(viewRef.current.k, fits) : fits
+    // Placed for the stage as it is now: a resize already under way (a column opening with this move) must not shift it again.
+    dropShift.current()
+    seen.current = { left: box.left, width: box.width }
     glide()
     setView({ k, x: (aw - w * k) / 2 - l * k, y: (ah - h * k) / 2 - t * k })
   }, [glide])
@@ -383,12 +391,12 @@ export const MermaidStage = forwardRef<StageHandle, Props & { viewKey: string }>
 
   // The stage narrows or widens (the code pane, the agent panel, the window): the drawing keeps its middle, gliding
   // when the change is a jump, and a picked part that was in view stays so.
-  const seen = useRef<{ left: number; width: number }>(undefined)
   useEffect(() => {
     const host = outer.current
     if (!host) return
     // A jump's glide waits a frame; jumps before it add up.
     let frame = 0, pending = 0
+    dropShift.current = () => { cancelAnimationFrame(frame); frame = 0; pending = 0 }
     const obs = new ResizeObserver(() => {
       const box = host.getBoundingClientRect(), was = seen.current
       // Hidden, it has no middle: keep the last size, so coming back applies whatever changed meanwhile.
@@ -521,7 +529,7 @@ export const MermaidStage = forwardRef<StageHandle, Props & { viewKey: string }>
     if (d?.moved) return
     // A click, not a drag: find what is under the pointer. A decision pin picks its decision.
     const at = document.elementFromPoint(e.clientX, e.clientY) as Element | null
-    onSelect(at?.closest('[data-pin]')?.getAttribute('data-pin') ?? at?.closest('[data-target]')?.getAttribute('data-target') ?? undefined)
+    onSelect(at?.closest('[data-pin]')?.getAttribute('data-pin') ?? at?.closest('[data-target]')?.getAttribute('data-target') ?? undefined, { keep: e.altKey })
   }
   const onContextMenu = (e: React.MouseEvent) => {
     if (!onContext) return

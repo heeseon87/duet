@@ -111,6 +111,10 @@
 .code-pane-head > b { min-width: 0; }
 .code-added { flex: none; margin-left: 4px; font-family: var(--font-mono); font-size: 11.5px; color: var(--add); font-variant-numeric: tabular-nums; }
 .code-pane-head .toggle { flex: none; margin-left: 8px; }
+.code-pane-head .code-pin-mark { flex: none; color: var(--accent-ink); margin-right: 2px; }
+.code-pane-head .code-hidden { flex: none; margin-right: 4px; font-size: 11.5px; color: var(--ink-3); white-space: nowrap; }
+.code-doc-head .iconbtn { flex: none; margin-left: auto; }
+.code-doc-head .code-via + .iconbtn { margin-left: 0; }
 .code-tabs { display: flex; gap: 2px; padding: 0 10px 6px; overflow-x: auto; flex: none; }
 .code-tabs button { border: 0; background: transparent; height: 24px; padding: 0 8px; border-radius: 6px; font-size: 12px; color: var(--ink-3); white-space: nowrap; font-family: var(--font-mono); }
 .code-tabs button:hover { background: var(--hover); color: var(--ink); }
