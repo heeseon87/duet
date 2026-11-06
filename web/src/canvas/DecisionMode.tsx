@@ -7,7 +7,7 @@ import { Line, useTokens } from '../lib/Code.tsx'
 import { isTypingTarget, shortcutKey } from '../lib/ui.tsx'
 import { local, useApp } from '../state.ts'
 import { useReview } from '../review/store.ts'
-import { declarationOf, linesOf, sourceOf, type Source } from './CodePane.tsx'
+import { linesOf, sourceOf, targetOf, type Source } from './codeLinks.ts'
 import { Ask, DeliveryLine, ThreadView, WhyAsk, letterOf } from './DecisionParts.tsx'
 import { MermaidStage, type StageHandle } from './MermaidStage.tsx'
 import { nextDecision, optionShare } from './decisionQueue.ts'
@@ -373,20 +373,6 @@ function AsideCode({ map, d, pick }: { map: CanvasMap; d?: CanvasDecision; pick?
   )
 }
 
-/**
- * A box named after a function or a file ("User.kt authorizeUser()"): the first line past the imports that names the
- * longest word of its name.
- */
-function mentionOf(lines: string[], names: string[]): number | undefined {
-  const words = [...new Set(names.flatMap(n => n.match(/[A-Za-z_$][\w$]{3,}/g) ?? []))].sort((a, b) => b.length - a.length)
-  for (const w of words) {
-    const re = new RegExp(`\\b${w.replace(/\$/g, '\\$')}\\b`)
-    const i = lines.findIndex(l => re.test(l) && !/^\s*(import|package|using|#include|from)\b/.test(l))
-    if (i >= 0) return i + 1
-  }
-  return undefined
-}
-
 /** Lines shown around what a reference points at, or around the declaration when it points at none. */
 const AROUND = 3, SPAN_MAX = 40, PLAIN = 14
 
@@ -407,7 +393,7 @@ function Snippet({ label, names, refText, source }: { label: string; names: stri
   const lines = useMemo(() => (text ?? '').replace(/\n$/, '').split('\n'), [text])
   const tokens = useTokens(text ?? '', source?.path)
   const span = linesOf(refText)
-  const decl = text !== undefined && !span ? (declarationOf(lines, names) ?? mentionOf(lines, names)) : undefined
+  const decl = text !== undefined && !span ? targetOf(lines, fileOfRef(refText), refText, { names, kind: 'type', soft: true }).rows?.[0] : undefined
   const [from, to] = span ?? (decl ? [decl, decl] : [1, 0])
   const first = Math.max(1, (span || decl ? from : 1) - (span ? AROUND : 1))
   const last = Math.min(lines.length, span ? Math.min(to + AROUND, from + SPAN_MAX) : decl ? decl + PLAIN : PLAIN)

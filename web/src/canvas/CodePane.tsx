@@ -1,8 +1,7 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { Copy, Ellipsis, FileDiff, ListTree, Loader2, Minus, Palette, Plus, X } from 'lucide-react'
-import { fileOfRef, filesUnder, labelOf, relationKey, type CanvasMap } from '../../../shared/canvas.ts'
+import { fileOfRef, labelOf, type CanvasMap } from '../../../shared/canvas.ts'
 import { absoluteRef, refBase } from '../../../shared/mapFiles.ts'
-import type { DiffResult } from '../../../shared/protocol.ts'
 import { api, q } from '../api.ts'
 import { Line, useTokens } from '../lib/Code.tsx'
 import { local, useApp } from '../state.ts'
@@ -12,6 +11,8 @@ import { PathLabel } from '../review/DiffView.tsx'
 import { escapeRe, matchRanges, registry } from '../review/FindBar.tsx'
 import { widestCols } from '../review/diffModel.ts'
 import { useCanvas } from './store.ts'
+import { linesOf, refsFor, sourceOf, targetOf } from './codeLinks.ts'
+import { viewOf } from './codeNav.ts'
 import { activeAt, outlineOf, type OutlineItem, type SymbolKind } from './outline.ts'
 import { VAR_COLORS, varLangOf, type Span, type VarMark } from './variables.ts'
 import { variableMarks } from './variablesLoader.ts'
@@ -30,48 +31,6 @@ const CODE_MIN = 200
 const OUTLINE_HIDE = 60
 const WORD_CHAR = /[\p{L}\p{N}_$]/u
 const isWord = (s: string) => /^[\p{L}\p{N}_$]+$/u.test(s)
-
-/** The file references a part stands for: a box's own (with their lines), a package's everything inside, a line's or a message's two ends'. */
-export function codeRefsOf(map: CanvasMap, target: string): string[] {
-  const own = (id: string) => map.elements.find(e => e.id === id)?.files ?? []
-  const el = map.elements.find(e => e.id === target)
-  if (el) return el.kind === 'group' ? filesUnder(map, target) : own(target)
-  const ends = map.relations.find(r => relationKey(r) === target) ?? map.messages?.find(m => m.id === target)
-  return ends ? [...new Set([...own(ends.from ?? ''), ...own(ends.to ?? '')])] : []
-}
-
-/** `path:12` or `path:12-30`: the lines a reference points at. */
-export function linesOf(ref: string): [number, number] | undefined {
-  const m = /:(\d+)(?:-(\d+))?$/.exec(ref)
-  return m ? [Number(m[1]), Number(m[2] ?? m[1])] : undefined
-}
-
-/** The line declaring the part (`class Store`, `interface Store`, `CREATE TABLE store`…), by its id or a label that is a name. */
-export function declarationOf(lines: string[], names: string[]): number | undefined {
-  const ok = names.filter(n => /^[A-Za-z_$][\w$]*$/.test(n))
-  if (!ok.length) return undefined
-  const re = new RegExp(`\\b(?:class|interface|protocol|actor|enum|object|record|struct|trait|type|table)\\s+[\`"']?(?:${ok.join('|')})\\b`, 'i')
-  const i = lines.findIndex(l => re.test(l))
-  return i >= 0 ? i + 1 : undefined
-}
-
-export type Source = { root: string; path: string; ref: string; marks: boolean }
-
-/**
- * Where to read a file: in the code the review shows for this map (at that version, its changed lines marked) when the
- * map is bound and the file is in it, else as it is on disk in the review's tree or the workspace.
- */
-export function sourceOf(abs: string, workspace: string, mapName: string | undefined, review: { root?: string; diff?: DiffResult; bound?: { map: string }; editing: boolean }, codeRoot?: string): Source | undefined {
-  const { root, diff, bound, editing } = review
-  const mine = Boolean(bound && bound.map === mapName && !editing && diff && root)
-  // The map's own repository too: its files open from there while the review shows another tree.
-  for (const r of [root, workspace, codeRoot]) {
-    if (!r || !abs.startsWith(r + '/')) continue
-    const path = abs.slice(r.length + 1)
-    return mine && r === root ? { root: r, path, ref: diff!.newRef, marks: true } : { root: r, path, ref: 'WORKTREE', marks: false }
-  }
-  return undefined
-}
 
 /**
  * The code of the part picked on the canvas (`target`), beside the map. It opens on the part's declaration or its
@@ -92,7 +51,7 @@ export function CodePane({ map, target, want, slide, onClose }: { map: CanvasMap
   useEffect(() => setPick(undefined), [target])
   useEffect(() => { if (want) setPick(want.file) }, [want])
 
-  const refs = useMemo(() => codeRefsOf(map, target), [map, target])
+  const refs = useMemo(() => refsFor(map, target), [map, target])
   const ref = refs.find(r => r === pick) ?? refs.find(r => fileOfRef(r) === fileOfRef(pick ?? '')) ?? refs[0]
   const source = ref ? sourceOf(absoluteRef(refBase(workspace, codeRoot), ref), workspace, mapName, { root, diff, bound, editing }, codeRoot) : undefined
   const key = source ? `${source.root}\0${source.ref}\0${source.path}` : ''
@@ -112,10 +71,9 @@ export function CodePane({ map, target, want, slide, onClose }: { map: CanvasMap
   const lines = useMemo(() => (text ?? '').replace(/\n$/, '').split('\n'), [text])
   const tokens = useTokens(text ?? '', source?.path)
 
-  const el = map.elements.find(e => e.id === target)
-  const span = ref ? linesOf(ref) : undefined
-  const decl = useMemo(() => (text === undefined || span || !el ? undefined : declarationOf(lines, [el.id, el.label ?? ''])), [text, lines, span, el])
-  const [from, to] = span ?? (decl ? [decl, decl] : [0, -1])
+  const seek = viewOf(map, target)?.docs[0].seek
+  const rows = useMemo(() => (text === undefined || !ref || !source ? undefined : targetOf(lines, source.path, ref, seek).rows), [text, lines, ref, source?.path, JSON.stringify(seek)]) // eslint-disable-line react-hooks/exhaustive-deps
+  const [from, to] = rows ?? (ref ? linesOf(ref) : undefined) ?? [0, -1]
   // The file as the map's code changed it: its new lines are marked, and it is marked viewed as in the review.
   const changedFile = useMemo(() => (source?.marks && diff ? diff.files.find(x => x.path === source.path) : undefined), [source?.marks, source?.path, diff])
   const changed = useMemo(() => {

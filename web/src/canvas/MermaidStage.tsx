@@ -6,6 +6,7 @@ import { optionShare } from './decisionQueue.ts'
 import type { CodeMark } from '../../../shared/mapFiles.ts'
 import type { CanvasThread } from '../../../shared/protocol.ts'
 import { DURATION, measure, morph, reducedMotion, type Morph } from './morph.ts'
+import { partIds } from './codeNav.ts'
 
 type Mermaid = typeof import('mermaid').default
 let mermaidP: Promise<Mermaid> | undefined
@@ -108,12 +109,6 @@ const FOLD_MIN = 8
 const MIN_ZOOM = 0.05
 /** Drawn lines and messages, and their labels: everything with a target that is not a box. */
 const LINES = '.cv-edge, .cv-edge-hit, .cv-label, .cv-msg, .cv-msg-text'
-
-/** What zooming to a part brings on screen: a line comes with the boxes at its ends; a message alone (its ends are whole lifelines). */
-export function partIds(map: CanvasMap, target: string): string[] {
-  const rel = map.relations.find(r => relationKey(r) === target)
-  return rel ? [rel.from, rel.to, target] : [target]
-}
 
 export const MermaidStage = forwardRef<StageHandle, Props & { viewKey: string }>(function MermaidStage(props, ref) {
   const { map, collapsed, ghostsFrom, glow, selected, peek, threads, code, revised, onSelect, onToggleGroup, onContext, viewKey } = props
