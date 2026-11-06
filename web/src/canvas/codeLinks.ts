@@ -4,7 +4,7 @@
 import { fileOfRef, filesUnder, relationKey, type CanvasElement, type CanvasMap } from '../../../shared/canvas.ts'
 import { absoluteRef } from '../../../shared/mapFiles.ts'
 import type { DiffResult } from '../../../shared/protocol.ts'
-import { outlineOf, type SymbolKind } from './outline.ts'
+import { outlineOf, type OutlineItem, type SymbolKind } from './outline.ts'
 
 export type DeclKind = 'type' | 'function' | 'field'
 /** A name in code that stands for a part of the map. */
@@ -36,6 +36,8 @@ function memberName(text: string): { name: string; kind: 'function' | 'field' } 
   const last = t.match(/[A-Za-z_$][\w$]*/g)?.at(-1)
   return last ? { name: last, kind: 'field' } : undefined
 }
+/** A member line may list several names joined by `·` (`findByUserId · findByGroup`): each is read as its own member. */
+const memberNames = (text: string) => text.split('·').flatMap(t => memberName(t) ?? [])
 
 /** A message's call: the name its label starts with (`place(order)`, `repo.save(o)`), when a `(` follows or the label is that word alone. */
 export function callName(label: string | undefined): string | undefined {
@@ -62,10 +64,7 @@ function linkIndex(map: CanvasMap): LinkIndex {
     add({ name: el.id, target: el.id, owner: el.id, kind: 'type' })
     const label = el.label?.replace(/~[^~]*~|<[^>]*>/g, '').trim()
     if (label) add({ name: label, target: el.id, owner: el.id, kind: 'type' })
-    for (const m of el.members ?? []) {
-      const n = memberName(m.text)
-      if (n) add({ name: n.name, target: el.id, owner: el.id, kind: n.kind })
-    }
+    for (const m of el.members ?? []) for (const n of memberNames(m.text)) add({ name: n.name, target: el.id, owner: el.id, kind: n.kind })
   }
   for (const m of map.messages ?? []) {
     const call = m.to ? callName(m.label) : undefined
@@ -94,26 +93,33 @@ export function linkAt(text: string, offset: number): { name: string; receiver?:
 /**
  * The parts a name may lead to, best first. `here` lists the parts whose own files hold the file being read.
  * With a receiver: a `via` of a relation from `here` naming it (→ that relation's `to`), then a type part it names (a
- * static call), then the rest. Without one (or `this`, `self`): `here`, then parts tied to `here` by a relation, then
- * the rest. A receiver the map does not know says nothing about its type, so it never picks by relation.
+ * static call), then the rest. A box the receiver names this way is where the call goes even when its members do not
+ * list the name: its file is searched for the declaration, and another box declaring the same name never wins over it.
+ * Without a receiver (or `this`, `self`): `here`, then parts tied to `here` by a relation, then the rest. A receiver
+ * the map does not know says nothing about its type, so it never picks by relation.
  * `sure` when the best non-empty tier holds exactly one link.
  */
 export function resolveLink(map: CanvasMap, at: { name: string; receiver?: string; here: readonly string[] }): { links: PartLink[]; sure: boolean } {
   const index = linkIndex(map)
   const all = index.get(at.name) ?? []
-  if (!all.length) return { links: [], sure: false }
   const here = new Set(at.here)
   const r = at.receiver
   const tiers: PartLink[][] = []
   const owned = (owners: Iterable<string>) => { const o = new Set(owners); return all.filter(l => o.has(l.owner)) }
+  const into = (boxes: string[]): PartLink[] => {
+    const listed = owned(boxes)
+    if (listed.length || !isName(at.name)) return listed
+    return [...new Set(boxes)].map(b => ({ name: at.name, target: b, owner: b, kind: 'function' }))
+  }
   if (r && r !== 'this' && r !== 'self') {
-    tiers.push(owned(map.relations.filter(x => here.has(x.from) && viaName(x.via) === r).map(x => x.to)))
-    tiers.push(owned((index.get(r) ?? []).filter(l => l.kind === 'type').map(l => l.owner)))
+    tiers.push(into(map.relations.filter(x => here.has(x.from) && viaName(x.via) === r).map(x => x.to)))
+    tiers.push(into((index.get(r) ?? []).filter(l => l.kind === 'type').map(l => l.owner)))
   } else {
     tiers.push(owned(here))
     tiers.push(owned(map.relations.flatMap(x => (here.has(x.from) ? [x.to] : here.has(x.to) ? [x.from] : []))))
   }
   const top = tiers.find(t => t.length) ?? all
+  if (!top.length) return { links: [], sure: false }
   return { links: [...top, ...all.filter(l => !top.includes(l))], sure: top.length === 1 }
 }
 
@@ -140,7 +146,8 @@ const DECL_KINDS: Record<DeclKind, readonly SymbolKind[]> = {
 /**
  * The lines a file opens on, and the word to light.
  *  - Name seek: an outline declaration with that name and kind, preferring one inside the ref's span. Then
- *    declarationOf for types (languages the outline does not read). Then the first mention past the imports.
+ *    declarationOf for types (languages the outline does not read). Then an outline declaration with that name of
+ *    any kind (a member listed bare, a call reached through its receiver). Then the first mention past the imports.
  *  - A soft seek on a ref with a span → the span; a soft seek lights nothing and never says it missed.
  *  - Nothing found → the span, else the top, and `missed` names it.
  */
@@ -152,9 +159,11 @@ export function targetOf(lines: string[], path: string, ref: string, seek?: Seek
     return at ? { rows: [at, at], lit: seek.mention } : { rows: span, lit: seek.mention, missed: seek.mention }
   }
   if (seek.soft && span) return { rows: span }
-  const items = outlineOf(lines, path)?.filter(it => seek.names.includes(it.name) && DECL_KINDS[seek.kind].includes(it.kind))
-  const found = (items?.find(it => span && it.line >= span[0] && it.line <= span[1]) ?? items?.[0])?.line
+  const named = outlineOf(lines, path)?.filter(it => seek.names.includes(it.name))
+  const near = (items?: OutlineItem[]) => items?.find(it => span && it.line >= span[0] && it.line <= span[1]) ?? items?.[0]
+  const found = near(named?.filter(it => DECL_KINDS[seek.kind].includes(it.kind)))?.line
     ?? (seek.kind === 'type' ? declarationOf(lines, seek.names) : undefined)
+    ?? near(named)?.line
     ?? mentionOf(lines, seek.names)
   const lit = seek.soft ? undefined : seek.names[0]
   if (found) return { rows: [found, found], lit }

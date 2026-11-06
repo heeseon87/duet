@@ -81,6 +81,52 @@ describe('resolveLink', () => {
   })
 })
 
+describe('a call through a field the map draws (구독 판정에 멤버십 반영)', () => {
+  const membership: CanvasMap = {
+    schema: 1, diagram: 'class', title: 'm', relations: [{ from: 'memberrepo', to: 'memberjpa', via: 'field membershipJpaRepo' }],
+    elements: [
+      { id: 'memberrepo', label: 'MembershipRepo', files: ['MembershipRepo.kt'], members: [{ text: 'findActiveByUserId(userId): Membership?' }, { text: 'findByMembershipGroup(group): List<Membership>' }, { text: 'existsByUserId(userId): Boolean (나간·닫힌 이력 포함)' }] },
+      { id: 'memberjpa', kind: 'interface', label: 'MembershipJpaRepo', files: ['MembershipJpaRepo.kt'], members: [{ text: 'findByUserIdAndExitedAtIsNull · findByMembershipGroup' }, { text: 'existsByUserId(userId)' }] },
+    ],
+  }
+  const from = (name: string, receiver?: string) => resolveLink(membership, { name, receiver, here: ['memberrepo'] })
+
+  it('reads each name of a member line joined by ·', () => {
+    expect(targets(resolveLink(membership, { name: 'findByUserIdAndExitedAtIsNull', here: [] }))).toEqual(['memberjpa:memberjpa:field'])
+  })
+
+  it('goes to the box the receiver\'s field leads to, not the caller\'s method of the same name', () => {
+    const r = from('findByMembershipGroup', 'membershipJpaRepo')
+    expect([r.sure, r.links[0].owner]).toEqual([true, 'memberjpa'])
+    expect(from('existsByUserId', 'membershipJpaRepo').links[0].owner).toBe('memberjpa')
+  })
+
+  it('goes there even when the map does not list the name', () => {
+    const r = from('countByMembershipGroupAndRoleAndExitedAtIsNull', 'membershipJpaRepo')
+    expect([r.sure, ...targets(r)]).toEqual([true, 'memberjpa:memberjpa:function'])
+    expect(from('countByMembershipGroupAndRoleAndExitedAtIsNull').links).toEqual([])
+  })
+
+  it('still takes the file\'s own method without a receiver', () => {
+    expect(from('findByMembershipGroup').links[0].owner).toBe('memberrepo')
+  })
+
+  it('finds the declaration in the receiver\'s file whatever kind the map gave it', () => {
+    const jpa = [
+      'package com.example.membership.domain.infra',
+      '',
+      'import org.springframework.data.jpa.repository.JpaRepository',
+      '',
+      'interface MembershipJpaRepo : JpaRepository<Membership, Int> {',
+      '\t// findByMembershipGroup includes members who left',
+      '\tfun findByUserIdAndExitedAtIsNull(userId: String): Membership?',
+      '\tfun findByMembershipGroup(membershipGroup: MembershipGroup): List<Membership>',
+      '}',
+    ]
+    expect(targetOf(jpa, 'MembershipJpaRepo.kt', 'MembershipJpaRepo.kt', { names: ['findByMembershipGroup'], kind: 'field' })).toEqual({ rows: [8, 8], lit: 'findByMembershipGroup' })
+  })
+})
+
 describe('linkAt', () => {
   const at = (text: string, word: string, o = 0) => linkAt(text, text.indexOf(word) + o)
   it('reads the name under a character and its receiver', () => {
