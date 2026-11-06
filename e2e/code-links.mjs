@@ -5,7 +5,7 @@
 // the word. ⌘[ ⌘], the head's ‹ › and the mouse's back and forward buttons retrace the way, back to the line read.
 // A relation or a message shows its two ends stacked: `from` at its via's evidence (or the call), `to` at its declaration.
 // ⌥ with a ⌘-click (or a map click) pins the file read beside the live column; a word lights in every column; the
-// room hides the oldest pin, never taking the map below 360px.
+// room hides the oldest pin, never taking the map below 360px. `]` `[` and the head's +n step through changed lines.
 //   DUET_PORT=7981 DUET_TOKEN=... [DUET_SCRATCH=<folder>] DUET_SHOTS=/dir node e2e/code-links.mjs
 //   (makes a repo under DUET_SCRATCH, else the temp folder, opens it as a workspace and leaves it there.)
 import { execFileSync } from 'node:child_process'
@@ -65,6 +65,11 @@ await call('POST', `/api/canvas/${seq}/patch`, { ws, note: 'm', patch: {
   elements: [{ id: 'Client', files: ['src/client/Client.kt'] }, { id: 'OrderService', files: ['src/order/OrderService.kt'] }],
   messages: [{ id: 'm1', from: 'Client', to: 'OrderService', label: 'place(order)' }],
 } })
+// The maps are bound to this commit and the tree on disk; OrderService.kt then changes in two places, the maps' code.
+const changedService = service.split('\n')
+changedService[14] += ' (checked)'; changedService[15] += ' (checked)'
+writeFileSync(join(ws, 'src/order/OrderService.kt'), `${changedService.join('\n')}fun audit() = Unit\n`)
+const auditLine = service.split('\n').length
 
 const { browser, page, errors } = await open({ port, token: T, ws, width: 1500, height: 940 })
 await page.evaluate(([w, m]) => {
@@ -295,6 +300,29 @@ check('⌘-click on a call selects its message', await until(() => page.evaluate
 const seqPair = await until(async () => { const h = await halves(); return h.length === 2 && h[0].target.length && h[1].target.length ? h : undefined })
 check('and stacks the call over the function called', seqPair?.[0].path === 'src/client/Client.kt' && JSON.stringify(seqPair?.[0].target) === '[5]'
   && seqPair?.[1].path === 'src/order/OrderService.kt' && JSON.stringify(seqPair?.[1].target) === `[${placeLine}]`, JSON.stringify(await halves()))
+
+// 11. `]` and `[` (and the head's +n, ⇧ for back) go through the blocks of changed lines, round the end.
+await page.click(`${pin} button[aria-label="고정 풀기"]`)
+await until(async () => (await pinned()).length === 0)
+await page.keyboard.press('f'); await sleep(900)
+p = await center('.stage-inner > svg .cv-actor[data-target="OrderService"]')
+await page.mouse.click(p.x, p.y)
+await until(async () => (await halves()).length === 1 && (await shownPath()) === 'src/order/OrderService.kt')
+const added = () => page.$eval(`${live} .code-pane-head .code-added`, e => e.textContent).catch(() => '')
+const caretAt = async () => JSON.stringify(await rows('cursor-line'))
+check('a file the map\'s code changed counts its changed lines', await until(async () => (await added()) === '+3'), await added())
+await page.keyboard.press(']')
+check('] goes to the first block, its first line clicked and in view', await until(async () => (await caretAt()) === '[15]') && await until(() => inView(15)), await caretAt())
+await page.keyboard.press(']')
+check('] again goes to the next', await until(async () => (await caretAt()) === `[${auditLine}]`) && await until(() => inView(auditLine)), await caretAt())
+await page.keyboard.press(']')
+check('past the last, round to the first', await until(async () => (await caretAt()) === '[15]'), await caretAt())
+await page.keyboard.press('[')
+check('[ goes back, round to the last', await until(async () => (await caretAt()) === `[${auditLine}]`), await caretAt())
+await page.click(`${live} .code-pane-head .code-added`)
+check('the head\'s +n steps on', await until(async () => (await caretAt()) === '[15]'), await caretAt())
+await page.click(`${live} .code-pane-head .code-added`, { modifiers: ['Shift'] })
+check('and with ⇧ steps back', await until(async () => (await caretAt()) === `[${auditLine}]`), await caretAt())
 
 await call('DELETE', `/api/canvas/${seq}?ws=${encodeURIComponent(ws)}`)
 await call('DELETE', `/api/canvas/${name}?ws=${encodeURIComponent(ws)}`)

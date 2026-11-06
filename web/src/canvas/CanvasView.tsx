@@ -10,7 +10,7 @@ import { local, useApp } from '../state.ts'
 import { Popover, isTypingTarget, relTime, shortcutKey } from '../lib/ui.tsx'
 import { MermaidStage, type StageHandle } from './MermaidStage.tsx'
 import { isPart, partIds } from './codeNav.ts'
-import { CodeColumns, navStep } from './CodePane.tsx'
+import { CodeColumns, navStep, stepChanged } from './CodePane.tsx'
 import { FlowList } from './FlowList.tsx'
 import { flowSteps, stepFrom } from './flow.ts'
 import { ContextMenu, FloatAt, type MenuEntry, type Point } from './ContextMenu.tsx'
@@ -265,6 +265,7 @@ export function CanvasView() {
       else if ((k === '=' || k === '+') && !e.metaKey) stage.current?.zoom(1.2)
       else if (k === '-' && !e.metaKey) stage.current?.zoom(1 / 1.2)
       else if (k === 'c' && !e.metaKey && !e.ctrlKey) showCode(!codeOpenRef.current)
+      else if ((k === '[' || k === ']') && !e.metaKey && !e.ctrlKey && !e.altKey) stepChanged(k === ']' ? 1 : -1)
       else if ((k === 'n' || k === 'p') && !e.metaKey && !e.ctrlKey) {
         const st = useCanvas.getState()
         const m = st.preview?.map ?? st.map

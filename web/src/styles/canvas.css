@@ -110,6 +110,8 @@
 .code-pane-head { display: flex; align-items: center; gap: 4px; padding: 8px 8px 6px 14px; font-size: 13px; }
 .code-pane-head > b { min-width: 0; }
 .code-added { flex: none; margin-left: 4px; font-family: var(--font-mono); font-size: 11.5px; color: var(--add); font-variant-numeric: tabular-nums; }
+button.code-added { padding: 0 2px; border: 0; border-radius: 4px; background: none; cursor: pointer; }
+button.code-added:hover { background: var(--hover); }
 .code-pane-head .toggle { flex: none; margin-left: 8px; }
 .code-pane-head .code-pin-mark { flex: none; color: var(--accent-ink); margin-right: 2px; }
 .code-pane-head .code-hidden { flex: none; margin-right: 4px; font-size: 11.5px; color: var(--ink-3); white-space: nowrap; }

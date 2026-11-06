@@ -13,7 +13,7 @@ import { escapeRe, matchRanges } from '../review/FindBar.tsx'
 import { widestCols } from '../review/diffModel.ts'
 import { setLivePosition, useCanvas } from './store.ts'
 import { linesOf, linkAt, partsOfFile, pinSource, refsFor, resolveLink, sourceOf, targetOf, type PartLink, type ReviewSide, type Seek, type Source } from './codeLinks.ts'
-import { MIN_WIDTH, isPart, layoutColumns, linkView, shown, type Doc, type Entry, type Pin } from './codeNav.ts'
+import { MIN_WIDTH, isPart, layoutColumns, linkView, nextBlock, shown, type Doc, type Entry, type Pin } from './codeNav.ts'
 import { ContextMenu, type MenuEntry, type Point } from './ContextMenu.tsx'
 import { painter, type Painter } from './paint.ts'
 import { activeAt, outlineOf, type OutlineItem, type SymbolKind } from './outline.ts'
@@ -46,6 +46,10 @@ export function navStep(e: KeyboardEvent, key: string): -1 | 1 | undefined {
 export const NAV_KEYS = MAC ? ['⌘[', '⌘]'] : ['Alt+←', 'Alt+→']
 /** Held with a click that moves the live column (on the map, or a link), it first pins what the column showed. */
 export const PIN_KEY = MAC ? '⌥' : 'Alt'
+
+/** `[` and `]`: the live column's top file goes to its previous or next block of changed lines. False when it shows none. */
+let liveStep: ((dir: -1 | 1) => boolean) | undefined
+export const stepChanged = (dir: -1 | 1) => liveStep?.(dir) ?? false
 
 /** The word lit in every column: a click on a word, a selection on one line, or the name a move went to. */
 type Word = { text: string; whole: boolean }
@@ -213,16 +217,19 @@ function useChanged(source?: Source): { changedFile?: DiffFile; changed: Set<num
   return { changedFile, changed }
 }
 
-function ChangedMarks({ changedFile, changed }: ReturnType<typeof useChanged>) {
+/** `+n` and Viewed for a file the map's code changed. `+n` steps through its blocks of changed lines (⇧: back). */
+function ChangedMarks({ changedFile, changed, onStep }: ReturnType<typeof useChanged> & { onStep?: (dir: -1 | 1) => void }) {
   const viewed = useReview(s => Boolean(changedFile && s.viewed[changedFile.path])), toggleViewed = useReview(s => s.toggleViewed)
   return <>
-    {changed.size > 0 && <span className="code-added" title={`더해지거나 바뀐 줄 ${changed.size}개`}>+{changed.size}</span>}
+    {changed.size > 0 && (
+      <button className="code-added" title={`더해지거나 바뀐 줄 ${changed.size}개 · 누르면 다음 묶음으로 (]), ⇧ 누르고 누르면 이전 ([)`} onClick={e => onStep?.(e.shiftKey ? -1 : 1)}>+{changed.size}</button>
+    )}
     {changedFile && <label className="toggle" title="리뷰의 Viewed"><input type="checkbox" checked={viewed} onChange={() => toggleViewed(changedFile)} /> Viewed</label>}
   </>
 }
 
 /** What the live column knows of each doc it shows, for the store (where the reader is, to go back or pin) and its own menu. */
-type DocSpot = { top?: () => number | undefined; target?: number; file?: { root: string; path: string } }
+type DocSpot = { top?: () => number | undefined; target?: number; file?: { root: string; path: string }; step?: (dir: -1 | 1) => boolean }
 
 /** Dragging a column's left edge sets its width: as it moves, then `done` on release. */
 function edgeDrag(pane: React.RefObject<HTMLElement | null>, width: number, onWidth: (w: number, done: boolean) => void) {
@@ -257,6 +264,7 @@ function PinColumn({ map, pin, width, settings, word, onWord, hidden, onWidth, o
   const source = pinSource(pin, mapName, review)
   const changed = useChanged(source)
   const pane = useRef<HTMLElement>(null)
+  const spot = useRef<DocSpot>({})
   useWheelZoom(pane, settings)
   return (
     <aside className="code-pane pinned" ref={pane} style={{ width, '--code-scale': settings.scale } as React.CSSProperties}>
@@ -264,13 +272,13 @@ function PinColumn({ map, pin, width, settings, word, onWord, hidden, onWidth, o
       <div className="code-pane-head">
         <PinIcon size={13} className="code-pin-mark" aria-hidden />
         <b className="ellipsis" title={pin.path}>{pin.label}</b>
-        <ChangedMarks {...changed} />
+        <ChangedMarks {...changed} onStep={d => spot.current.step?.(d)} />
         <span className="grow" />
         {hidden > 0 && <HiddenPins n={hidden} />}
         <button className="iconbtn" aria-label="고정 풀기" title="고정 풀기" onClick={() => unpin(pin.id)}><X size={14} /></button>
       </div>
       <CodeDoc map={map} file={{ refs: [], ref: pin.path, source }} label={pin.label} nonce={0} at={pin.line} lead={false} width={width}
-        settings={settings} word={word} onWord={onWord} onPeek={onPeek} onChoose={onChoose} />
+        settings={settings} word={word} onWord={onWord} spot={spot.current} onPeek={onPeek} onChoose={onChoose} />
     </aside>
   )
 }
@@ -295,7 +303,8 @@ function LiveColumn({ map, entry, width, settings, word, onWord, hidden, slide, 
   count.current = docs.length
   useEffect(() => {
     setLivePosition(() => spots.current.slice(0, count.current).map(s => ({ line: s.top?.() ?? 1, file: s.file })))
-    return () => setLivePosition(() => undefined)
+    liveStep = dir => spots.current[0].step?.(dir) ?? false
+    return () => { setLivePosition(() => undefined); liveStep = undefined }
   }, [])
   const solo = docs.length === 1
   const soloChanged = useChanged(solo ? files[0].source : undefined)
@@ -310,7 +319,7 @@ function LiveColumn({ map, entry, width, settings, word, onWord, hidden, slide, 
         <button className="iconbtn code-nav" disabled={!canBack} aria-label="뒤로" title={`뒤로 (${NAV_KEYS[0]})`} onClick={back}><ChevronLeft size={14} /></button>
         <button className="iconbtn code-nav" disabled={!canForward} aria-label="앞으로" title={`앞으로 (${NAV_KEYS[1]})`} onClick={forward}><ChevronRight size={14} /></button>
         <b className="ellipsis">{head}</b>
-        {solo && <ChangedMarks {...soloChanged} />}
+        {solo && <ChangedMarks {...soloChanged} onStep={d => spots.current[0].step?.(d)} />}
         <span className="grow" />
         {hidden > 0 && <HiddenPins n={hidden} />}
         {solo && files[0].source && <button className="iconbtn" aria-label="고정" title={pinTitle} onClick={() => pin()}><PinIcon size={14} /></button>}
@@ -344,19 +353,21 @@ function LiveColumn({ map, entry, width, settings, word, onWord, hidden, slide, 
       {docs.map((doc, i) => (
         <CodeDoc key={i} map={map} file={files[i]} seek={doc.seek} label={labelOf(map, doc.part)} nonce={entry.nonce} at={entry.at?.[i]} lead={i === 0} width={width}
           settings={settings} word={word} onWord={onWord} spot={spots.current[i]} onTab={r => useCanvas.getState().showFile(i, r)} onPeek={onPeek} onChoose={onChoose}
-          head={solo ? undefined : <DocHead label={labelOf(map, doc.part)} source={files[i].source} via={i === 0 ? via : undefined} onPin={files[i].source && (() => pin(i))} pinTitle={pinTitle} />} />
+          head={solo ? undefined : <DocHead label={labelOf(map, doc.part)} source={files[i].source} via={i === 0 ? via : undefined} onPin={files[i].source && (() => pin(i))} pinTitle={pinTitle} onStep={d => spots.current[i].step?.(d)} />} />
       ))}
     </aside>
   )
 }
 
 /** One end of a pair: its part, how its file stands in the review, and for the `from` end the relation's evidence. */
-function DocHead({ label, source, via, onPin, pinTitle }: { label: string; source?: Source; via?: string; onPin?: () => void; pinTitle: string }) {
+function DocHead({ label, source, via, onPin, pinTitle, onStep }: {
+  label: string; source?: Source; via?: string; onPin?: () => void; pinTitle: string; onStep: (dir: -1 | 1) => void
+}) {
   const changed = useChanged(source)
   return (
     <div className="code-doc-head">
       <b>{label}</b>
-      <ChangedMarks {...changed} />
+      <ChangedMarks {...changed} onStep={onStep} />
       {via && <span className="code-via" title="이 선을 그린 근거(via): 그 코드가 표시된 줄">근거: {via}</span>}
       {onPin && <button className="iconbtn" aria-label="고정" title={pinTitle} onClick={onPin}><PinIcon size={13} /></button>}
     </div>
@@ -434,6 +445,15 @@ function CodeDoc({ map, file: { refs, ref, source }, seek, label, nonce, at, lea
     spot.top = () => (body.current ? readTop(body.current)?.line : undefined)
     spot.target = from > 0 ? from : undefined
     spot.file = source && { root: source.root, path: source.path }
+    // From the line clicked, else from the top in view; the block's first line becomes the line clicked.
+    spot.step = dir => {
+      const b = body.current
+      const to = nextBlock([...changed], marks.caret ?? (b ? (readTop(b)?.line ?? 1) - 1 : 0), dir)
+      if (!to) return false
+      marks.setCaret(to)
+      b?.querySelector(`tr[data-line="${to}"]`)?.scrollIntoView({ block: 'center' })
+      return true
+    }
   }
 
   // Arrived (a pick, a link, back or forward): to where the reader left it, else the target in the middle, else the top.

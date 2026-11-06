@@ -141,6 +141,17 @@ export function layoutColumns(room: number, live: number | undefined, pins: numb
   return { live: liveWidth, pins: out, hidden: pins.length - fit }
 }
 
+/**
+ * The first line of the next (`dir` 1) or previous block of changed lines from `line`, round the file's end as an
+ * editor's "next change" does. A line inside a block goes back to that block's start first. Undefined with none.
+ */
+export function nextBlock(changed: readonly number[], line: number, dir: -1 | 1): number | undefined {
+  const sorted = [...changed].sort((a, b) => a - b)
+  const starts = sorted.filter((n, i) => i === 0 || sorted[i - 1] !== n - 1)
+  if (!starts.length) return undefined
+  return dir > 0 ? (starts.find(s => s > line) ?? starts[0]) : (starts.findLast(s => s < line) ?? starts.at(-1))
+}
+
 /** Pins as remembered; anything malformed is dropped. */
 export function parsePins(json: string | null): Pin[] {
   try {

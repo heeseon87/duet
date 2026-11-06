@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { CanvasMap } from '../shared/canvas.ts'
-import { EMPTY, HISTORY, addPin, go, layoutColumns, linkView, parsePins, partIds, shown, step, swap, unfoldFor, viewOf, type LiveView, type Trail } from '../web/src/canvas/codeNav.ts'
+import { EMPTY, HISTORY, addPin, go, layoutColumns, linkView, nextBlock, parsePins, partIds, shown, step, swap, unfoldFor, viewOf, type LiveView, type Trail } from '../web/src/canvas/codeNav.ts'
 
 const map: CanvasMap = {
   schema: 1, diagram: 'class', title: 't',
@@ -138,5 +138,19 @@ describe('layoutColumns', () => {
   })
   it('lays out pins with no live column', () => {
     expect(layoutColumns(1440, undefined, [500])).toEqual({ live: undefined, pins: [500], hidden: 0 })
+  })
+})
+
+describe('nextBlock', () => {
+  const changed = [20, 3, 4, 5, 10, 11]
+  it('goes to the start of the next block of changed lines, round the end', () => {
+    expect([0, 3, 4, 10, 19, 20].map(l => nextBlock(changed, l, 1))).toEqual([3, 10, 10, 20, 20, 3])
+  })
+  it('goes back to the start of the block it is in, then the one before, round the top', () => {
+    expect([11, 10, 4, 3, 1, 25].map(l => nextBlock(changed, l, -1))).toEqual([10, 3, 3, 20, 20, 20])
+  })
+  it('has nowhere to go with no changed lines', () => {
+    expect(nextBlock([], 5, 1)).toBeUndefined()
+    expect(nextBlock([], 5, -1)).toBeUndefined()
   })
 })
