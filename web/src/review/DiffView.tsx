@@ -277,7 +277,7 @@ export const DiffView = memo(function DiffView({ file }: { file: DiffFile }) {
         {file.status !== 'deleted' && <button className="btn sm ghost" onClick={() => void openFile(file.path, undefined, diff?.newRef)}><FileCode2 size={13} /> View file</button>}
         <label className="toggle" title="Viewed (v)"><input type="checkbox" checked={isViewed} onChange={() => toggleViewed(file)} /> Viewed</label>
       </header>
-      <div className="file-body">{body}</div>
+      <div className="file-body quiet-scroll">{body}</div>
     </section>
   )
 })

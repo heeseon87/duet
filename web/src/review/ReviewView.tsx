@@ -6,6 +6,7 @@ import {
 import type { DiffFile, DiffSource, GitInfo } from '../../../shared/protocol.ts'
 import { api, q } from '../api.ts'
 import { Popover, relTime, isTypingTarget, shortcutKey, useNow } from '../lib/ui.tsx'
+import { ScrollRail, type RailTick } from '../lib/ScrollRail.tsx'
 import { useApp } from '../state.ts'
 import { DiffView, STATUS_LETTER } from './DiffView.tsx'
 import { CommentsDock } from './Comments.tsx'
@@ -496,6 +497,7 @@ export function ReviewView() {
   }, [selected])
 
   const viewedCount = files.filter(f => viewed[f.path]).length
+  const main = useRef<HTMLElement>(null)
 
   return (
     <div className="review">
@@ -538,7 +540,8 @@ export function ReviewView() {
           {model ? <MapTree model={model} /> : <FileTree files={files} />}
           </>}
         </nav>
-        <main className="review-main">
+        <div className="review-scroll">
+        <main className="review-main quiet-scroll railed" ref={main}>
           {finding && <FindBar key={selected ?? fileView?.path} scope={findScope} onClose={() => setFinding(false)} />}
           {fileView ? (
             <>
@@ -565,7 +568,49 @@ export function ReviewView() {
           ) : null}
           {loading && diff && <div className="refreshing"><Loader2 size={12} className="spin" /></div>}
         </main>
+        <ScrollRail body={main} ticks={diffTicks} />
+        </div>
       </div>
     </div>
   )
+}
+
+const TICK_WORD = { add: '더한', del: '지운', mod: '고친' } as const
+
+/**
+ * The review rail's ticks: each run of changed rows in the diff's tables, measured where it stands, since rows differ in
+ * height (hunk heads, threads, wrapped lines). Only added rows are green, only removed ones red, both violet, the same in
+ * unified and split views; a revealed gap is no change. A click centers the run's first row.
+ */
+function diffTicks(main: HTMLElement): RailTick[] {
+  const box = main.getBoundingClientRect(), height = main.scrollHeight
+  const y = (px: number) => (px - box.top + main.scrollTop) / height
+  const kindOf = (tr: Element) => {
+    if (tr.tagName !== 'TR' || tr.classList.contains('expanded')) return undefined
+    const add = tr.classList.contains('add') || Boolean(tr.querySelector(':scope > td.add'))
+    const del = tr.classList.contains('del') || Boolean(tr.querySelector(':scope > td.del'))
+    return add && del ? 'mod' : add ? 'add' : del ? 'del' : undefined
+  }
+  const out: RailTick[] = []
+  let run: { first: HTMLElement; last: HTMLElement; add: boolean; del: boolean; rows: number } | undefined
+  const close = () => {
+    if (!run) return
+    const { first, last, rows } = run, kind = run.add && run.del ? 'mod' : run.add ? 'add' : 'del'
+    const top = y(first.getBoundingClientRect().top), no = first.dataset.new || first.dataset.old
+    out.push({
+      key: out.length, top, size: y(last.getBoundingClientRect().bottom) - top, kind,
+      title: `${TICK_WORD[kind]} 줄 ${rows}개${no ? ` · ${no}번 줄부터` : ''}`, go: () => first.scrollIntoView({ block: 'center' }),
+    })
+    run = undefined
+  }
+  for (const body of main.querySelectorAll('table.diff > tbody')) {
+    for (const tr of body.children) {
+      const k = kindOf(tr)
+      if (!k) { close(); continue }
+      if (run) { run.last = tr as HTMLElement; run.add ||= k !== 'del'; run.del ||= k !== 'add'; run.rows++ }
+      else run = { first: tr as HTMLElement, last: tr as HTMLElement, add: k !== 'del', del: k !== 'add', rows: 1 }
+    }
+    close()
+  }
+  return out
 }

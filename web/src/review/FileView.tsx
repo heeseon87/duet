@@ -49,7 +49,7 @@ export function FileView({ path, gitRef, line }: { path: string; gitRef: string;
         {isMd && <button className="btn sm ghost" onClick={() => setPreview(p => !p)}>{preview ? <EyeOff size={13} /> : <Eye size={13} />}{preview ? 'Code' : 'Preview'}</button>}
       </header>
       {preview ? <div className="md-preview"><Markdown text={text} /></div> : (
-        <div className="file-body">
+        <div className="file-body quiet-scroll">
         <table className="diff unified hl fileview" style={{ width }}>
           <colgroup><col className="c-no" /><col /></colgroup>
           <tbody>

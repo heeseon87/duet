@@ -358,8 +358,8 @@ await page.click(`${live} .code-pane-head .code-added`)
 check('the head\'s +n steps on', await until(async () => (await caretAt()) === '[15]'), await caretAt())
 await page.click(`${live} .code-pane-head .code-added`, { modifiers: ['Shift'] })
 check('and with ⇧ steps back', await until(async () => (await caretAt()) === `[${auditLine}]`), await caretAt())
-const rail = `${live} .code-rail`, codeBody = `${live} .code-pane-body`
-const ticks = await page.$$(`${rail} .code-rail-tick`)
+const rail = `${live} .scroll-rail`, codeBody = `${live} .code-pane-body`
+const ticks = await page.$$(`${rail} .scroll-rail-tick`)
 check('the rail beside the code has a tick for each block of changed lines', ticks.length === 2, String(ticks.length))
 await ticks[0].click()
 check('a tick goes to its block as ] does', await until(async () => (await caretAt()) === '[15]') && await until(() => inView(15)), await caretAt())
@@ -371,7 +371,7 @@ await page.$eval(codeBody, b => { b.scrollTop = b.scrollHeight })
 check('scrolling shows its thumb and the horizontal bar', await until(railShown, 500) && await barShown())
 await sleep(350); await shot('rail')
 const thumbAt = () => page.evaluate(([r, c]) => {
-  const rail = document.querySelector(r).getBoundingClientRect(), t = document.querySelector(`${r} .code-rail-thumb`).getBoundingClientRect(), b = document.querySelector(c)
+  const rail = document.querySelector(r).getBoundingClientRect(), t = document.querySelector(`${r} .scroll-rail-thumb`).getBoundingClientRect(), b = document.querySelector(c)
   return { thumb: (t.bottom - rail.top) / rail.height, view: (b.scrollTop + b.clientHeight) / b.scrollHeight, top: b.scrollTop, y: t.top + t.height / 2, x: t.left + t.width / 2 }
 }, [rail, codeBody])
 let th = await thumbAt()
@@ -381,6 +381,33 @@ check('and both hide again once it stops', !(await railShown()) && !(await barSh
 await page.mouse.move(th.x, th.y); await page.mouse.down(); await page.mouse.move(th.x, th.y - 60, { steps: 4 }); await page.mouse.up()
 const dragged = await thumbAt()
 check('dragging the thumb scrolls the code', dragged.top < th.top - 60, `${th.top} → ${dragged.top}`)
+
+// The review's diff has the same rail: its own scrollbar gone, a tick for each run of changed rows.
+await page.setViewportSize({ width: 1500, height: 420 })
+await page.keyboard.press('Meta+2')
+await page.click('.tree-row.file[data-path="src/order/OrderService.kt"]', { timeout: 15000 }); await sleep(600)
+const reviewRail = '.review-scroll .scroll-rail', reviewMain = '.review-main'
+const reviewTicks = () => page.$$eval(`${reviewRail} .scroll-rail-tick`, ts => ts.map(t => [...t.classList].find(c => c !== 'scroll-rail-tick')))
+check('the review rail has a tick for each run of changed rows, violet for a line changed in place', await until(async () => JSON.stringify(await reviewTicks()) === '["mod","add"]'), JSON.stringify(await reviewTicks()))
+const rowShown = sel => page.evaluate(([sel, m]) => {
+  const r = document.querySelector(sel)?.getBoundingClientRect(), b = document.querySelector(m).getBoundingClientRect()
+  return Boolean(r) && r.top >= b.top && r.bottom <= b.bottom
+}, [sel, reviewMain])
+const auditRow = `${reviewMain} table.diff tr.add[data-new="${auditLine}"]`
+await page.$eval(reviewMain, m => { m.scrollTop = 0 })
+await page.click(`${reviewRail} .scroll-rail-tick >> nth=1`)
+check('a review tick brings its rows into view', await until(() => rowShown(auditRow)))
+const reviewShown = () => page.$eval(reviewRail, r => r.classList.contains('shown'))
+await page.mouse.move(40, 300); await sleep(1200)
+check('still, the review rail shows only its ticks', !(await reviewShown()) && !(await page.$eval(reviewMain, m => m.classList.contains('scrolling'))))
+await page.$eval(reviewMain, m => { m.scrollTop = 0 })
+check('scrolling the review shows its thumb', await until(reviewShown, 500) && await page.$eval(reviewMain, m => m.classList.contains('scrolling')))
+await sleep(350); await shot('review-rail')
+await page.keyboard.press('s')
+check('the split view gives the same ticks', await until(async () => JSON.stringify(await reviewTicks()) === '["mod","add"]'), JSON.stringify(await reviewTicks()))
+await page.keyboard.press('u'); await sleep(200)
+await page.setViewportSize({ width: 1500, height: 940 })
+await page.keyboard.press('Meta+1'); await sleep(400)
 
 // 12. A box the map gives no files (drawn only for context) opens the file named after its type.
 const ctx = 'code-links-ctx'

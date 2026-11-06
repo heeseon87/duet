@@ -71,6 +71,26 @@ a:hover { text-decoration: underline; }
 
 /* Thin scrollbars that do not shout. */
 * { scrollbar-width: thin; scrollbar-color: var(--line-strong) transparent; }
+/* Quieter still where code scrolls (the code pane, the review's diff): 6px bars that show only while scrolling
+   (`.scrolling`, ScrollRail.tsx's watchScrolling), while a scroller around them scrolls (a file's body in the review),
+   or under the pointer, and no vertical bar where a ScrollRail stands in for it (`.railed`). Chromium reads the
+   ::-webkit-scrollbar rules only with both properties on auto; a browser without them keeps the thin bars above. */
+.quiet-scroll { scrollbar-width: auto; scrollbar-color: auto; }
+.quiet-scroll::-webkit-scrollbar { width: 6px; height: 6px; }
+.quiet-scroll.railed::-webkit-scrollbar { width: 0; }
+.quiet-scroll::-webkit-scrollbar-thumb { background: transparent; border-radius: 3px; }
+.quiet-scroll.scrolling::-webkit-scrollbar-thumb, .quiet-scroll.scrolling .quiet-scroll::-webkit-scrollbar-thumb, .quiet-scroll::-webkit-scrollbar-thumb:hover { background: var(--line-strong); }
+.quiet-scroll::-webkit-scrollbar-corner { background: transparent; }
+@supports not selector(::-webkit-scrollbar) { .quiet-scroll { scrollbar-width: thin; } }
+/* A ScrollRail at its scroller's right edge: ticks in crayon with the wax's grain (added green, removed red, both
+   violet, as the map colors them), over a thumb pale enough that a tick on it still reads. */
+.scroll-rail { position: absolute; top: 0; right: 0; width: 10px; z-index: 3; }
+.scroll-rail-thumb { position: absolute; left: 2px; right: 2px; min-height: 16px; border-radius: 4px; background: color-mix(in srgb, var(--ink-4) 45%, transparent); opacity: 0; transition: opacity 0.25s; }
+.scroll-rail.shown .scroll-rail-thumb { opacity: 1; }
+.scroll-rail-tick { position: absolute; right: 2px; width: 3px; border-radius: 2px; background: var(--wax) 0 0 / 140px 140px, var(--cv-add-line); opacity: 0.85; cursor: pointer; }
+.scroll-rail-tick.del { background-color: var(--cv-delete-line); }
+.scroll-rail-tick.mod { background-color: var(--cv-modify-line); }
+.scroll-rail-tick:hover { right: 1px; width: 5px; opacity: 1; }
 
 /* ---------------------------------------------------------------- shell */
 .app { display: flex; height: 100%; }

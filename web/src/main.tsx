@@ -9,5 +9,7 @@ import './styles/review.css'
 import './styles/canvas.css'
 import './styles/crayon.css'
 import { App } from './App.tsx'
+import { watchScrolling } from './lib/ScrollRail.tsx'
 
+watchScrolling()
 createRoot(document.getElementById('root')!).render(<App />)
