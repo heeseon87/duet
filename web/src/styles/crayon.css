@@ -1,0 +1,96 @@
+/* ---------------------------------------------------------------- crayon
+   A light theme drawn on paper with crayons (after jiral's): warm paper and ink, a crayon-blue accent, the rounded
+   Gowun Dodum for the UI (Gowun has 400 only, so bold is synthesized) and the handwritten Gaegu for the few titles
+   the app itself writes. Code and class maps keep their mono face. Corners are a little off, the paper has a grain,
+   filled things carry wax, and line icons and box outlines shake a little (index.html's #crayon-wobble).
+   Rules for parts are wrapped in :where(:root[data-theme='crayon']) so they weigh what the plain rules weigh, and a
+   picked or pressed state keeps winning. Components need nothing: they read the tokens. */
+:root[data-theme='crayon'] {
+  --font-ui: 'Gowun Dodum', 'Pretendard Variable', Pretendard, -apple-system, BlinkMacSystemFont, 'Apple SD Gothic Neo', sans-serif;
+
+  --bg: #efe6d3;
+  --panel: #fffcf5;
+  --panel-2: #f9f3e6;
+  --sunken: #f3ead8;
+  --hover: rgba(90, 70, 40, 0.07);
+  --press: rgba(90, 70, 40, 0.12);
+  --line: #dccfb8;
+  --line-strong: #c7b79b;
+  --ink: #2a2520;
+  --ink-2: #4a4038;
+  --ink-3: #7d7164;
+  --ink-4: #b0a493;
+
+  --accent: #2c55c4;
+  --accent-ink: #1f3f99;
+  --accent-soft: rgba(44, 85, 196, 0.11);
+  --accent-line: rgba(44, 85, 196, 0.38);
+  --agent: #c25a2c;
+  --agent-soft: rgba(194, 90, 44, 0.12);
+
+  --add: #2f6b2a;
+  --add-bg: #e4f0d6;
+  --add-strong: #c3dfae;
+  --del: #a8301f;
+  --del-bg: #fbe1d6;
+  --del-strong: #f2bfae;
+  --mod: #6b4fc2;
+  --warn: #8c4708;
+  --warn-bg: #fbe6c9;
+  --info: #2c55c4;
+
+  /* A second line a little off, as a crayon drawing has, instead of a soft blur. */
+  --shadow-1: 1px 2px 0 rgba(74, 64, 56, 0.12);
+  --shadow-2: 3px 4px 0 rgba(74, 64, 56, 0.14);
+  --shadow-3: 4px 6px 0 rgba(74, 64, 56, 0.16), 0 12px 40px rgba(74, 64, 56, 0.12);
+
+  /* The map on the same paper: untouched boxes a shade lighter than it, the plan colors in crayon. */
+  --cv-bg: #fffcf5; --cv-label-bg: #fffcf5;
+  --cv-keep-fill: #fffefa; --cv-keep-line: #b5a487;
+  --cv-add-fill: #e4f0d6; --cv-add-line: #4a9445;
+  --cv-modify-fill: #ebe5f8; --cv-modify-line: #7a5fd0;
+  --cv-delete-fill: #fbe1d6; --cv-delete-line: #c43d2b;
+  --cv-result-fill: #fbecc8; --cv-result-line: #d48f1f;
+  --cv-group-fill: #f6efe0; --cv-group-line: #d2c2a3;
+  --cv-edge: #7d6f5e; --cv-group-ink: #6a5f54;
+  --cv-note-fill: #fff3cf; --cv-note-line: #e2c878;
+
+  /* Hand-drawn corners: an odd pair of radii that shrinks with the box into a crooked line (--hand), a calmer one for
+     large surfaces (--hand-soft), and four slightly different corners for square buttons (--hand-sq). */
+  --hand: 255px 14px 225px 14px / 14px 225px 14px 255px;
+  --hand-soft: 16px 22px 14px 24px / 22px 14px 24px 16px;
+  --hand-sq: 12px 9px 14px 8px / 8px 13px 9px 12px;
+  --grain: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='g'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.8' numOctaves='3' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 .32 0 0 0 0 .25 0 0 0 0 .16 .55 0 0 0 -.2'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23g)'/%3E%3C/svg%3E");
+  --wax: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='w'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.12 .8' numOctaves='3' seed='4' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 1 0 0 0 0 .99 0 0 0 0 .95 2.6 0 0 0 -1.45'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23w)'/%3E%3C/svg%3E");
+  color-scheme: light;
+}
+:root[data-theme='crayon'] body { font-synthesis: weight; }
+
+/* Handwriting only for what the app itself titles; a title someone wrote (a repo, a map, a decision) keeps the UI face,
+   and so does the body: Gaegu at 13px was hard to read in jiral. Gaegu draws small, so it is set 1.08 times larger. */
+:where(:root[data-theme='crayon']) :is(.welcome h1, .welcome .brand, .empty-canvas h3, .confirm h3) {
+  font-family: 'Gaegu', var(--font-ui); font-weight: 700; font-synthesis: none; font-size-adjust: ex-height 0.385;
+}
+
+/* Paper grain over everything, never in the way of a click. */
+:root[data-theme='crayon'] body::after { content: ''; position: fixed; inset: 0; z-index: 1000; pointer-events: none; background-image: var(--grain); }
+
+/* Corners */
+:where(:root[data-theme='crayon']) :is(.btn, .chip, .seg, .toast, .map-pick, .rev-chip, .compare-chip, .code-tabs button, .scope-chip, .bound-chip, .ws-pick, .float-composer, .decision-ask, .dm-option, .dm-ask, .dm-undo, .dm-done, .dm-back) { border-radius: var(--hand); }
+:where(:root[data-theme='crayon']) :is(.popover, .palette, .confirm, .welcome-card, .comment-card, .comment-editor, .thread, .file-diff, .pr-panel, .dm-item, .dm-snippet, .flow-list, .zoom-bar, .stage-tip) { border-radius: var(--hand-soft); }
+:where(:root[data-theme='crayon']) :is(.rail-btn, .iconbtn, .zoom-bar button, .brand-mark, .badge) { border-radius: var(--hand-sq); }
+
+/* Lines: a popover and a card get the darker paper line and an offset second line. */
+:where(:root[data-theme='crayon']) .popover { border-color: var(--ink-4); }
+:where(:root[data-theme='crayon']) :is(.comment-card, .file-diff, .dm-option) { border-color: var(--line-strong); box-shadow: 1px 2px 0 var(--line); }
+
+/* Wax on what is filled in. */
+:where(:root[data-theme='crayon']) :is(.btn.primary, .btn.agent, .badge, .toast, .rail-btn[aria-selected='true'], .seg button[aria-pressed='true'], .zoom-bar button[aria-pressed='true'], .chip.accent, .chip.agent, .chip.add, .chip.del, .chip.warn, .brand-mark i) { background-image: var(--wax); }
+
+/* Line icons shaking a little, as if drawn by hand. Only leaves get the filter: on a box holding a fixed
+   popover it would move the popover with it. Box outlines on the map shake the same way; lines do not, since a filter on
+   a straight line has an empty area and the line would vanish. */
+:where(:root[data-theme='crayon']) svg.lucide { filter: url(#crayon-wobble); }
+:root[data-theme='crayon'] .stage-inner .cv-node .label-container path:last-child,
+:root[data-theme='crayon'] .stage-inner .cv-actor rect { filter: url(#crayon-wobble); }
+:root[data-theme='crayon'] .stage-inner .cv-edge { stroke-linecap: round; }

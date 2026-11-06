@@ -3,9 +3,10 @@ import type { ContextItem, ServerEvent, TerminalInfo, Workspace } from '../../sh
 import { api, q, setReconnectHandler, subscribe } from './api.ts'
 import { sendingTo, targetTerminal } from './terminalTarget.ts'
 import { setPalette } from './lib/highlight.ts'
+import { themeAttr, themeFrom, type Theme } from './theme.ts'
 
 export type Tab = 'canvas' | 'review'
-export type Theme = 'system' | 'light' | 'dark'
+export type { Theme } from './theme.ts'
 
 const store = {
   get: (k: string) => { try { return localStorage.getItem(`duet.${k}`) } catch { return null } },
@@ -43,8 +44,7 @@ type AppState = {
 export { targetTerminal }
 
 function applyTheme(theme: Theme) {
-  const dark = theme === 'dark' || (theme === 'system' && matchMedia('(prefers-color-scheme: dark)').matches)
-  document.documentElement.dataset.theme = dark ? 'dark' : 'light'
+  document.documentElement.dataset.theme = themeAttr(theme, matchMedia('(prefers-color-scheme: dark)').matches)
 }
 
 let toastSeq = 0
@@ -52,7 +52,7 @@ let toastSeq = 0
 export const useApp = create<AppState>((set, get) => ({
   workspaces: [],
   tab: (store.get('tab') as Tab) || 'review',
-  theme: (store.get('theme') as Theme) || 'system',
+  theme: themeFrom(store.get('theme')),
   codePalette: store.get('codePalette') || 'github',
   paletteOpen: false,
   toasts: [],

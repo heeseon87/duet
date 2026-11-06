@@ -12,6 +12,8 @@
   "description": "Duet: design canvas, code review and a live agent, side by side",
   "dependencies": {
     "@fontsource-variable/jetbrains-mono": "^5.3.0",
+    "@fontsource/gaegu": "^5.3.0",
+    "@fontsource/gowun-dodum": "^5.3.0",
     "@tree-sitter-grammars/tree-sitter-kotlin": "^1.1.0",
     "diff": "^9.0.0",
     "lucide-react": "^1.58.0",
