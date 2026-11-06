@@ -4,11 +4,10 @@
 import { open, sleep } from './browser.mjs'
 const port = Number(process.env.DUET_PORT ?? 7979)
 const { DUET_TOKEN: T, DUET_WS: ws, DUET_MAP: mapName, DUET_SHOTS: shots } = process.env
-const theme = process.env.DUET_THEME ?? 'light'
-const { browser, page, errors } = await open({ port, token: T, ws, width: 1600, height: 1000, theme })
+const { browser, page, errors } = await open({ port, token: T, ws, width: 1600, height: 1000 })
 let failed = 0
 const check = (name, ok, extra = '') => { if (!ok) failed++; console.log(ok ? 'PASS' : 'FAIL', name, extra) }
-const shot = async name => { if (shots) await page.screenshot({ path: `${shots}/${theme}-menu-${name}.png` }) }
+const shot = async name => { if (shots) await page.screenshot({ path: `${shots}/menu-${name}.png` }) }
 await page.evaluate(([w, m]) => {
   localStorage.setItem('duet.tab', 'canvas'); localStorage.setItem(`duet.canvas.current:${w}`, m)
   localStorage.removeItem(`duet.canvas.collapsed:${w}:${m}`)

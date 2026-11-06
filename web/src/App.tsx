@@ -1,12 +1,11 @@
 import { useEffect, useRef, useState } from 'react'
-import { Brush, FileDiff, Keyboard, Signpost, Monitor, Moon, RotateCw, Search, Shapes, Sun, Terminal, WifiOff } from 'lucide-react'
+import { FileDiff, Keyboard, Palette as PaletteIcon, Signpost, RotateCw, Search, Shapes, Terminal, WifiOff } from 'lucide-react'
 import type { TerminalInfo } from '../../shared/protocol.ts'
 import { connection, subscribe } from './api.ts'
 import { local, targetTerminal, useApp } from './state.ts'
 import { doingOf } from './terminalTarget.ts'
 import { Popover, isTypingTarget, shortcutKey } from './lib/ui.tsx'
 import { PALETTES } from './lib/highlight.ts'
-import { THEMES, type Theme } from './theme.ts'
 import { RepoPicker } from './lib/RepoPicker.tsx'
 import { ReviewView } from './review/ReviewView.tsx'
 import { CanvasView } from './canvas/CanvasView.tsx'
@@ -35,31 +34,17 @@ function Welcome() {
   )
 }
 
-const THEME_LABEL: Record<Theme, string> = { system: 'System', light: 'Light', dark: 'Dark', crayon: '크레파스' }
-function ThemeIcon({ theme, size }: { theme: Theme; size: number }) {
-  const Icon = { system: Monitor, light: Sun, dark: Moon, crayon: Brush }[theme]
-  return <Icon size={size} />
-}
-
-function ThemeButton() {
-  const { theme, setTheme, codePalette, setCodePalette } = useApp()
+function CodeColorButton() {
+  const { codePalette, setCodePalette } = useApp()
   const ref = useRef<HTMLButtonElement>(null)
   const [open, setOpen] = useState(false)
   return (
     <>
-      <button ref={ref} className="rail-btn" title="테마" onClick={() => setOpen(o => !o)}>
-        <ThemeIcon theme={theme} size={16} />
+      <button ref={ref} className="rail-btn" title="코드 색" onClick={() => setOpen(o => !o)}>
+        <PaletteIcon size={16} />
       </button>
       {open && (
         <Popover anchor={ref.current} onClose={() => setOpen(false)} align="side" width={360}>
-          <div className="menu-label">테마</div>
-          <div className="seg" style={{ margin: '2px 6px 8px', display: 'flex' }}>
-            {THEMES.map(t => (
-              <button key={t} style={{ flex: 1, justifyContent: 'center' }} aria-pressed={theme === t} onClick={() => setTheme(t)}>
-                <ThemeIcon theme={t} size={13} />{THEME_LABEL[t]}
-              </button>
-            ))}
-          </div>
           <div className="menu-label">코드 색</div>
           <div className="palette-grid">
             {PALETTES.map(p => (
@@ -215,7 +200,7 @@ function Rail({ onHelp }: { onHelp: () => void }) {
       <Stale />
       <button className="rail-btn" title="찾기 · 명령 (⌘K)" onClick={() => setPalette(true)}><Search size={16} />찾기</button>
       <button className="rail-btn" title="단축키 (?)" onClick={onHelp}><Keyboard size={16} /></button>
-      <ThemeButton />
+      <CodeColorButton />
     </nav>
   )
 }

@@ -1,8 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { FileCode2, FileDiff, Moon, Search, Shapes, TextSearch, Loader2, CornerDownLeft } from 'lucide-react'
+import { FileCode2, FileDiff, Search, Shapes, TextSearch, Loader2, CornerDownLeft } from 'lucide-react'
 import { api, q } from './api.ts'
 import { useApp } from './state.ts'
-import { nextTheme } from './theme.ts'
 import { useReview } from './review/store.ts'
 import { useCanvas } from './canvas/store.ts'
 import { cachedFiles, fuzzy, repoFiles } from './lib/files.ts'
@@ -43,7 +42,6 @@ export function Palette({ onClose }: { onClose: () => void }) {
   const commands: Item[] = useMemo(() => [
     { id: 'tab-canvas', icon: <Shapes size={14} />, label: '캔버스로 가기', hint: '⌘1', run: () => app.setTab('canvas') },
     { id: 'tab-review', icon: <FileDiff size={14} />, label: '리뷰로 가기', hint: '⌘2', run: () => app.setTab('review') },
-    { id: 'theme', icon: <Moon size={14} />, label: '테마 바꾸기', run: () => app.setTheme(nextTheme(app.theme)) },
     { id: 'src-working', icon: <FileDiff size={14} />, label: '리뷰: Changes', run: () => { app.setTab('review'); review.setSource({ kind: 'working' }) } },
     { id: 'src-branch', icon: <FileDiff size={14} />, label: '리뷰: Compare', run: () => { app.setTab('review'); review.setSource({ kind: 'branch', base: review.info?.defaultBase ?? 'main', compare: 'WORKTREE' }) } },
     ...(canvas.map?.diagram === 'class' && canvas.map.elements.some(e => e.kind === 'group') ? [

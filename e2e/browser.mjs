@@ -19,19 +19,18 @@ function executable() {
   return undefined
 }
 
-export async function open({ port = 7981, token, ws, width = 1480, height = 920, theme = 'light', appDefaults = false } = {}) {
+export async function open({ port = 7981, token, ws, width = 1480, height = 920, appDefaults = false } = {}) {
   let browser
   try {
     browser = await chromium.launch()
   } catch {
     browser = await chromium.launch({ executablePath: executable() })
   }
-  const context = await browser.newContext({ viewport: { width, height }, deviceScaleFactor: 2, colorScheme: theme })
+  const context = await browser.newContext({ viewport: { width, height }, deviceScaleFactor: 2 })
   const page = await context.newPage()
   const errors = []
   page.on('pageerror', e => errors.push(e.message))
   page.on('console', m => { if (m.type() === 'error') errors.push(m.text()) })
-  await page.addInitScript(t => { try { localStorage.setItem('duet.theme', t) } catch {} }, theme)
   // The canvas opens with the code pane; the scripts were written against it off, so they start there unless they
   // set it (or ask for the app's own defaults).
   if (!appDefaults) await page.addInitScript(() => { try { if (localStorage.getItem('duet.canvas.code') === null) localStorage.setItem('duet.canvas.code', '0') } catch {} })

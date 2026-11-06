@@ -1,5 +1,5 @@
-// Syntax highlighting with shiki: tokens per line, colored for both themes at once
-// (CSS picks --shiki-light or --shiki-dark), languages loaded on first use.
+// Syntax highlighting with shiki: tokens per line, colored with the palette's light theme (CSS reads --shiki-light),
+// languages loaded on first use.
 
 import type { HighlighterCore, ThemedToken } from 'shiki/core'
 
@@ -26,8 +26,8 @@ export function langOf(path: string): string | undefined {
 
 /** Languages where `@Name` marks an annotation or a decorator. */
 const ANNOTATED = new Set(['java', 'kotlin', 'groovy', 'scala', 'typescript', 'tsx', 'javascript', 'jsx', 'python', 'swift', 'dart'])
-/** IntelliJ's annotation yellow (IntelliJ Light, Darcula), whatever the palette. */
-export const ANNOTATION_STYLE = '--shiki-light:#9E880D;--shiki-dark:#BBB529'
+/** IntelliJ Light's annotation yellow, whatever the palette. */
+export const ANNOTATION_STYLE = '--shiki-light:#9E880D'
 /**
  * A theme that only tells strings and comments from the rest, run beside the palette so an `@` inside them is
  * left alone. Grammar scopes alone won't do: Kotlin's marks `val name: String` after `@field:NotBlank` as annotation.
@@ -74,26 +74,26 @@ export function markAnnotations(line: (Token & { masked?: boolean })[]): Token[]
 
 const ALIASES: Record<string, string> = { ts: 'typescript', js: 'javascript', sh: 'bash', shell: 'bash', zsh: 'bash', kt: 'kotlin', py: 'python', yml: 'yaml', console: 'bash', text: 'text', plaintext: 'text', diff: 'diff' }
 
-/** Code color palettes: a light and a dark theme each, so the page's own light/dark switch keeps working. */
-export const PALETTES: { id: string; label: string; light: string; dark: string }[] = [
-  { id: 'github', label: 'GitHub', light: 'github-light', dark: 'github-dark-dimmed' },
-  { id: 'vitesse', label: 'Vitesse', light: 'vitesse-light', dark: 'vitesse-dark' },
-  { id: 'one', label: 'One', light: 'one-light', dark: 'one-dark-pro' },
-  { id: 'catppuccin', label: 'Catppuccin', light: 'catppuccin-latte', dark: 'catppuccin-mocha' },
-  { id: 'rose-pine', label: 'Rosé Pine', light: 'rose-pine-dawn', dark: 'rose-pine-moon' },
-  { id: 'solarized', label: 'Solarized', light: 'solarized-light', dark: 'solarized-dark' },
-  { id: 'everforest', label: 'Everforest', light: 'everforest-light', dark: 'everforest-dark' },
-  { id: 'kanagawa', label: 'Kanagawa', light: 'kanagawa-lotus', dark: 'kanagawa-wave' },
-  { id: 'gruvbox', label: 'Gruvbox', light: 'gruvbox-light-medium', dark: 'gruvbox-dark-medium' },
-  { id: 'material', label: 'Material', light: 'material-theme-lighter', dark: 'material-theme-palenight' },
-  { id: 'night-owl', label: 'Night Owl', light: 'night-owl-light', dark: 'night-owl' },
-  { id: 'ayu', label: 'Ayu', light: 'ayu-light', dark: 'ayu-dark' },
-  { id: 'vscode', label: 'VS Code', light: 'light-plus', dark: 'dark-plus' },
-  { id: 'min', label: 'Min', light: 'min-light', dark: 'min-dark' },
-  { id: 'tokyo-night', label: 'Tokyo Night', light: 'github-light', dark: 'tokyo-night' },
-  { id: 'nord', label: 'Nord', light: 'min-light', dark: 'nord' },
-  { id: 'dracula', label: 'Dracula', light: 'github-light', dark: 'dracula' },
-  { id: 'monokai', label: 'Monokai', light: 'snazzy-light', dark: 'monokai' },
+/** Code color palettes: the shiki theme each one colors the code with on Duet's light paper. */
+export const PALETTES: { id: string; label: string; light: string }[] = [
+  { id: 'github', label: 'GitHub', light: 'github-light' },
+  { id: 'vitesse', label: 'Vitesse', light: 'vitesse-light' },
+  { id: 'one', label: 'One', light: 'one-light' },
+  { id: 'catppuccin', label: 'Catppuccin', light: 'catppuccin-latte' },
+  { id: 'rose-pine', label: 'Rosé Pine', light: 'rose-pine-dawn' },
+  { id: 'solarized', label: 'Solarized', light: 'solarized-light' },
+  { id: 'everforest', label: 'Everforest', light: 'everforest-light' },
+  { id: 'kanagawa', label: 'Kanagawa', light: 'kanagawa-lotus' },
+  { id: 'gruvbox', label: 'Gruvbox', light: 'gruvbox-light-medium' },
+  { id: 'material', label: 'Material', light: 'material-theme-lighter' },
+  { id: 'night-owl', label: 'Night Owl', light: 'night-owl-light' },
+  { id: 'ayu', label: 'Ayu', light: 'ayu-light' },
+  { id: 'vscode', label: 'VS Code', light: 'light-plus' },
+  { id: 'min', label: 'Min', light: 'min-light' },
+  { id: 'tokyo-night', label: 'Tokyo Night', light: 'github-light' },
+  { id: 'nord', label: 'Nord', light: 'min-light' },
+  { id: 'dracula', label: 'Dracula', light: 'github-light' },
+  { id: 'monokai', label: 'Monokai', light: 'snazzy-light' },
 ]
 
 let palette = PALETTES[0]
@@ -122,7 +122,7 @@ async function highlighter(): Promise<HighlighterCore> {
       import('shiki/themes'),
     ])
     return createHighlighterCore({
-      themes: [bundledThemes['github-light'](), bundledThemes['github-dark-dimmed']()].map(p => p.then(t => { loadedThemes.add((t as { default: { name: string } }).default.name); return t })),
+      themes: [bundledThemes['github-light']().then(t => { loadedThemes.add((t as { default: { name: string } }).default.name); return t })],
       langs: [],
       engine: createJavaScriptRegexEngine(),
     })
@@ -162,12 +162,12 @@ export async function highlight(code: string, langOrPath: string | undefined): P
   const h = await highlighter()
   if (!(await ensureLang(h, lang))) return plain(code)
   const pal = palette
-  await Promise.all([ensureTheme(h, pal.light), ensureTheme(h, pal.dark)])
+  await ensureTheme(h, pal.light)
   const annotated = ANNOTATED.has(lang) && code.includes('@')
   if (annotated && !loadedThemes.has(MASK)) { await h.loadTheme(maskTheme as never); loadedThemes.add(MASK) }
   let tokens: ThemedToken[][]
   try {
-    tokens = h.codeToTokens(code, { lang, themes: { light: pal.light, dark: pal.dark, ...(annotated ? { mask: MASK } : {}) }, defaultColor: false }).tokens
+    tokens = h.codeToTokens(code, { lang, themes: { light: pal.light, ...(annotated ? { mask: MASK } : {}) }, defaultColor: false }).tokens
   } catch {
     return plain(code)
   }

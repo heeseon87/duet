@@ -43,11 +43,10 @@ await call('POST', `/api/canvas/${name}/patch`, { ws, note: '시험 지도', pat
 // The terminal picked on the rail: where the choices go.
 const term = sendToo ? await fakeTerminal({ port, token: T, ws, label: 'decision-mode', answer: () => '알겠어.' }) : undefined
 
-const theme = process.env.DUET_THEME ?? 'light'
-const { browser, page, errors } = await open({ port, token: T, ws, width: 1600, height: 1000, theme })
+const { browser, page, errors } = await open({ port, token: T, ws, width: 1600, height: 1000 })
 let failed = 0
 const check = (label, ok, extra = '') => { if (!ok) failed++; console.log(ok ? 'PASS' : 'FAIL', label, extra) }
-const shot = async label => { if (shots) await page.screenshot({ path: `${shots}/${theme}-decide-${label}.png` }) }
+const shot = async label => { if (shots) await page.screenshot({ path: `${shots}/decide-${label}.png` }) }
 const pendingKey = `duet.canvas.pendingDecisions:${ws}:${name}`
 await page.evaluate(([w, m, send, tid]) => {
   if (tid) localStorage.setItem(`duet.terminal:${w}`, tid)

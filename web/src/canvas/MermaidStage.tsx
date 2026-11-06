@@ -23,9 +23,7 @@ async function getMermaid(): Promise<Mermaid> {
 
 /** A class map reads like code (its names, members and line labels in mono, as the board has them); a sequence map like prose. */
 function themeVariables(diagram: CanvasMap['diagram']) {
-  const dark = document.documentElement.dataset.theme === 'dark'
   return {
-    darkMode: dark,
     fontFamily: cssVar(diagram === 'class' ? '--font-mono' : '--font-ui'),
     fontSize: diagram === 'class' ? '12px' : '13px',
     background: 'transparent',
@@ -121,7 +119,6 @@ export const MermaidStage = forwardRef<StageHandle, Props & { viewKey: string }>
   const inner = useRef<HTMLDivElement>(null)
   const [view, setView] = useState<View>(() => (!props.aside && lastView?.key === viewKey ? lastView.view : { x: 40, y: 40, k: 1 }))
   const [error, setError] = useState<string | null>(null)
-  const [themeTick, setThemeTick] = useState(0)
   const [gliding, setGliding] = useState(false)
   const glideTimer = useRef<ReturnType<typeof setTimeout>>(undefined)
   const glide = useCallback(() => {
@@ -155,13 +152,6 @@ export const MermaidStage = forwardRef<StageHandle, Props & { viewKey: string }>
   /** What the last drawing showed, to tell a fold or unfold (animated) from any other redraw. */
   const shown = useRef<{ collapsed: Set<string>; shape: string; members: string } | undefined>(undefined)
   const running = useRef<Morph | undefined>(undefined)
-
-  // Re-render when the theme flips: Mermaid bakes colors into the SVG.
-  useEffect(() => {
-    const obs = new MutationObserver(() => setThemeTick(t => t + 1))
-    obs.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] })
-    return () => obs.disconnect()
-  }, [])
 
   /** Whole drawing on screen; `readable` keeps text legible and lets a tall drawing run off the bottom. */
   const fit = useCallback((readable = false) => {
@@ -362,7 +352,7 @@ export const MermaidStage = forwardRef<StageHandle, Props & { viewKey: string }>
       }
     })()
     return () => { live = false }
-  }, [map, collapsed, ghostsFrom, themeTick, fit, frameNow])
+  }, [map, collapsed, ghostsFrom, fit, frameNow])
 
   // A selected part slides back on screen.
   useEffect(() => {

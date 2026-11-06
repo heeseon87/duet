@@ -4,33 +4,19 @@
    the untouched gray line, so the fill alone carries the plan; removed and result boxes also
    take a colored line. */
 :root {
-  --cv-keep-fill: #ffffff; --cv-keep-line: #cbc6bc;
-  --cv-add-fill: #e9f7ee; --cv-add-line: #2f9e57;
-  --cv-modify-fill: #f2eefd; --cv-modify-line: #8466dd;
-  --cv-delete-fill: #fdeeee; --cv-delete-line: #d64545;
-  --cv-result-fill: #fff6e0; --cv-result-line: #cf9f22;
+  --cv-keep-fill: #fffefa; --cv-keep-line: #b5a487;
+  --cv-add-fill: #e4f0d6; --cv-add-line: #4a9445;
+  --cv-modify-fill: #ebe5f8; --cv-modify-line: #7a5fd0;
+  --cv-delete-fill: #fbe1d6; --cv-delete-line: #c43d2b;
+  --cv-result-fill: #fbecc8; --cv-result-line: #d48f1f;
   /* Packages: a pale area without a frame; one inside another takes the stage's own color, so each level shows.
      The line outlines a folded package, which is drawn as a box. */
-  --cv-group-fill: #f4f5f8; --cv-group-fill-2: var(--cv-bg); --cv-group-line: #c9cfda;
-  --cv-edge: #858b95; --cv-label-bg: #ffffff;
-  /* Text on the accent (a picked line's label, an open decision's pin, a comment count): white on the deep light-theme
-     accent, dark on the pale dark-theme one. */
+  --cv-group-fill: #f6efe0; --cv-group-fill-2: var(--cv-bg); --cv-group-line: #d2c2a3;
+  --cv-edge: #7d6f5e; --cv-label-bg: #fffcf5;
+  /* Text on the accent (a picked line's label, an open decision's pin, a comment count). */
   --cv-sel-ink: #ffffff;
-  --cv-bg: #ffffff; --cv-group-ink: #626a80;
-  --cv-note-fill: #fff8e3; --cv-note-line: #e5d391;
-}
-:root[data-theme='dark'] {
-  --cv-keep-fill: #1d1f23; --cv-keep-line: #3b3f47;
-  --cv-add-fill: #15291d; --cv-add-line: #3fb265;
-  --cv-modify-fill: #241f38; --cv-modify-line: #a58cf0;
-  --cv-delete-fill: #2e1a1b; --cv-delete-line: #ef6b62;
-  --cv-result-fill: #2b2412; --cv-result-line: #d8ab3a;
-  /* Between the stage and a box's fill, or the boxes would melt into their packages. */
-  --cv-group-fill: #17191c; --cv-group-fill-2: var(--cv-bg); --cv-group-line: #3a3e46;
-  --cv-edge: #7b818c; --cv-label-bg: #0f1012;
-  --cv-sel-ink: #0f1012;
-  --cv-bg: var(--bg); --cv-group-ink: #9298a3;
-  --cv-note-fill: #2a2614; --cv-note-line: #6b5d2a;
+  --cv-bg: #fffcf5; --cv-group-ink: #6a5f54;
+  --cv-note-fill: #fff3cf; --cv-note-line: #e2c878;
 }
 
 /* A container so decision mode, which covers it exactly, can change its own columns by width (an element can't query itself). */
@@ -174,23 +160,16 @@ button.code-added:hover { background: var(--hover); }
 .code-pane-path .code-link-hint { margin-left: auto; color: var(--accent-ink); }
 .code-pane-path .code-missed { color: var(--warn); }
 /* Variable colors (the code pane's palette button): one color per variable, VAR_COLORS of them taking turns. While they
-   are on the rest of the code goes gray (below) except the keywords, so the whole hue circle is theirs: nine per theme,
+   are on the rest of the code goes gray (below) except the keywords, so the whole hue circle is theirs: nine colors,
    eight for variables and one for keywords (the blue one), picked together so the closest two stay as far apart as
-   possible (OKLab), each colorful enough to stand off the grays and at 4.5:1 or more on the code's background. The two
-   themes are picked apart, so a variable's hue may differ between them. */
+   possible (OKLab), each colorful enough to stand off the grays and at 4.5:1 or more on the code's background. */
 :root {
   --var-0: #9c3b96; --var-1: #247e00; --var-2: #773a00; --var-3: #c84435;
   --var-4: #7063d6; --var-5: #007399; --var-6: #8e0049; --var-7: #9b6e00;
   --var-kw: #0145a7;
 }
-:root[data-theme='dark'] {
-  --var-0: #bba500; --var-1: #9c95fe; --var-2: #03f3ea; --var-3: #f2798f;
-  --var-4: #fcb9ff; --var-5: #ffc98a; --var-6: #0bc18d; --var-7: #a9ea83;
-  --var-kw: #00b5e4;
-}
-/* The rest of the code keeps its theme's lightness and loses its hue: types and strings stay apart by shade. */
+/* The rest of the code keeps its palette's lightness and loses its hue: types and strings stay apart by shade. */
 .code-pane-body.vars-on .hl span { color: oklch(from var(--shiki-light) l 0 h); }
-:root[data-theme='dark'] .code-pane-body.vars-on .hl span { color: oklch(from var(--shiki-dark) l 0 h); }
 ::highlight(duet-kw) { color: var(--var-kw); }
 ::highlight(duet-var-0) { color: var(--var-0); }
 ::highlight(duet-var-1) { color: var(--var-1); }

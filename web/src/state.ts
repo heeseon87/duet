@@ -3,10 +3,8 @@ import type { ContextItem, ServerEvent, TerminalInfo, Workspace } from '../../sh
 import { api, q, setReconnectHandler, subscribe } from './api.ts'
 import { sendingTo, targetTerminal } from './terminalTarget.ts'
 import { setPalette } from './lib/highlight.ts'
-import { themeAttr, themeFrom, type Theme } from './theme.ts'
 
 export type Tab = 'canvas' | 'review'
-export type { Theme } from './theme.ts'
 
 const store = {
   get: (k: string) => { try { return localStorage.getItem(`duet.${k}`) } catch { return null } },
@@ -19,7 +17,6 @@ type AppState = {
   workspace?: Workspace
   workspaces: Workspace[]
   tab: Tab
-  theme: Theme
   codePalette: string
   paletteOpen: boolean
   toasts: Toast[]
@@ -31,7 +28,6 @@ type AppState = {
   /** Text queued into the composer from elsewhere (canvas, review, empty states). */
   draft?: { text: string; context?: ContextItem[]; nonce: number }
   setTab: (t: Tab) => void
-  setTheme: (t: Theme) => void
   setCodePalette: (id: string) => void
   toast: (text: string, kind?: 'error') => void
   openWorkspace: (path: string) => Promise<void>
@@ -43,23 +39,17 @@ type AppState = {
 
 export { targetTerminal }
 
-function applyTheme(theme: Theme) {
-  document.documentElement.dataset.theme = themeAttr(theme, matchMedia('(prefers-color-scheme: dark)').matches)
-}
-
 let toastSeq = 0
 
 export const useApp = create<AppState>((set, get) => ({
   workspaces: [],
   tab: (store.get('tab') as Tab) || 'review',
-  theme: themeFrom(store.get('theme')),
   codePalette: store.get('codePalette') || 'github',
   paletteOpen: false,
   toasts: [],
   terminals: [],
 
   setTab: tab => { store.set('tab', tab); set({ tab }) },
-  setTheme: theme => { store.set('theme', theme); applyTheme(theme); set({ theme }) },
   setCodePalette: id => { store.set('codePalette', id); setPalette(id); set({ codePalette: id }) },
   toast: (text, kind) => {
     const id = ++toastSeq
@@ -110,7 +100,6 @@ setReconnectHandler(() => {
   if (ws) void api.get<TerminalInfo[]>(`/api/terminals${q({ ws: ws.path })}`).then(terminals => useApp.setState({ terminals }))
 })
 
-matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => applyTheme(useApp.getState().theme))
 
 export const local = store
 

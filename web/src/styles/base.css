@@ -1,87 +1,50 @@
-/* Duet design tokens and the app shell.
-   One accent (indigo) for the person's focus, one warm clay for the agent's presence. */
+/* Duet design tokens and the app shell: paper and crayon (crayon.css draws the hand-made details).
+   One accent (crayon blue) for the person's focus, one warm clay for the agent's presence. */
 :root {
-  --font-ui: 'Pretendard Variable', Pretendard, -apple-system, BlinkMacSystemFont, 'Apple SD Gothic Neo', sans-serif;
+  --font-ui: 'Gowun Dodum', 'Pretendard Variable', Pretendard, -apple-system, BlinkMacSystemFont, 'Apple SD Gothic Neo', sans-serif;
   --font-mono: 'JetBrains Mono Variable', 'JetBrains Mono', ui-monospace, 'SF Mono', Menlo, monospace;
 
-  --bg: #f6f5f2;
-  --panel: #ffffff;
-  --panel-2: #fafaf8;
-  --sunken: #f1f0ec;
-  --hover: rgba(31, 35, 40, 0.05);
-  --press: rgba(31, 35, 40, 0.09);
-  --line: #e7e4de;
-  --line-strong: #d7d3cb;
-  --ink: #1d2025;
-  --ink-2: #555b65;
-  --ink-3: #8a909a;
-  --ink-4: #b4b8bf;
+  --bg: #efe6d3;
+  --panel: #fffcf5;
+  --panel-2: #f9f3e6;
+  --sunken: #f3ead8;
+  --hover: rgba(90, 70, 40, 0.07);
+  --press: rgba(90, 70, 40, 0.12);
+  --line: #dccfb8;
+  --line-strong: #c7b79b;
+  --ink: #2a2520;
+  --ink-2: #4a4038;
+  --ink-3: #7d7164;
+  --ink-4: #b0a493;
 
-  --accent: #5b57d6;
-  --accent-ink: #4743c2;
-  --accent-soft: rgba(91, 87, 214, 0.1);
-  --accent-line: rgba(91, 87, 214, 0.35);
-  --agent: #c8653f;
-  --agent-soft: rgba(200, 101, 63, 0.1);
+  --accent: #2c55c4;
+  --accent-ink: #1f3f99;
+  --accent-soft: rgba(44, 85, 196, 0.11);
+  --accent-line: rgba(44, 85, 196, 0.38);
+  --agent: #c25a2c;
+  --agent-soft: rgba(194, 90, 44, 0.12);
 
-  --add: #1a7f37;
-  --add-bg: #e9f8ee;
-  --add-strong: #b6ebc4;
-  --del: #c4262e;
-  --del-bg: #fdecec;
-  --del-strong: #f8c5c5;
-  --mod: #8250df;
-  --warn: #9a6700;
-  --warn-bg: #fff6d6;
-  --info: #0969da;
+  --add: #2f6b2a;
+  --add-bg: #e4f0d6;
+  --add-strong: #c3dfae;
+  --del: #a8301f;
+  --del-bg: #fbe1d6;
+  --del-strong: #f2bfae;
+  --mod: #6b4fc2;
+  --warn: #8c4708;
+  --warn-bg: #fbe6c9;
+  --info: #2c55c4;
 
-  --shadow-1: 0 1px 2px rgba(20, 22, 26, 0.06), 0 1px 1px rgba(20, 22, 26, 0.04);
-  --shadow-2: 0 6px 24px rgba(20, 22, 26, 0.10), 0 2px 6px rgba(20, 22, 26, 0.06);
-  --shadow-3: 0 18px 60px rgba(20, 22, 26, 0.18), 0 4px 14px rgba(20, 22, 26, 0.08);
+  /* A second line a little off, as a crayon drawing has, instead of a soft blur. */
+  --shadow-1: 1px 2px 0 rgba(74, 64, 56, 0.12);
+  --shadow-2: 3px 4px 0 rgba(74, 64, 56, 0.14);
+  --shadow-3: 4px 6px 0 rgba(74, 64, 56, 0.16), 0 12px 40px rgba(74, 64, 56, 0.12);
 
   --r-1: 5px;
   --r-2: 8px;
   --r-3: 12px;
   --ease: cubic-bezier(0.2, 0.8, 0.2, 1);
   color-scheme: light;
-}
-
-:root[data-theme='dark'] {
-  --bg: #0f1012;
-  --panel: #16171a;
-  --panel-2: #1b1c20;
-  --sunken: #121316;
-  --hover: rgba(255, 255, 255, 0.05);
-  --press: rgba(255, 255, 255, 0.09);
-  --line: #26282d;
-  --line-strong: #34373e;
-  --ink: #e7e8eb;
-  --ink-2: #a6abb4;
-  --ink-3: #737984;
-  --ink-4: #4f545d;
-
-  --accent: #8d8af2;
-  --accent-ink: #a9a6ff;
-  --accent-soft: rgba(141, 138, 242, 0.14);
-  --accent-line: rgba(141, 138, 242, 0.4);
-  --agent: #e38b65;
-  --agent-soft: rgba(227, 139, 101, 0.13);
-
-  --add: #4ac26b;
-  --add-bg: rgba(46, 160, 67, 0.13);
-  --add-strong: rgba(46, 160, 67, 0.34);
-  --del: #f47067;
-  --del-bg: rgba(248, 81, 73, 0.12);
-  --del-strong: rgba(248, 81, 73, 0.32);
-  --mod: #b392f0;
-  --warn: #d29922;
-  --warn-bg: rgba(210, 153, 34, 0.14);
-  --info: #58a6ff;
-
-  --shadow-1: 0 1px 2px rgba(0, 0, 0, 0.4);
-  --shadow-2: 0 8px 28px rgba(0, 0, 0, 0.45), 0 2px 6px rgba(0, 0, 0, 0.3);
-  --shadow-3: 0 20px 70px rgba(0, 0, 0, 0.6), 0 4px 14px rgba(0, 0, 0, 0.35);
-  color-scheme: dark;
 }
 
 * { box-sizing: border-box; }
@@ -116,7 +79,6 @@ a:hover { text-decoration: underline; }
 .brand-mark i { position: absolute; top: 4px; width: 14px; height: 14px; border-radius: 50%; }
 .brand-mark i:first-child { left: 1px; background: var(--accent); }
 .brand-mark i:last-child { left: 8px; background: var(--agent); opacity: 0.85; mix-blend-mode: multiply; }
-:root[data-theme='dark'] .brand-mark i:last-child { mix-blend-mode: screen; }
 
 /* The left rail: views at the top, the conversation under them, the app's own things at the bottom. */
 .rail {
@@ -285,9 +247,8 @@ textarea.input { height: auto; padding: 8px 10px; resize: vertical; line-height:
 .welcome h1 { margin: 0; font-size: 26px; letter-spacing: -0.02em; }
 .welcome p { margin: 0; color: var(--ink-2); line-height: 1.6; }
 
-/* Code highlighting (shiki dual themes) */
+/* Code highlighting (shiki) */
 .hl span { color: var(--shiki-light); }
-:root[data-theme='dark'] .hl span { color: var(--shiki-dark); }
 
 /* Small helpers */
 .row { display: flex; align-items: center; gap: 8px; }

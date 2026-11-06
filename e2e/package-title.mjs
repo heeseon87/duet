@@ -1,11 +1,10 @@
 // Package titles: an open package is titled with its name (label), not its id, from the left, with its fold button at
 // the end of the title's row; a name wider than the frame is cut with an ellipsis inside the frame and shown whole by the pointer (only then), even where a line coming into the package
 // crosses the title; a package with no name keeps its id; a folded package shows its name too.
-//   DUET_PORT=7981 DUET_TOKEN=... DUET_WS=<workspace> DUET_SHOTS=/dir [DUET_THEME=dark] node e2e/package-title.mjs   (makes and removes a map named package-title)
+//   DUET_PORT=7981 DUET_TOKEN=... DUET_WS=<workspace> DUET_SHOTS=/dir node e2e/package-title.mjs   (makes and removes a map named package-title)
 import { open, sleep } from './browser.mjs'
 const port = Number(process.env.DUET_PORT ?? 7979)
 const { DUET_TOKEN: T, DUET_WS: ws, DUET_SHOTS: shots } = process.env
-const theme = process.env.DUET_THEME ?? 'light'
 if (!T || !ws) { console.error('DUET_TOKEN and DUET_WS are required'); process.exit(2) }
 const H = { 'x-duet-token': T, 'content-type': 'application/json' }
 const call = async (method, path, body) => {
@@ -31,8 +30,8 @@ await call('POST', `/api/canvas/${NAME}/patch`, { ws, note: '시험 지도', pat
   relations: [{ from: 'GroupController', to: 'Pol' }, { from: 'Pol', to: 'Store' }, { from: 'GroupSwagger', to: 'Store' }],
 } })
 
-const { browser, page, errors } = await open({ port, token: T, ws, width: 1500, height: 940, theme })
-const shot = async n => { if (shots) await page.screenshot({ path: `${shots}/package-title-${theme}-${n}.png` }) }
+const { browser, page, errors } = await open({ port, token: T, ws, width: 1500, height: 940 })
+const shot = async n => { if (shots) await page.screenshot({ path: `${shots}/package-title-${n}.png` }) }
 await page.evaluate(([w, m]) => { localStorage.setItem('duet.tab', 'canvas'); localStorage.setItem(`duet.canvas.current:${w}`, m); localStorage.removeItem(`duet.canvas.collapsed:${w}:${m}`) }, [ws, NAME])
 await page.reload({ waitUntil: 'domcontentloaded' })
 await page.waitForSelector('.stage-inner > svg .cv-cluster', { state: 'attached', timeout: 15000 }); await sleep(1200)

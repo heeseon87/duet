@@ -13,8 +13,7 @@ export function MermaidBlock({ code }: { code: string }) {
     let live = true
     void (async () => {
       const mermaid = (await import('mermaid')).default
-      const dark = document.documentElement.dataset.theme === 'dark'
-      mermaid.initialize({ startOnLoad: false, securityLevel: 'strict', theme: dark ? 'dark' : 'neutral', suppressErrorRendering: true } as never)
+      mermaid.initialize({ startOnLoad: false, securityLevel: 'strict', theme: 'neutral', suppressErrorRendering: true } as never)
       const id = `mdm${++seq}`
       try {
         await document.fonts.ready

@@ -134,7 +134,7 @@ check('a language without colors has no button and nothing painted', !(await but
 await pick('Kt', 'src/Svc.kt')
 await until(async () => (await painted()).length)
 await (await button()).click(); await sleep(300)
-check('turning it off clears the colors and brings the theme back', !(await painted()).length && (await (await button()).getAttribute('aria-pressed')) === 'false' && !(await typeGray()) && !(await page.evaluate(() => CSS.highlights.has('duet-kw'))))
+check('turning it off clears the colors and brings the code colors back', !(await painted()).length && (await (await button()).getAttribute('aria-pressed')) === 'false' && !(await typeGray()) && !(await page.evaluate(() => CSS.highlights.has('duet-kw'))))
 
 check('no page errors', !errors.length, errors.join(' | '))
 await browser.close()

@@ -31,11 +31,10 @@ if (own) {
   } })
   await call('POST', `/api/canvas/${mapName}/choose`, { ws, decision: 'D1', option: 'D1-a' })
 }
-const theme = process.env.DUET_THEME ?? 'light'
-const { browser, page, errors } = await open({ port, token: T, ws, width: 1600, height: 1000, theme })
+const { browser, page, errors } = await open({ port, token: T, ws, width: 1600, height: 1000 })
 let failed = 0
 const check = (name, ok, extra = '') => { if (!ok) failed++; console.log(ok ? 'PASS' : 'FAIL', name, extra) }
-const shot = async name => { if (shots) await page.screenshot({ path: `${shots}/${theme}-${name}.png` }) }
+const shot = async name => { if (shots) await page.screenshot({ path: `${shots}/${name}.png` }) }
 await page.evaluate(([w, m]) => { localStorage.setItem('duet.tab', 'canvas'); localStorage.setItem(`duet.canvas.current:${w}`, m); localStorage.removeItem(`duet.canvas.collapsed:${w}:${m}`) }, [ws, mapName])
 await page.reload({ waitUntil: 'domcontentloaded' })
 await page.waitForSelector('.stage-canvas svg .cv-cluster', { timeout: 20000 }); await sleep(1500)
