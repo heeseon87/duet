@@ -9,10 +9,11 @@ export function lastAgentRevision(history: { revision: number; by: 'agent' | 'pe
 /**
  * The boxes of a class map the agent added or changed in one revision (`before` → `after`) that `current` still shows
  * as the agent left them. A later edit, a restore or a removal takes a box's mark away; choosing a decision does not,
- * as it leaves the boxes that stay untouched. Packages are not boxes.
+ * as it leaves the boxes that stay untouched. Packages are not boxes. The revision that first draws on an empty map
+ * marks nothing, like the map's first revision: there every box is new.
  */
 export function revisedBoxes(before: CanvasMap, after: CanvasMap, current: CanvasMap): string[] {
-  if (current.diagram !== 'class') return []
+  if (current.diagram !== 'class' || !before.elements.some(e => e.kind !== 'group')) return []
   const d = diffMaps(before, after)
   const left = new Map(after.elements.map(e => [e.id, JSON.stringify(e)]))
   return current.elements

@@ -37,6 +37,13 @@ describe('revisedBoxes', () => {
     expect(revisedBoxes(before(), after, chosen).sort()).toEqual(['D', 'F'])
   })
 
+  it('marks nothing when the revision first draws on an empty map', () => {
+    const drawn = before()
+    expect(revisedBoxes(emptyMap('class', 't'), drawn, drawn)).toEqual([])
+    const onlyPackages = applyPatch(emptyMap('class', 't'), { elements: [{ id: 'grp', kind: 'group' }] }, 'agent').map
+    expect(revisedBoxes(onlyPackages, drawn, drawn)).toEqual([])
+  })
+
   it('marks nothing on a sequence map', () => {
     const seq = applyPatch(emptyMap('sequence', 't'), { elements: [{ id: 'A' }] }, 'agent').map
     expect(revisedBoxes(emptyMap('sequence', 't'), seq, seq)).toEqual([])
