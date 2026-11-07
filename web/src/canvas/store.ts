@@ -240,10 +240,13 @@ export const useCanvas = create<CanvasState>((set, get) => ({
     if (!w || !name) return
     const data = await api.get<{ revision: number; map: CanvasMap; code?: MapCode; history: HistoryItem[]; threads: CanvasThread[]; deliveries: Record<string, Delivery> }>(`/api/canvas/${name}${q({ ws: w })}`)
     const before = get().map
+    // A comment or a thread changes no revision: the same map keeps its object, so the drawing is not rendered again.
+    const same = before && get().mapName === name && get().revision === data.revision && JSON.stringify(before) === JSON.stringify(data.map)
+    const map = same ? before : data.map
     const code = data.code && get().code && JSON.stringify(data.code) === JSON.stringify(get().code) ? get().code : data.code
-    set({ map: data.map, mapName: name, code, revision: data.revision, history: data.history, threads: data.threads, deliveries: data.deliveries, loading: false })
-    if (before && get().name === name && before !== data.map) {
-      const d = diffMaps(before, data.map)
+    set({ map, mapName: name, code, revision: data.revision, history: data.history, threads: data.threads, deliveries: data.deliveries, loading: false })
+    if (before && get().name === name && before !== map) {
+      const d = diffMaps(before, map)
       set({ glow: d })
       setTimeout(() => { if (get().glow === d) set({ glow: undefined }) }, 5000)
     }
@@ -251,8 +254,8 @@ export const useCanvas = create<CanvasState>((set, get) => ({
     const rev = lastAgentRevision(data.history)
     if (!rev) { set({ revised: undefined }); return }
     // Only marks: if a side will not load, the map shows without them.
-    const sides = await revisionSides(w, name, rev, data).catch(() => undefined)
-    if (get().name === name && get().map === data.map) set({ revised: sides && { revision: rev, ids: revisedBoxes(sides[0], sides[1], data.map) } })
+    const sides = await revisionSides(w, name, rev, { revision: data.revision, map }).catch(() => undefined)
+    if (get().name === name && get().map === map) set({ revised: sides && { revision: rev, ids: revisedBoxes(sides[0], sides[1], map) } })
   },
 
   refreshThreads: async () => {
@@ -332,6 +335,8 @@ export const useCanvas = create<CanvasState>((set, get) => ({
   setCompare: async rev => {
     const w = ws(), name = get().name
     if (!rev || !w || !name || rev >= get().revision) { set({ compareFrom: undefined, compareMap: undefined }); return }
+    // A past revision never changes: comparing with the same one keeps its map, and the ghosts drawn from it.
+    if (rev === get().compareFrom && get().compareMap) return
     const r = await api.get<{ map: CanvasMap }>(`/api/canvas/${name}/rev/${rev}${q({ ws: w })}`)
     set({ compareFrom: rev, compareMap: r.map })
   },
