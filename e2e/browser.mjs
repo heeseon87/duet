@@ -49,14 +49,16 @@ export async function toggleFold(page, id) {
  * A stand-in for a Claude Code terminal running the Duet mod: it registers in `ws`, keeps polling so the server
  * keeps it, and finishes each message Duet sends it (with `answer(message)`'s text as its answer, when given),
  * `workMs` after starting on it. `got` holds what arrived; `hold()` keeps the next message unfinished until `release()`.
+ * Like the mod, it answers side questions at once, held message or not (`side(ask)`'s text, `asked` holds them),
+ * unless `canAsk` is false (a mod older than side questions).
  */
-export async function fakeTerminal({ port = 7981, token, ws, id = `e2e-${Date.now().toString(36)}`, label = 'e2e', answer, workMs = 0 } = {}) {
+export async function fakeTerminal({ port = 7981, token, ws, id = `e2e-${Date.now().toString(36)}`, label = 'e2e', answer, workMs = 0, canAsk = true, side } = {}) {
   const H = { 'x-duet-token': token, 'content-type': 'application/json' }
   const url = p => `http://127.0.0.1:${port}${p}`
   const post = (p, body) => fetch(url(p), { method: 'POST', headers: H, body: JSON.stringify(body) })
-  const r = await post('/api/terminals', { id, workspace: ws, cwd: ws, label })
+  const r = await post('/api/terminals', { id, workspace: ws, cwd: ws, label, asks: canAsk })
   if (!r.ok) throw new Error(`terminal register ${r.status} ${await r.text()}`)
-  const got = []
+  const got = [], asked = []
   let on = true, hold = false, held
   const finish = async m => {
     await post(`/api/terminals/${id}/messages/${m.id}`, { state: 'working' })
@@ -68,6 +70,10 @@ export async function fakeTerminal({ port = 7981, token, ws, id = `e2e-${Date.no
       const p = await fetch(url(`/api/terminals/${id}/poll?wait=1500`), { headers: H }).then(x => (x.ok ? x.json() : undefined)).catch(() => undefined)
       if (!on) break
       if (!p) { await sleep(300); continue }
+      if (p.ask) {
+        asked.push(p.ask)
+        await post(`/api/terminals/${id}/asks/${p.ask.id}`, { answer: side?.(p.ask) ?? '곁 답이야.' })
+      }
       if (!p.message || p.message.id === held?.id) continue
       got.push(p.message)
       if (hold) held = p.message
@@ -75,7 +81,7 @@ export async function fakeTerminal({ port = 7981, token, ws, id = `e2e-${Date.no
     }
   })()
   return {
-    id, got,
+    id, got, asked,
     hold: () => { hold = true },
     release: async () => { hold = false; const m = held; held = undefined; if (m) await finish(m) },
     stop: async () => { on = false; await loop; await fetch(url(`/api/terminals/${id}`), { method: 'DELETE', headers: H }) },

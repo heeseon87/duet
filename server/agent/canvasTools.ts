@@ -160,7 +160,7 @@ export function rebaseFiles(patch: CanvasPatch, base: string, roots: string[], l
   return { patch: { ...patch, elements: patch.elements.map(e => (e.files?.length ? { ...e, files: e.files.map(fix) } : e)) }, notes }
 }
 
-/** A terminal signs its revisions and replies; its `cwd` is where a new map's code is. */
+/** A terminal signs its revisions (in the note, and by its id) and replies; its `cwd` is where a new map's code is. */
 export type Caller = { terminal?: { id: string; label: string; cwd?: string } }
 
 /** One canvas tool call on arguments its shape already checked; the text is what the agent reads. */
@@ -176,7 +176,8 @@ export function runCanvasTool(store: CanvasStore, workspace: string, name: Canva
       case 'canvas_read': {
         const map = String(args.name)
         const cur = store.get(workspace, map)
-        const threads = store.threads(workspace, map).filter(t => t.state === 'open')
+        // Side questions stay out of the conversation: the agent hears of them with the decision they were asked about.
+        const threads = store.threads(workspace, map).filter(t => t.state === 'open' && !t.side)
         const parts = [
           `rev ${cur.revision}`,
           ...(cur.code ? [`Its code (what the person reviews beside it): ${describeSource(cur.code.source)} in ${cur.code.root}.${filesFrom(workspace, cur.code.root)}`] : []),
@@ -202,7 +203,7 @@ export function runCanvasTool(store: CanvasStore, workspace: string, name: Canva
         const code = here && source ? { ...here, source } : here
         const roots = [from, ...(code ? [code.root] : [])]
         const files = rebaseFiles(drawing, refBase(workspace, code?.root), roots)
-        const made = store.createDrawn(workspace, map, diagram, title, context, 'agent', signed(note || '새 지도'), code, files.patch)
+        const made = store.createDrawn(workspace, map, diagram, title, context, 'agent', signed(note || '새 지도'), code, files.patch, caller.terminal?.id)
         const notes = [...files.notes, ...made.notes]
         if (!made.ok) return { isError: true, text: ['Nothing was made. Fix these and call again:', ...made.errors.map(e => `- ${e}`), ...notes.map(n => `note: ${n}`)].join('\n') }
         const bound = code ? ` Its review shows ${describeSource(code.source)} in ${code.root}.${filesFrom(workspace, code.root)}` : ''
@@ -213,7 +214,7 @@ export function runCanvasTool(store: CanvasStore, workspace: string, name: Canva
         const root = store.get(workspace, map).code?.root
         const roots = [...(caller.terminal?.cwd ? [caller.terminal.cwd] : []), ...(root ? [root] : [])]
         const files = rebaseFiles(rest as CanvasPatch, refBase(workspace, root), roots)
-        const res = store.update(workspace, map, files.patch, 'agent', signed(note), baseRevision)
+        const res = store.update(workspace, map, files.patch, 'agent', signed(note), baseRevision, caller.terminal?.id)
         const notes = [...files.notes, ...res.notes]
         if (!res.ok) return { isError: true, text: ['Nothing was written. Fix these and call again:', ...res.errors.map(e => `- ${e}`), ...notes.map(n => `note: ${n}`)].join('\n') }
         return { text: [`rev ${res.revision}`, ...res.changes.map(c => `  ${c}`), ...notes.map(n => `note: ${n}`)].join('\n') }

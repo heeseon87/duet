@@ -75,6 +75,11 @@ type CanvasState = {
   acknowledge: () => void
   /** False when it could not be sent (a toast says why), so the draft stays. */
   comment: (target: string, text: string, threadId?: string) => Promise<boolean>
+  /**
+   * A side question on a decision or option: the terminal that opened the decision (else the one picked) answers it from
+   * a fork of its conversation, beside its work. False when it could not be asked (a toast says why).
+   */
+  askSide: (target: string, text: string, threadId?: string) => Promise<boolean>
   setThread: (threadId: string, state: 'open' | 'resolved') => Promise<void>
   choose: (decision: string, option: string | null, rationale?: string, notify?: boolean) => Promise<void>
   /** Decision mode is open over the canvas: its keys win over the map's, the approval card's and esc's. */
@@ -359,6 +364,21 @@ export const useCanvas = create<CanvasState>((set, get) => ({
     if (!w || !name) return false
     try {
       await api.post<{ thread: CanvasThread }>(`/api/canvas/${name}/comment`, { ws: w, target: part, text, threadId, ...target() })
+    } catch (e) {
+      useApp.getState().toast((e as Error).message, 'error')
+      return false
+    }
+    await get().reload()
+    return true
+  },
+
+  askSide: async (part, text, threadId) => {
+    const w = ws(), name = get().name
+    if (!w || !name) return false
+    // The terminal that opened the decision answers when it is there; the one picked only stands in.
+    const to = sendingTo(useApp.getState())
+    try {
+      await api.post<{ thread: CanvasThread }>(`/api/canvas/${name}/ask`, { ws: w, target: part, text, threadId, ...('terminal' in to ? { terminalId: to.terminal } : {}) })
     } catch (e) {
       useApp.getState().toast((e as Error).message, 'error')
       return false

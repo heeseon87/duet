@@ -573,6 +573,7 @@ svg[id^='cv'] g.node > .label-group p { font-family: var(--font-ui); font-size: 
 .dm-opt-parts { font-size: 11px; color: var(--ink-3); }
 .dm-ask { display: grid; gap: 6px; padding: 8px 10px; border: 1px solid var(--line); border-radius: var(--r-2); background: var(--panel); }
 .dm-ask-head { display: flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 600; color: var(--ink-2); }
+.dm-ask-note { font-size: 11.5px; line-height: 1.45; }
 .dm-main .thread { max-width: 760px; }
 .dm-why { height: 30px; }
 .dm-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }

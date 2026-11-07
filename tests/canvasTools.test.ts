@@ -34,7 +34,21 @@ describe('canvas tools from a terminal', () => {
     const made = run(store, ws, 'canvas_create', { name: 'from-terminal', diagram: 'class', title: '터미널 지도' }, terminal)
     expect(made.isError).toBeUndefined()
     expect(made.text).toBe('Created from-terminal (rev 1). The person sees it on the Canvas tab.')
-    expect(store.history(ws, 'from-terminal')[0]).toMatchObject({ revision: 1, by: 'agent', note: '터미널 · feat · term-000 · 새 지도' })
+    expect(store.history(ws, 'from-terminal')[0]).toMatchObject({ revision: 1, by: 'agent', note: '터미널 · feat · term-000 · 새 지도', terminal: 'term-0001' })
+  })
+
+  it('keeps which terminal wrote each revision, and side questions out of what the agent reads', () => {
+    run(store, ws, 'canvas_create', { name: 'side-q', diagram: 'class', title: '곁질문 지도' }, terminal)
+    const updated = run(store, ws, 'canvas_update', { name: 'side-q', note: '결정 열기', elements: [{ id: 'Svc' }], decisions: [{ id: 'D1', question: 'q', why: { text: 'w', tags: ['tie'] }, options: [{ id: 'D1-a', text: 'a' }, { id: 'D1-b', text: 'b' }] }] }, terminal)
+    expect(updated.isError).toBeUndefined()
+    store.update(ws, 'side-q', { elements: [{ id: 'Other' }] }, 'person', '사람 편집')
+    expect(store.history(ws, 'side-q').map(r => r.terminal)).toEqual(['term-0001', 'term-0001', undefined])
+    store.addThreadItem(ws, 'side-q', { target: 'D1-a', who: 'person', text: '곁에서 묻는 말', side: true })
+    store.addThreadItem(ws, 'side-q', { target: 'Svc', who: 'person', text: '보통 코멘트' })
+    const read = run(store, ws, 'canvas_read', { name: 'side-q' }, terminal).text
+    expect(read).toContain('보통 코멘트')
+    expect(read).not.toContain('곁에서 묻는 말')
+    expect(store.list(ws).find(m => m.name === 'side-q')?.openThreads).toBe(1)
   })
 
   it('draws the first rev in the same call, with the notes an update would give', () => {

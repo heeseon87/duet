@@ -92,7 +92,8 @@ async function refreshStatus($: EngineInterface) {
   await tellPin($)
 }
 
-const terminalBody = () => ({ id: st.session, workspace: st.workspace, cwd: st.cwd, label: st.label, map: st.pin, isWorking: st.isTurnRunning })
+/** `asks`: this mod answers side questions (`answerAsk`); Duet sends none to a terminal that does not say so. */
+const terminalBody = () => ({ id: st.session, workspace: st.workspace, cwd: st.cwd, label: st.label, map: st.pin, isWorking: st.isTurnRunning, asks: true })
 
 /** Reports reach Duet in the order made: a wait cleared must not land before the wait it clears, nor after the turn's end. */
 let reporting: Promise<unknown> = Promise.resolve()
@@ -262,8 +263,10 @@ async function pump($: EngineInterface) {
     // The server restarted and forgot this terminal.
     if (res.status === 404) { st.isRegistered = false; return }
     if (!res.ok) throw new Error(`poll ${res.status}`)
-    const poll = JSON.parse(res.text) as { message?: Outgoing; canvas?: true }
+    const poll = JSON.parse(res.text) as { message?: Outgoing; ask?: { id: string; prompt: string }; canvas?: true }
     if (!st.isOn) return
+    // Not awaited: the next poll goes out while the fork answers.
+    if (poll.ask) void answerAsk($, poll.ask)
     if (poll.message) take($, poll.message)
     if (poll.canvas) await refreshStatus($)
   } catch {
@@ -290,6 +293,17 @@ function take($: EngineInterface, m: Outgoing) {
     },
     (error: unknown) => letGo($, m.id, undefined, `Duet에서 온 메시지를 넣지 못했어: ${error instanceof Error ? error.message : String(error)}`),
   )
+}
+
+/**
+ * A side question from Duet's decision screen: a fork of this conversation answers it at once, with no tools, whether or
+ * not a turn runs, and nothing of it is kept here (the message Duet may hold is not touched). No `effort`: a level other
+ * than the session's can cost a cache write of the whole conversation, so the prompt asks for haste instead.
+ */
+async function answerAsk($: EngineInterface, ask: { id: string; prompt: string }) {
+  const r = await $.model.fork({ prompt: ask.prompt }).catch((e: unknown) => ({ isAnswered: false as const, reason: e instanceof Error ? e.message : String(e) }))
+  const body = r.isAnswered ? { answer: r.text } : { reason: r.reason, status: 'status' in r ? r.status : undefined }
+  await call($, 'POST', `/api/terminals/${st.session}/asks/${ask.id}`, body).catch(() => undefined)
 }
 
 async function report($: EngineInterface, id: string, change: { state: 'working' } | { state: 'done'; answer?: string }) {

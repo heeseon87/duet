@@ -5,14 +5,23 @@ import { HttpError } from './util.ts'
 /** A message on its way to a terminal: waiting here, handed over (the terminal runs it once idle), or being worked on. */
 export type Outgoing = { id: string; text: string; state: 'queued' | 'delivered' | 'working' }
 
-/** What one poll brings back: the next message for a terminal with nothing in hand, or that the workspace's maps changed. */
-export type Poll = { message?: Outgoing; canvas?: true }
+/** A side question: the terminal answers it from a fork of its conversation at once, beside whatever it is doing. */
+export type Ask = { id: string; prompt: string }
+
+/**
+ * What one poll brings back: the next message for a terminal with nothing in hand, or that the workspace's maps
+ * changed; and a side question not handed over yet, whatever the terminal holds.
+ */
+export type Poll = { message?: Outgoing; ask?: Ask; canvas?: true }
 
 /** A terminal that stops polling is gone after this long; one whose poll was cut off mid-wait, after GRACE_MS. */
 const GONE_MS = 45_000
 const GRACE_MS = 3_000
+/** A side question its terminal has not answered by then is dropped (the mod died, or the fork hung): its thread reads as ended. */
+export const ASK_MS = 120_000
 
-type Entry = { info: TerminalInfo; out: Outgoing[]; canvas: boolean; wake?: () => void }
+/** `canAsk`: the terminal's mod said it answers side questions (an older mod does not, and a question to it would hang). */
+type Entry = { info: TerminalInfo; out: Outgoing[]; asks: (Ask & { at: number; isHanded: boolean })[]; canAsk: boolean; canvas: boolean; wake?: () => void }
 
 const under = (path: string, root: string) => path === root || path.startsWith(root.endsWith('/') ? root : `${root}/`)
 
@@ -37,7 +46,10 @@ export class Terminals {
 
   constructor(private changed: () => void) {
     setInterval(() => {
-      for (const [id, e] of this.all) if (!e.wake && Date.now() - e.info.lastSeen > GONE_MS) this.remove(id)
+      for (const [id, e] of this.all) {
+        if (!e.wake && Date.now() - e.info.lastSeen > GONE_MS) this.remove(id)
+        else e.asks = e.asks.filter(a => Date.now() - a.at < ASK_MS)
+      }
     }, 5_000).unref()
   }
 
@@ -49,12 +61,14 @@ export class Terminals {
    * A reloaded mod registers again and learns which message it already holds. `isWorking`: a turn is running
    * there now (a mod older than turn reports leaves it out, and the status stands).
    */
-  register({ isWorking, ...info }: Omit<TerminalInfo, 'lastSeen' | 'status' | 'activity'> & { isWorking?: boolean }): { holding?: Outgoing } {
+  register({ isWorking, canAsk = false, ...info }: Omit<TerminalInfo, 'lastSeen' | 'status' | 'activity'> & { isWorking?: boolean; canAsk?: boolean }): { holding?: Outgoing } {
     const e = this.all.get(info.id)
     const status = isWorking === undefined ? e?.info.status ?? 'idle' : isWorking ? 'working' : 'idle'
     // A pin set again, or a mod come back from a lost poll, has not said anything new.
-    if (e) e.info = { ...info, lastSeen: Date.now(), status, activity: e.info.activity }
-    else this.all.set(info.id, { info: { ...info, lastSeen: Date.now(), status }, out: [], canvas: false })
+    if (e) {
+      e.info = { ...info, lastSeen: Date.now(), status, activity: e.info.activity }
+      e.canAsk = canAsk
+    } else this.all.set(info.id, { info: { ...info, lastSeen: Date.now(), status }, out: [], asks: [], canAsk, canvas: false })
     this.changed()
     return { holding: e?.out.find(m => m.state !== 'queued') }
   }
@@ -64,6 +78,7 @@ export class Terminals {
     if (!e) return
     this.all.delete(id)
     e.out = []
+    e.asks = []
     e.wake?.()
     this.changed()
   }
@@ -71,7 +86,7 @@ export class Terminals {
   /** Messages sent to a terminal that its turn has not finished yet: `duet` waits for none before restarting the server. */
   pending(): number {
     let n = 0
-    for (const e of this.all.values()) n += e.out.length
+    for (const e of this.all.values()) n += e.out.length + e.asks.length
     return n
   }
 
@@ -84,6 +99,24 @@ export class Terminals {
     const e = this.all.get(id)
     if (!e) throw new HttpError(410, '그 터미널은 닫혔어. 다른 터미널을 골라 줘.')
     return e
+  }
+
+  /** Whether the terminal's mod answers side questions. */
+  canAsk(id: string): boolean {
+    return this.entry(id).canAsk
+  }
+
+  /** A side question goes out with the next poll, even while the terminal holds a message. */
+  ask(id: string, ask: Ask) {
+    const e = this.entry(id)
+    e.asks.push({ ...ask, at: Date.now(), isHanded: false })
+    e.wake?.()
+  }
+
+  /** The terminal answered a side question (or could not): it is no longer waited for. */
+  answered(id: string, askId: string) {
+    const e = this.entry(id)
+    e.asks = e.asks.filter(a => a.id !== askId)
   }
 
   send(id: string, text: string, messageId: string) {
@@ -100,17 +133,20 @@ export class Terminals {
     e.info.lastSeen = Date.now()
     this.changed()
     const take = (): Poll | undefined => {
+      const waiting = e.asks.find(a => !a.isHanded)
+      if (waiting) waiting.isHanded = true
+      const ask = waiting ? { ask: { id: waiting.id, prompt: waiting.prompt } } : {}
       const next = e.out.every(m => m.state === 'queued') ? e.out[0] : undefined
       if (next) {
         next.state = 'delivered'
         this.changed()
-        return { message: next }
+        return { ...ask, message: next }
       }
       if (e.canvas) {
         e.canvas = false
-        return { canvas: true }
+        return { ...ask, canvas: true }
       }
-      return undefined
+      return waiting ? ask : undefined
     }
     const ready = take()
     if (ready) return Promise.resolve(ready)
@@ -172,6 +208,7 @@ export class Terminals {
   }
 
   promptState(id: string, messageId: string): PromptState | undefined {
+    if (this.all.get(id)?.asks.some(a => a.id === messageId)) return { state: 'asking' }
     const out = this.all.get(id)?.out ?? []
     const m = out.find(x => x.id === messageId)
     if (!m) return undefined

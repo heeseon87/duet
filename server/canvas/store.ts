@@ -47,7 +47,8 @@ export class CanvasStore {
         elements: cur.map.elements.filter(e => e.kind !== 'group').length + (cur.map.messages?.length ?? 0),
         decisions: decisions.length,
         openDecisions: decisions.filter(d => !d.chosen).length,
-        openThreads: threads.filter(t => t.state === 'open').length,
+        // A side thread waits on no one: its answer came from a fork, and the agent hears of it with the decision.
+        openThreads: threads.filter(t => t.state === 'open' && !t.side).length,
         ...(cur.code ? { code: cur.code } : {}),
       })
     }
@@ -82,7 +83,7 @@ export class CanvasStore {
 
   /** Makes a map whose first revision is already drawn from a patch; nothing is written when the drawing does not validate. */
   createDrawn(workspace: string, name: string, diagram: 'class' | 'sequence', title: string, context: string | undefined, by: 'agent' | 'person',
-    note = '새 지도', code?: MapCode, patch: CanvasPatch = {}):
+    note = '새 지도', code?: MapCode, patch: CanvasPatch = {}, terminal?: string):
     { ok: true; cur: Current; changes: string[]; notes: string[] } | { ok: false; errors: string[]; notes: string[] } {
     if (this.exists(workspace, name)) throw new HttpError(409, `${name} 지도가 이미 있어`)
     const empty = emptyMap(diagram, title)
@@ -90,7 +91,7 @@ export class CanvasStore {
     const res = applyPatch(empty, patch, by)
     if (res.errors.length) return { ok: false, errors: res.errors, notes: res.notes }
     const changes = describeDiff(diffMaps(empty, res.map), res.map)
-    const cur = this.write(workspace, name, res.map, 1, by, note, code)
+    const cur = this.write(workspace, name, res.map, 1, by, note, code, terminal)
     this.onList(workspace)
     return { ok: true, cur, changes, notes: res.notes }
   }
@@ -107,18 +108,18 @@ export class CanvasStore {
     return { ...next, map: cur.map }
   }
 
-  /** A new revision keeps the code the map is bound to. */
+  /** A new revision keeps the code the map is bound to; `terminal` is the one whose agent wrote it. */
   private write(workspace: string, name: string, map: CanvasMap, revision: number, by: 'agent' | 'person', note?: string,
-    code = readJson<Current | null>(this.file(workspace, name, 'map.json'), null)?.code): Current {
+    code = readJson<Current | null>(this.file(workspace, name, 'map.json'), null)?.code, terminal?: string): Current {
     const cur: Current = { revision, map, updated: Date.now(), ...(code ? { code } : {}) }
-    appendJsonl(this.file(workspace, name, 'history.jsonl'), { revision, map, by, note, ts: cur.updated } satisfies CanvasRevision)
+    appendJsonl(this.file(workspace, name, 'history.jsonl'), { revision, map, by, note, ...(terminal ? { terminal } : {}), ts: cur.updated } satisfies CanvasRevision)
     writeJson(this.file(workspace, name, 'map.json'), cur)
     this.onChange(workspace, name, revision, by)
     return cur
   }
 
   /** Applies a patch; nothing is written when the result does not validate. */
-  update(workspace: string, name: string, patch: CanvasPatch, by: 'agent' | 'person', note?: string, baseRevision?: number):
+  update(workspace: string, name: string, patch: CanvasPatch, by: 'agent' | 'person', note?: string, baseRevision?: number, terminal?: string):
     { ok: true; revision: number; changes: string[]; notes: string[] } | { ok: false; errors: string[]; notes: string[]; revision: number } {
     const cur = this.get(workspace, name)
     const notes: string[] = []
@@ -131,7 +132,7 @@ export class CanvasStore {
       ...reorderedGroups(cur.map, res.map).map(g => `${g ? labelOf(res.map, g) : '맨 위'} 안의 배치 순서`),
     ]
     if (!changes.length) return { ok: true, revision: cur.revision, changes, notes: [...notes, '바뀐 것이 없어서 새 rev를 만들지 않았어'] }
-    const next = this.write(workspace, name, res.map, cur.revision + 1, by, note)
+    const next = this.write(workspace, name, res.map, cur.revision + 1, by, note, undefined, terminal)
     return { ok: true, revision: next.revision, changes, notes }
   }
 
@@ -176,12 +177,13 @@ export class CanvasStore {
     return readJson<CanvasThread[]>(this.file(workspace, name, 'threads.json'), [])
   }
 
-  addThreadItem(workspace: string, name: string, args: { threadId?: string; target: string; who: 'person' | 'agent'; text: string; terminal?: string; messageId?: string }): CanvasThread {
+  /** `side` starts a side thread; an item added to an existing thread keeps whatever kind it is. */
+  addThreadItem(workspace: string, name: string, args: { threadId?: string; target: string; who: 'person' | 'agent'; text: string; terminal?: string; messageId?: string; side?: boolean }): CanvasThread {
     const all = this.threads(workspace, name)
     const cur = this.get(workspace, name)
     let thread = args.threadId ? all.find(t => t.id === args.threadId) : undefined
     if (!thread) {
-      thread = { id: newId('t'), target: args.target, targetLabel: labelOf(cur.map, args.target), revision: cur.revision, state: 'open', items: [], created: Date.now() }
+      thread = { id: newId('t'), target: args.target, targetLabel: labelOf(cur.map, args.target), revision: cur.revision, state: 'open', ...(args.side ? { side: true as const } : {}), items: [], created: Date.now() }
       all.push(thread)
     }
     thread.items.push({ id: newId('i'), who: args.who, text: args.text, ts: Date.now(), terminal: args.terminal, messageId: args.messageId })

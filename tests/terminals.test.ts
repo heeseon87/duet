@@ -74,6 +74,50 @@ describe('Terminals', () => {
     expect(await next).toEqual({ canvas: true })
   })
 
+  it('hands a side question to a terminal that holds a message, and wakes its poll for one', async () => {
+    const t = make()
+    t.send('term-0001', 'work', 'm1')
+    await t.poll('term-0001', 10, never)
+    t.working('term-0001', 'm1')
+    const waiting = t.poll('term-0001', 5_000, never)
+    t.ask('term-0001', { id: 'a1', prompt: 'why?' })
+    expect(await waiting).toEqual({ ask: { id: 'a1', prompt: 'why?' } })
+    expect(t.promptState('term-0001', 'a1')).toEqual({ state: 'asking' })
+    // Handed over once: the next poll does not bring it again, and the held message is as it was.
+    expect((await t.poll('term-0001', 10, never)).ask).toBeUndefined()
+    expect(t.promptState('term-0001', 'm1')).toEqual({ state: 'working' })
+    expect(t.pending()).toBe(2)
+    t.answered('term-0001', 'a1')
+    expect(t.promptState('term-0001', 'a1')).toBeUndefined()
+    expect(t.pending()).toBe(1)
+  })
+
+  it('brings a side question along with the next message or map change', async () => {
+    const t = make()
+    t.ask('term-0001', { id: 'a1', prompt: 'p' })
+    t.send('term-0001', 'hello', 'm1')
+    expect(await t.poll('term-0001', 10, never)).toMatchObject({ ask: { id: 'a1' }, message: { id: 'm1' } })
+  })
+
+  it('drops a side question its terminal has not answered in time', async () => {
+    vi.useFakeTimers()
+    const t = make()
+    t.ask('term-0001', { id: 'a1', prompt: 'p' })
+    await t.poll('term-0001', 10, never).catch(() => undefined)
+    t.poll('term-0001', 200_000, never)
+    vi.advanceTimersByTime(125_000)
+    expect(t.promptState('term-0001', 'a1')).toBeUndefined()
+  })
+
+  it('knows which terminals answer side questions from what their mod said', () => {
+    const t = make()
+    expect(t.canAsk('term-0001')).toBe(false)
+    t.register({ id: 'term-0001', workspace: '/w', cwd: '/w', label: 'x', canAsk: true })
+    expect(t.canAsk('term-0001')).toBe(true)
+    t.register({ id: 'term-0001', workspace: '/w', cwd: '/w', label: 'x' })
+    expect(t.canAsk('term-0001')).toBe(false)
+  })
+
   it('tells a reloaded mod what it holds', async () => {
     const t = make()
     t.send('term-0001', 'hello', 'm1')

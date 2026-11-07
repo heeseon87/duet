@@ -222,7 +222,8 @@ export function DecisionMode({ map, start, stageKey, onClose }: { map: CanvasMap
             {asking && (
               <div className="dm-ask">
                 <div className="dm-ask-head"><MessageSquare size={13} /> {pick ? `${letterOf(d, pick)}안에 대해` : `${d.id}에 대해`} Claude에게 묻기<span className="grow" /><button className="iconbtn" title="닫기 (esc)" onClick={() => setAsking(false)}><X size={13} /></button></div>
-                <Ask target={pick ?? d.id} autoFocus placeholder="이 선택지에서 궁금한 점 적기" onSent={() => setAsking(false)} />
+                <div className="dm-ask-note muted">곁질문이야. 결정을 연 Claude가 하던 일을 멈추지 않고 지금까지의 대화로만 바로 답하고, 대화 기록에는 남지 않아. 결정을 보낼 때 함께 전해져.</div>
+                <Ask side target={pick ?? d.id} autoFocus placeholder="이 선택지에서 궁금한 점 적기" onSent={() => setAsking(false)} />
               </div>
             )}
             {asked.map(t => <ThreadView key={t.id} t={t} />)}

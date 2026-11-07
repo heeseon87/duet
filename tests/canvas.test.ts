@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { applyPatch, ARROW_TERMS, arrowsOf, chooseOption, deliveryLabel, deliveryOf, describeDiff, diffMaps, emptyMap, labelOf, normalizeDecisions, RELATION_RULES, relationKey, reopenDecision, reorderedGroups, safeText, toMermaid, validate, type CanvasMap } from '../shared/canvas.ts'
+import { applyPatch, ARROW_TERMS, arrowsOf, chooseOption, decisionOfTarget, deliveryLabel, deliveryOf, describeDiff, diffMaps, emptyMap, labelOf, normalizeDecisions, openerOf, RELATION_RULES, relationKey, reopenDecision, reorderedGroups, safeText, toMermaid, validate, type CanvasMap } from '../shared/canvas.ts'
 
 function base(): CanvasMap {
   const m = emptyMap('class', 'test')
@@ -159,6 +159,12 @@ describe('deliveryOf', () => {
     expect(deliveryOf([reply(10), sent], 1, undefined, revs)).toEqual({ state: 'ended' })
   })
 
+  it('does not credit a side question with a revision the main conversation made meanwhile', () => {
+    expect(deliveryOf([sent, reply(200)], 0, { state: 'asking' }, revs, true)).toEqual({ state: 'asking' })
+    expect(deliveryOf([sent, reply(200)], 0, undefined, revs, true)).toEqual({ state: 'answered' })
+    expect(deliveryOf([sent], 0, undefined, revs, true)).toEqual({ state: 'ended' })
+  })
+
   it('says nothing about what was never sent', () => {
     expect(deliveryOf([{ who: 'person', ts: 1 }], 0, undefined, revs)).toBeUndefined()
     expect(deliveryOf([reply(1)], 0, { state: 'working' }, revs)).toBeUndefined()
@@ -168,9 +174,40 @@ describe('deliveryOf', () => {
     expect(deliveryLabel({ state: 'queued', position: 2 })).toBe('대기열 2번째')
     expect(deliveryLabel({ state: 'delivered' })).toBe('터미널에 전달함')
     expect(deliveryLabel({ state: 'working' })).toBe('작업 중')
+    expect(deliveryLabel({ state: 'asking' })).toBe('곁에서 답하는 중')
     expect(deliveryLabel({ state: 'answered', revision: 33 })).toBe('답함 · rev 33 반영')
     expect(deliveryLabel({ state: 'answered' })).toBe('답함')
     expect(deliveryLabel({ state: 'ended' })).toBe('끝남 · 답 없음')
+  })
+})
+
+describe('openerOf', () => {
+  const withD1 = { ...emptyMap('class', 't'), decisions: [{ id: 'D1', question: 'q', options: [{ id: 'D1-a', text: 'a' }, { id: 'D1-b', text: 'b' }] }] }
+  const plain = emptyMap('class', 't')
+
+  it('names the terminal whose revision brought the decision onto the map, not one that touched the map later', () => {
+    const revs = [
+      { by: 'agent' as const, terminal: 'term-a', map: plain },
+      { by: 'agent' as const, terminal: 'term-b', map: withD1 },
+      { by: 'agent' as const, terminal: 'term-c', map: withD1 },
+    ]
+    expect(openerOf(revs, 'D1')).toBe('term-b')
+    expect(openerOf(revs, 'D2')).toBeUndefined()
+  })
+
+  it('names none for a decision the person brought, or one from before revisions named a terminal', () => {
+    expect(openerOf([{ by: 'person', map: withD1 }, { by: 'agent', terminal: 'term-c', map: withD1 }], 'D1')).toBeUndefined()
+    expect(openerOf([{ by: 'agent', map: withD1 }, { by: 'agent', terminal: 'term-c', map: withD1 }], 'D1')).toBeUndefined()
+  })
+
+  it('follows a decision that went and came back to the terminal that brought it back', () => {
+    expect(openerOf([{ by: 'agent', terminal: 'term-a', map: withD1 }, { by: 'person', map: plain }, { by: 'agent', terminal: 'term-b', map: withD1 }], 'D1')).toBe('term-b')
+  })
+
+  it('finds the decision an option names', () => {
+    expect(decisionOfTarget(withD1, 'D1-b')?.id).toBe('D1')
+    expect(decisionOfTarget(withD1, 'D1')?.id).toBe('D1')
+    expect(decisionOfTarget(withD1, 'Svc')).toBeUndefined()
   })
 })
 

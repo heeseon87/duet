@@ -122,7 +122,29 @@ export type CanvasRevision = {
   map: CanvasMap
   by: 'agent' | 'person'
   note?: string
+  /** The terminal (its Claude Code session id) whose agent wrote this revision; absent on the person's and on older ones. */
+  terminal?: string
   ts: number
+}
+
+/**
+ * The terminal whose agent opened a decision: the one that wrote the revision bringing it onto the map (the latest such,
+ * should it have gone and come back). None when the person brought it, or a revision from before revisions named a terminal.
+ */
+export function openerOf(revisions: Pick<CanvasRevision, 'by' | 'terminal' | 'map'>[], decisionId: string): string | undefined {
+  let opener: string | undefined
+  let had = false
+  for (const r of revisions) {
+    const has = Boolean(r.map.decisions?.some(d => d.id === decisionId))
+    if (has && !had) opener = r.by === 'agent' ? r.terminal : undefined
+    had = has
+  }
+  return opener
+}
+
+/** The decision a target names: the decision itself, or one of its options. */
+export function decisionOfTarget(map: CanvasMap, target: string): CanvasDecision | undefined {
+  return map.decisions?.find(d => d.id === target || d.options.some(o => o.id === target))
 }
 
 // ------------------------------------------------------------------ ids and keys
@@ -459,8 +481,11 @@ export function reopenDecision(map: CanvasMap, decisionId: string): CanvasMap {
 
 // ------------------------------------------------------------------ delivery
 
-/** Where a prompt the person sent stands in its live session; `delivered`: a terminal took it and runs it once idle. */
-export type PromptState = { state: 'queued'; position: number } | { state: 'delivered' } | { state: 'working' }
+/**
+ * Where a prompt the person sent stands in its live session; `delivered`: a terminal took it and runs it once idle.
+ * `asking`: a side question its terminal answers from a fork of its conversation, beside whatever it is doing.
+ */
+export type PromptState = { state: 'queued'; position: number } | { state: 'delivered' } | { state: 'working' } | { state: 'asking' }
 
 /** What became of a canvas message sent to the agent. Worked out on every read, never stored. */
 export type Delivery = PromptState | { state: 'answered'; revision?: number } | { state: 'ended' }
@@ -471,14 +496,16 @@ type RevisionStamp = Pick<CanvasRevision, 'revision' | 'by' | 'ts'>
 /**
  * While its session holds the prompt, a sent item is queued or being worked on. Once the session
  * lets go (the turn ended, or the server restarted), the thread tells: answered when the agent spoke
- * after it, with the last revision the agent made of the map in between; ended otherwise.
+ * after it, with the last revision the agent made of the map in between; ended otherwise. A side question (`side`)
+ * changes nothing, so a revision made meanwhile is the main conversation's and is not its.
  */
-export function deliveryOf(items: SentItem[], index: number, live: PromptState | undefined, revisions: () => RevisionStamp[]): Delivery | undefined {
+export function deliveryOf(items: SentItem[], index: number, live: PromptState | undefined, revisions: () => RevisionStamp[], side = false): Delivery | undefined {
   const item = items[index]
   if (item?.who !== 'person' || !item.messageId) return undefined
   if (live) return live
   const answer = items.slice(index + 1).find(i => i.who === 'agent')
   if (!answer) return { state: 'ended' }
+  if (side) return { state: 'answered' }
   const made = revisions().filter(r => r.by === 'agent' && r.ts >= item.ts && r.ts <= answer.ts)
   return made.length ? { state: 'answered', revision: Math.max(...made.map(r => r.revision)) } : { state: 'answered' }
 }
@@ -487,6 +514,7 @@ export function deliveryLabel(d: Delivery): string {
   if (d.state === 'queued') return `대기열 ${d.position}번째`
   if (d.state === 'delivered') return '터미널에 전달함'
   if (d.state === 'working') return '작업 중'
+  if (d.state === 'asking') return '곁에서 답하는 중'
   if (d.state === 'answered') return d.revision ? `답함 · rev ${d.revision} 반영` : '답함'
   return '끝남 · 답 없음'
 }

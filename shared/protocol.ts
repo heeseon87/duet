@@ -219,6 +219,11 @@ export type CanvasThread = {
   targetLabel: string
   revision: number
   state: 'open' | 'resolved'
+  /**
+   * A side question on a decision: answered from a fork of a terminal's conversation, kept out of that conversation and
+   * out of what the map tools tell the agent, and passed on with the decision once it is sent.
+   */
+  side?: true
   /** `terminal`: the terminal it went to or came from. `sessionId`: a Duet conversation, from before there were only terminals. */
   items: { id: string; who: 'person' | 'agent'; text: string; ts: number; sessionId?: string; terminal?: string; messageId?: string }[]
   created: number

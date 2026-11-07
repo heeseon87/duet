@@ -2,7 +2,8 @@
 // pick (1·2·3, also with the Korean input source), put off (l) and ask (q), ⏎ decides and moves on, a choice can be
 // taken back, the summary comes after the last, the side shows the map and the real code an option touches, and esc
 // closes the mode alone. Nothing goes to a terminal unless DUET_SEND=1: then a stand-in terminal gets the choices, in one
-// prompt at the end and once more after a reload.
+// prompt at the end (with the side questions asked on the way) and once more after a reload, and q's side question is
+// answered by the terminal whose agent drew the decisions, not the one picked, with nothing sent to either.
 //   DUET_PORT=7981 DUET_TOKEN=... DUET_WS=<a repo with README.md and package.json> DUET_SHOTS=/dir node e2e/decision-mode.mjs
 //   (makes and removes a map named decision-mode)
 import { fakeTerminal, open, sleep } from './browser.mjs'
@@ -23,7 +24,7 @@ const mapNow = async () => (await call('GET', `/api/canvas/${name}?ws=${W}`))
 await call('POST', '/api/workspaces', { path: ws })
 await call('DELETE', `/api/canvas/${name}?ws=${W}`).catch(() => {})
 await call('POST', '/api/canvas', { ws, name, diagram: 'class', title: '결정 모드 시험' })
-await call('POST', `/api/canvas/${name}/patch`, { ws, note: '시험 지도', patch: {
+const drawing = {
   elements: [
     { id: 'api', kind: 'group' }, { id: 'Ctl', parent: 'api', files: ['package.json'], decision: 'D1' },
     { id: 'Route', parent: 'api', decision: 'D1', option: 'D1-a', files: ['README.md:1-6'] },
@@ -38,10 +39,17 @@ await call('POST', `/api/canvas/${name}/patch`, { ws, note: '시험 지도', pat
     { id: 'D2', question: '성공하면 무엇을 돌려줄까?', why: { tags: ['context'], text: '화면이 무엇을 쓰는지는 네가 알아.' },
       options: [{ id: 'D2-a', text: '201 + 본문' }, { id: 'D2-b', text: '200 빈 본문' }] },
   ],
-} })
+}
+// With sending on, a stand-in terminal's agent draws the map, decisions and all: that terminal opened them.
+const opener = sendToo ? await fakeTerminal({ port, token: T, ws, id: `opener-${Date.now().toString(36)}`, label: 'opener', side: () => '연 쪽의 곁 답이야.' }) : undefined
+if (opener) {
+  const r = await call('POST', `/api/terminals/${opener.id}/tools/canvas_update`, { name, note: '시험 지도', ...drawing })
+  if (r.isError) throw new Error(r.text)
+} else await call('POST', `/api/canvas/${name}/patch`, { ws, note: '시험 지도', patch: drawing })
 
 // The terminal picked on the rail: where the choices go.
 const term = sendToo ? await fakeTerminal({ port, token: T, ws, label: 'decision-mode', answer: () => '알겠어.' }) : undefined
+
 
 const { browser, page, errors } = await open({ port, token: T, ws, width: 1600, height: 1000 })
 let failed = 0
@@ -105,6 +113,24 @@ check('q (ㅂ) opens a question about the picked option', await page.$eval('.dec
 await page.keyboard.press('Escape'); await sleep(150)
 await page.keyboard.press('Escape'); await sleep(300)
 check('esc puts the question box away, the mode stays', !(await page.$('.decide .dm-ask')) && Boolean(await state()))
+const sideQuestion = 'a를 고르면 다른 지도도 바꿔야 해?'
+if (sendToo) {
+  // q asks on the side: the opener's fork answers on the thread; no turn starts in either terminal.
+  await page.keyboard.press('q'); await sleep(300)
+  check('the question box says it is a side question', await page.$eval('.decide .dm-ask-note', x => x.textContent.includes('곁질문')).catch(() => false))
+  await page.fill('.decide .dm-ask textarea', sideQuestion)
+  await page.press('.decide .dm-ask textarea', 'Meta+Enter'); await sleep(2500)
+  const side = (await call('GET', `/api/canvas/${name}/threads?ws=${W}`)).threads.find(t => t.side)
+  check('the side question is a side thread on the picked option, answered by the terminal that opened the decision',
+    side?.target === 'D1-a' && side.items[0]?.text === sideQuestion && side.items[0].terminal === opener.id && side.items[1]?.who === 'agent' && side.items[1].text === '연 쪽의 곁 답이야.', JSON.stringify(side))
+  check('its fork read the decision as the person sees it', opener.asked.length === 1 && opener.asked[0].prompt.includes('[Duet 곁질문]') && opener.asked[0].prompt.includes('사람이 보고 있는 선택지: D1-a POST /groups') && opener.asked[0].prompt.endsWith(sideQuestion), opener.asked[0]?.prompt)
+  check('nothing went to either terminal as a prompt, and the picked one was not asked', term.got.length === 0 && opener.got.length === 0 && term.asked.length === 0)
+  check('the thread shows it as a side question with its answer, and a way to the main conversation', await page.$eval('.decide .thread.side', x => x.textContent.includes('곁질문') && x.textContent.includes('연 쪽의 곁 답이야.') && x.textContent.includes('답함') && Boolean(x.querySelector('.thread-to-main'))).catch(() => false))
+  await page.fill('.decide .thread.side .thread-actions input', '그럼 b는?')
+  await page.press('.decide .thread.side .thread-actions input', 'Enter'); await sleep(2500)
+  check('a reply on a side thread is another side question, carrying the thread so far', opener.asked.length === 2 && opener.asked[1].prompt.includes(`- 사람: ${sideQuestion}`) && opener.asked[1].prompt.includes('- 너: 연 쪽의 곁 답이야.') && term.got.length === 0, opener.asked[1]?.prompt)
+  await page.$eval('.decide .thread.side .thread-actions input', x => x.blur()); await sleep(200)
+}
 
 // 3. The code tab: the real lines of the files the option's boxes name.
 await page.click('.dm-tabs button:has-text("코드")'); await sleep(1500)
@@ -161,10 +187,11 @@ check('the batch route skips what is not decided, sending nothing', Array.isArra
 if (sendToo) {
   // The undo bar goes, then both choices go to Claude in one prompt; each decision's thread shows it.
   await sleep(9000)
-  const th = (await call('GET', `/api/canvas/${name}/threads?ws=${W}`)).threads
+  const th = (await call('GET', `/api/canvas/${name}/threads?ws=${W}`)).threads.filter(t => !t.side)
   // What was sent: the agent may answer on the threads too.
   const items = th.flatMap(t => t.items.filter(i => i.who === 'person').map(i => ({ target: t.target, text: i.text, messageId: i.messageId, terminal: i.terminal })))
   check('both choices went out together, one prompt for both, to the terminal picked', items.length === 2 && items[0].messageId === items[1].messageId && items.every(i => i.terminal === term.id) && term.got.length === 1 && items.some(i => i.target === 'D1') && items.some(i => i.target === 'D2'), JSON.stringify(items))
+  check('the prompt passes on the side questions asked about D1, with their answers', term.got[0]?.text.includes('곁질문(결정 전에 사람이 물었고') && term.got[0].text.includes(`D1-a에 대해 물음: ${sideQuestion}`) && term.got[0].text.includes('곁 답: 연 쪽의 곁 답이야.'), term.got[0]?.text)
   check('nothing waits any more', (await pendingIds()).length === 0)
   check('the summary follows Claude', await page.$eval('.dm-claude', x => x.textContent.includes('Claude ·')))
   // A choice kept when the tab reloads goes out when the map opens again, to the terminal it was made for.
@@ -174,7 +201,7 @@ if (sendToo) {
   await page.keyboard.press('1'); await page.keyboard.press('Enter'); await sleep(800)
   check('a new choice waits in the tab', (await pendingIds()).join() === 'D2')
   await page.reload({ waitUntil: 'domcontentloaded' }); await sleep(5000)
-  const again = (await call('GET', `/api/canvas/${name}/threads?ws=${W}`)).threads.flatMap(t => t.items).filter(i => i.who === 'person' && i.messageId !== items[0].messageId)
+  const again = (await call('GET', `/api/canvas/${name}/threads?ws=${W}`)).threads.filter(t => !t.side).flatMap(t => t.items).filter(i => i.who === 'person' && i.messageId !== items[0].messageId)
   check('after the reload it went out, to the same terminal', again.length === 1 && again[0].terminal === term.id && (await pendingIds()).length === 0, JSON.stringify(again))
   // A choice kept for a Duet conversation (before there were only terminals) goes to the terminal picked now.
   await call('POST', `/api/canvas/${name}/choose`, { ws, decision: 'D2', option: null })
@@ -182,7 +209,7 @@ if (sendToo) {
   await page.evaluate(k => localStorage.setItem(k, JSON.stringify({ ids: ['D2'], to: { sessionId: 's-gone' } })), pendingKey)
   await page.reload({ waitUntil: 'domcontentloaded' }); await sleep(5000)
   const known = new Set([items[0].messageId, ...again.map(i => i.messageId)])
-  const old = (await call('GET', `/api/canvas/${name}/threads?ws=${W}`)).threads.flatMap(t => t.items).filter(i => i.who === 'person' && !known.has(i.messageId))
+  const old = (await call('GET', `/api/canvas/${name}/threads?ws=${W}`)).threads.filter(t => !t.side).flatMap(t => t.items).filter(i => i.who === 'person' && !known.has(i.messageId))
   check('a choice kept for an old Duet conversation goes to the terminal picked now', old.length === 1 && old[0].terminal === term.id && (await pendingIds()).length === 0, JSON.stringify(old))
   await page.click('.canvas-bar .dec-chip'); await sleep(800)
 }
@@ -193,5 +220,6 @@ check('no page errors', errors.length === 0, errors.join('\n'))
 await browser.close()
 await call('DELETE', `/api/canvas/${name}?ws=${W}`).catch(() => {})
 if (term) await term.stop()
+if (opener) await opener.stop()
 console.log(failed ? `${failed} failed` : 'all passed')
 process.exit(failed ? 1 : 0)
