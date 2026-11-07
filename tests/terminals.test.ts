@@ -82,14 +82,24 @@ describe('Terminals', () => {
     const waiting = t.poll('term-0001', 5_000, never)
     t.ask('term-0001', { id: 'a1', prompt: 'why?' })
     expect(await waiting).toEqual({ ask: { id: 'a1', prompt: 'why?' } })
-    expect(t.promptState('term-0001', 'a1')).toEqual({ state: 'asking' })
+    expect(t.isAsking('term-0001', 'a1')).toBe(true)
     // Handed over once: the next poll does not bring it again, and the held message is as it was.
     expect((await t.poll('term-0001', 10, never)).ask).toBeUndefined()
     expect(t.promptState('term-0001', 'm1')).toEqual({ state: 'working' })
     expect(t.pending()).toBe(2)
-    t.answered('term-0001', 'a1')
-    expect(t.promptState('term-0001', 'a1')).toBeUndefined()
+    t.answered('a1')
+    expect(t.isAsking('term-0001', 'a1')).toBe(false)
     expect(t.pending()).toBe(1)
+  })
+
+  it('takes an answer by the ask id alone, from a session id it never knew, and never throws', () => {
+    const t = make()
+    t.ask('term-0001', { id: 'a1', prompt: 'p' })
+    expect(() => t.answered('a-unknown')).not.toThrow()
+    expect(t.isAsking('term-0001', 'a1')).toBe(true)
+    t.answered('a1')
+    expect(t.isAsking('term-0001', 'a1')).toBe(false)
+    expect(t.isAsking('term-gone', 'a1')).toBe(false)
   })
 
   it('brings a side question along with the next message or map change', async () => {
@@ -99,14 +109,44 @@ describe('Terminals', () => {
     expect(await t.poll('term-0001', 10, never)).toMatchObject({ ask: { id: 'a1' }, message: { id: 'm1' } })
   })
 
-  it('drops a side question its terminal has not answered in time', async () => {
+  it('drops a side question its terminal has not answered in time, and says which', async () => {
     vi.useFakeTimers()
-    const t = make()
+    const dropped: string[][] = []
+    const t = new Terminals(() => undefined, ids => { dropped.push(ids) })
+    t.register({ id: 'term-0001', workspace: '/w', cwd: '/w', label: 'x' })
     t.ask('term-0001', { id: 'a1', prompt: 'p' })
     await t.poll('term-0001', 10, never).catch(() => undefined)
     t.poll('term-0001', 200_000, never)
-    vi.advanceTimersByTime(125_000)
-    expect(t.promptState('term-0001', 'a1')).toBeUndefined()
+    vi.advanceTimersByTime(60_000)
+    t.ask('term-0001', { id: 'a2', prompt: 'p' })
+    // The mod polls again at once, so the terminal stays.
+    t.poll('term-0001', 200_000, never)
+    expect(dropped).toEqual([])
+    vi.advanceTimersByTime(65_000)
+    expect(t.isAsking('term-0001', 'a1')).toBe(false)
+    expect(t.isAsking('term-0001', 'a2')).toBe(true)
+    expect(dropped).toEqual([['a1']])
+  })
+
+  it('says which side questions went with a terminal that closed', () => {
+    const dropped: string[][] = []
+    const t = new Terminals(() => undefined, ids => { dropped.push(ids) })
+    t.register({ id: 'term-0001', workspace: '/w', cwd: '/w', label: 'x' })
+    t.register({ id: 'term-0002', workspace: '/w', cwd: '/w', label: 'y' })
+    t.remove('term-0002')
+    expect(dropped).toEqual([])
+    t.ask('term-0001', { id: 'a1', prompt: 'p' })
+    t.ask('term-0001', { id: 'a2', prompt: 'p' })
+    t.remove('term-0001')
+    expect(dropped).toEqual([['a1', 'a2']])
+  })
+
+  it('refuses a request naming no terminal, a closed one, or one in another workspace', () => {
+    const t = make()
+    expect(t.target('/w', 'term-0001').id).toBe('term-0001')
+    expect(() => t.target('/w', undefined)).toThrow(/\/duet/)
+    expect(() => t.target('/w', 'term-gone')).toThrow(/닫혔어/)
+    expect(() => t.target('/other', 'term-0001')).toThrow(/다른 작업 공간/)
   })
 
   it('knows which terminals answer side questions from what their mod said', () => {

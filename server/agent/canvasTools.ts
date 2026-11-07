@@ -176,8 +176,7 @@ export function runCanvasTool(store: CanvasStore, workspace: string, name: Canva
       case 'canvas_read': {
         const map = String(args.name)
         const cur = store.get(workspace, map)
-        // Side questions stay out of the conversation: the agent hears of them with the decision they were asked about.
-        const threads = store.threads(workspace, map).filter(t => t.state === 'open' && !t.side)
+        const threads = store.threads(workspace, map).filter(t => t.state === 'open')
         const parts = [
           `rev ${cur.revision}`,
           ...(cur.code ? [`Its code (what the person reviews beside it): ${describeSource(cur.code.source)} in ${cur.code.root}.${filesFrom(workspace, cur.code.root)}`] : []),

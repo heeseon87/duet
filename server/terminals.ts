@@ -17,7 +17,7 @@ export type Poll = { message?: Outgoing; ask?: Ask; canvas?: true }
 /** A terminal that stops polling is gone after this long; one whose poll was cut off mid-wait, after GRACE_MS. */
 const GONE_MS = 45_000
 const GRACE_MS = 3_000
-/** A side question its terminal has not answered by then is dropped (the mod died, or the fork hung): its thread reads as ended. */
+/** A side question its terminal has not answered by then is dropped (the mod died, or the fork hung): its turn reads as ended. */
 export const ASK_MS = 120_000
 
 /** `canAsk`: the terminal's mod said it answers side questions (an older mod does not, and a question to it would hang). */
@@ -44,11 +44,15 @@ export function workspaceFor(path: string, repo: string | undefined, workspaces:
 export class Terminals {
   private all = new Map<string, Entry>()
 
-  constructor(private changed: () => void) {
+  /** `dropped`: side questions no terminal holds any more, timed out or gone with their terminal. */
+  constructor(private changed: () => void, private dropped: (askIds: string[]) => void = () => undefined) {
     setInterval(() => {
       for (const [id, e] of this.all) {
-        if (!e.wake && Date.now() - e.info.lastSeen > GONE_MS) this.remove(id)
-        else e.asks = e.asks.filter(a => Date.now() - a.at < ASK_MS)
+        if (!e.wake && Date.now() - e.info.lastSeen > GONE_MS) { this.remove(id); continue }
+        const late = e.asks.filter(a => Date.now() - a.at >= ASK_MS)
+        if (!late.length) continue
+        e.asks = e.asks.filter(a => !late.includes(a))
+        this.dropped(late.map(a => a.id))
       }
     }, 5_000).unref()
   }
@@ -77,10 +81,12 @@ export class Terminals {
     const e = this.all.get(id)
     if (!e) return
     this.all.delete(id)
+    const asks = e.asks.map(a => a.id)
     e.out = []
     e.asks = []
     e.wake?.()
     this.changed()
+    if (asks.length) this.dropped(asks)
   }
 
   /** Messages sent to a terminal that its turn has not finished yet: `duet` waits for none before restarting the server. */
@@ -93,6 +99,17 @@ export class Terminals {
   /** The live terminal; one that closed is refused by name, so nothing sent to it is lost quietly. */
   get(id: string): TerminalInfo {
     return this.entry(id).info
+  }
+
+  /**
+   * The terminal a request names, checked before anything is written: none named, one that closed, or one working in
+   * another workspace is refused.
+   */
+  target(workspace: string, id: string | undefined): TerminalInfo {
+    if (!id) throw new HttpError(409, '연결된 터미널이 없어. Claude Code 터미널에서 /duet을 켜 줘.')
+    const t = this.get(id)
+    if (t.workspace !== workspace) throw new HttpError(400, '그 터미널은 다른 작업 공간에서 일해')
+    return t
   }
 
   private entry(id: string): Entry {
@@ -113,10 +130,17 @@ export class Terminals {
     e.wake?.()
   }
 
-  /** The terminal answered a side question (or could not): it is no longer waited for. */
-  answered(id: string, askId: string) {
-    const e = this.entry(id)
-    e.asks = e.asks.filter(a => a.id !== askId)
+  /** Whether the terminal still holds this side question, handed over or not. */
+  isAsking(id: string, askId: string): boolean {
+    return this.all.get(id)?.asks.some(a => a.id === askId) ?? false
+  }
+
+  /**
+   * A side question was answered (or could not be): it is no longer waited for. Found by its id alone, as the answer may
+   * come from a session id the terminal no longer goes by (after /clear).
+   */
+  answered(askId: string) {
+    for (const e of this.all.values()) e.asks = e.asks.filter(a => a.id !== askId)
   }
 
   send(id: string, text: string, messageId: string) {
@@ -208,7 +232,6 @@ export class Terminals {
   }
 
   promptState(id: string, messageId: string): PromptState | undefined {
-    if (this.all.get(id)?.asks.some(a => a.id === messageId)) return { state: 'asking' }
     const out = this.all.get(id)?.out ?? []
     const m = out.find(x => x.id === messageId)
     if (!m) return undefined

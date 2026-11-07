@@ -47,8 +47,7 @@ export class CanvasStore {
         elements: cur.map.elements.filter(e => e.kind !== 'group').length + (cur.map.messages?.length ?? 0),
         decisions: decisions.length,
         openDecisions: decisions.filter(d => !d.chosen).length,
-        // A side thread waits on no one: its answer came from a fork, and the agent hears of it with the decision.
-        openThreads: threads.filter(t => t.state === 'open' && !t.side).length,
+        openThreads: threads.filter(t => t.state === 'open').length,
         ...(cur.code ? { code: cur.code } : {}),
       })
     }
@@ -177,13 +176,12 @@ export class CanvasStore {
     return readJson<CanvasThread[]>(this.file(workspace, name, 'threads.json'), [])
   }
 
-  /** `side` starts a side thread; an item added to an existing thread keeps whatever kind it is. */
-  addThreadItem(workspace: string, name: string, args: { threadId?: string; target: string; who: 'person' | 'agent'; text: string; terminal?: string; messageId?: string; side?: boolean }): CanvasThread {
+  addThreadItem(workspace: string, name: string, args: { threadId?: string; target: string; who: 'person' | 'agent'; text: string; terminal?: string; messageId?: string }): CanvasThread {
     const all = this.threads(workspace, name)
     const cur = this.get(workspace, name)
     let thread = args.threadId ? all.find(t => t.id === args.threadId) : undefined
     if (!thread) {
-      thread = { id: newId('t'), target: args.target, targetLabel: labelOf(cur.map, args.target), revision: cur.revision, state: 'open', ...(args.side ? { side: true as const } : {}), items: [], created: Date.now() }
+      thread = { id: newId('t'), target: args.target, targetLabel: labelOf(cur.map, args.target), revision: cur.revision, state: 'open', items: [], created: Date.now() }
       all.push(thread)
     }
     thread.items.push({ id: newId('i'), who: args.who, text: args.text, ts: Date.now(), terminal: args.terminal, messageId: args.messageId })
@@ -191,6 +189,13 @@ export class CanvasStore {
     writeJson(this.file(workspace, name, 'threads.json'), all)
     this.onChange(workspace, name, cur.revision, args.who)
     return thread
+  }
+
+  /** Takes threads off a map without telling anyone: for a one-time move of them elsewhere at start. */
+  dropThreads(workspace: string, name: string, ids: Set<string>): void {
+    const all = this.threads(workspace, name)
+    const rest = all.filter(t => !ids.has(t.id))
+    if (rest.length !== all.length) writeJson(this.file(workspace, name, 'threads.json'), rest)
   }
 
   setThreadState(workspace: string, name: string, threadId: string, state: 'open' | 'resolved'): void {

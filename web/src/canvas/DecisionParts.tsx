@@ -1,10 +1,9 @@
 import { useState } from 'react'
-import { Bot, Check, Forward, Send, Undo2, User } from 'lucide-react'
+import { Bot, Check, Send, Undo2, User } from 'lucide-react'
 import { deliveryLabel, type CanvasDecision, type DecisionWhyTag } from '../../../shared/canvas.ts'
 import type { CanvasThread } from '../../../shared/protocol.ts'
 import { relTime } from '../lib/ui.tsx'
 import { Markdown } from '../lib/Markdown.tsx'
-import { useApp } from '../state.ts'
 import { useCanvas } from './store.ts'
 
 /** Pieces of a decision and its threads: decision mode's, and the canvas's ask box. */
@@ -32,30 +31,24 @@ export function DeliveryLine({ target }: { target: string }) {
   return last ? <div className="delivery">{deliveryLabel(deliveries[last.id])}</div> : null
 }
 
-/** A thread's items and reply box. A side thread's reply is another side question; its last question can go to the main conversation. */
+/** A thread's items and reply box. */
 export function ThreadView({ t }: { t: CanvasThread }) {
-  const { comment, askSide, setThread, deliveries } = useCanvas()
+  const { comment, setThread, deliveries } = useCanvas()
   const [reply, setReply] = useState('')
-  const send = (text: string) => (t.side ? askSide(t.target, text, t.id) : comment(t.target, text, t.id))
-  const lastAsked = t.side ? [...t.items].reverse().find(i => i.who === 'person') : undefined
   return (
-    <div className={`thread ${t.state}${t.side ? ' side' : ''}`}>
+    <div className={`thread ${t.state}`}>
       {t.items.map(i => (
         <div key={i.id} className={`thread-item ${i.who}`}>
           <span className="who">{i.who === 'agent' ? <Bot size={12} /> : <User size={12} />}</span>
           <div className="grow">
-            <Markdown text={i.text} /><span className="meta">{relTime(i.ts)}{t.side ? ' · 곁질문' : i.terminal ? ' · 터미널' : ''}</span>
+            <Markdown text={i.text} /><span className="meta">{relTime(i.ts)}{i.terminal ? ' · 터미널' : ''}</span>
             {deliveries[i.id] && <div className="delivery">{deliveryLabel(deliveries[i.id])}</div>}
           </div>
         </div>
       ))}
       <div className="thread-actions">
-        <input className="input grow" placeholder={t.side ? '이어서 곁질문' : '답글'} value={reply} onChange={e => setReply(e.target.value)}
-          onKeyDown={e => { if (e.key === 'Enter' && !e.nativeEvent.isComposing && reply.trim()) void send(reply).then(ok => { if (ok) setReply('') }) }} />
-        {lastAsked && (
-          <button className="iconbtn thread-to-main" title="이 질문을 메인 대화로 보내기 (하던 작업이 끝나면 한 턴으로 돌아)"
-            onClick={() => void comment(t.target, lastAsked.text).then(ok => { if (ok) useApp.getState().toast('메인 대화로 보냈어') })}><Forward size={13} /></button>
-        )}
+        <input className="input grow" placeholder="답글" value={reply} onChange={e => setReply(e.target.value)}
+          onKeyDown={e => { if (e.key === 'Enter' && !e.nativeEvent.isComposing && reply.trim()) void comment(t.target, reply, t.id).then(ok => { if (ok) setReply('') }) }} />
         {t.state === 'open'
           ? <button className="iconbtn" title="Resolve" onClick={() => void setThread(t.id, 'resolved')}><Check size={13} /></button>
           : <button className="iconbtn" title="Reopen" onClick={() => void setThread(t.id, 'open')}><Undo2 size={13} /></button>}
@@ -64,15 +57,15 @@ export function ThreadView({ t }: { t: CanvasThread }) {
   )
 }
 
-/** `side`: a side question, answered from a fork of the conversation instead of a turn of it. */
-export function Ask({ target, placeholder, autoFocus, side, onSent }: { target: string; placeholder: string; autoFocus?: boolean; side?: boolean; onSent?: () => void }) {
-  const comment = useCanvas(s => s.comment), askSide = useCanvas(s => s.askSide)
+/** `side`: asks it as a side question instead (answered from a fork of the conversation, not a turn of it); false when refused. */
+export function Ask({ target, placeholder, autoFocus, side, onSent }: { target: string; placeholder: string; autoFocus?: boolean; side?: (text: string) => Promise<boolean>; onSent?: () => void }) {
+  const comment = useCanvas(s => s.comment)
   const [text, setText] = useState('')
   const [busy, setBusy] = useState(false)
   const go = async () => {
     if (!text.trim()) return
     setBusy(true)
-    try { if (await (side ? askSide : comment)(target, text)) { setText(''); onSent?.() } } finally { setBusy(false) }
+    try { if (await (side ? side(text) : comment(target, text))) { setText(''); onSent?.() } } finally { setBusy(false) }
   }
   return (
     <div className="cv-ask">

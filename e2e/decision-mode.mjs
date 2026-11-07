@@ -3,7 +3,8 @@
 // taken back, the summary comes after the last, the side shows the map and the real code an option touches, and esc
 // closes the mode alone. Nothing goes to a terminal unless DUET_SEND=1: then a stand-in terminal gets the choices, in one
 // prompt at the end (with the side questions asked on the way) and once more after a reload, and q's side question is
-// answered by the terminal whose agent drew the decisions, not the one picked, with nothing sent to either.
+// answered by the terminal whose agent drew the decisions, not the one picked, with nothing sent to either; it is kept as
+// a side chat on the option (GET /api/side), shown inline, followed up there, and taken to the main conversation by ↗.
 //   DUET_PORT=7981 DUET_TOKEN=... DUET_WS=<a repo with README.md and package.json> DUET_SHOTS=/dir node e2e/decision-mode.mjs
 //   (makes and removes a map named decision-mode)
 import { fakeTerminal, open, sleep } from './browser.mjs'
@@ -23,6 +24,9 @@ const mapNow = async () => (await call('GET', `/api/canvas/${name}?ws=${W}`))
 
 await call('POST', '/api/workspaces', { path: ws })
 await call('DELETE', `/api/canvas/${name}?ws=${W}`).catch(() => {})
+const sideChat = async () => (await call('GET', `/api/side?ws=${W}`)).find(c => c.about?.map === name)
+// Side chats outlive their map: an earlier run's would show on this run's decisions.
+for (let c = await sideChat(); c; c = await sideChat()) await call('DELETE', `/api/side/${c.id}?ws=${W}`)
 await call('POST', '/api/canvas', { ws, name, diagram: 'class', title: '결정 모드 시험' })
 const drawing = {
   elements: [
@@ -115,22 +119,32 @@ await page.keyboard.press('Escape'); await sleep(300)
 check('esc puts the question box away, the mode stays', !(await page.$('.decide .dm-ask')) && Boolean(await state()))
 const sideQuestion = 'a를 고르면 다른 지도도 바꿔야 해?'
 if (sendToo) {
-  // q asks on the side: the opener's fork answers on the thread; no turn starts in either terminal.
+  // q asks on the side: the opener's fork answers into a side chat on the option; no turn starts in either terminal.
   await page.keyboard.press('q'); await sleep(300)
   check('the question box says it is a side question', await page.$eval('.decide .dm-ask-note', x => x.textContent.includes('곁질문')).catch(() => false))
   await page.fill('.decide .dm-ask textarea', sideQuestion)
   await page.press('.decide .dm-ask textarea', 'Meta+Enter'); await sleep(2500)
-  const side = (await call('GET', `/api/canvas/${name}/threads?ws=${W}`)).threads.find(t => t.side)
-  check('the side question is a side thread on the picked option, answered by the terminal that opened the decision',
-    side?.target === 'D1-a' && side.items[0]?.text === sideQuestion && side.items[0].terminal === opener.id && side.items[1]?.who === 'agent' && side.items[1].text === '연 쪽의 곁 답이야.', JSON.stringify(side))
+  const side = await sideChat()
+  check('the side question is a side chat on the picked option, answered by the terminal that opened the decision',
+    side?.about.target === 'D1-a' && side.turns[0]?.question === sideQuestion && side.turns[0].terminal === opener.id && side.turns[0].reply?.kind === 'answer' && side.turns[0].reply.text === '연 쪽의 곁 답이야.', JSON.stringify(side))
+  check('and nothing of it is on the map\'s threads', (await call('GET', `/api/canvas/${name}/threads?ws=${W}`)).threads.every(t => !t.items.some(i => i.text === sideQuestion)))
   check('its fork read the decision as the person sees it', opener.asked.length === 1 && opener.asked[0].prompt.includes('[Duet 곁질문]') && opener.asked[0].prompt.includes('사람이 보고 있는 선택지: D1-a POST /groups') && opener.asked[0].prompt.endsWith(sideQuestion), opener.asked[0]?.prompt)
   check('nothing went to either terminal as a prompt, and the picked one was not asked', term.got.length === 0 && opener.got.length === 0 && term.asked.length === 0)
-  check('the thread shows it as a side question with its answer, and a way to the main conversation', await page.$eval('.decide .thread.side', x => x.textContent.includes('곁질문') && x.textContent.includes('연 쪽의 곁 답이야.') && x.textContent.includes('답함') && Boolean(x.querySelector('.thread-to-main'))).catch(() => false))
-  await page.fill('.decide .thread.side .thread-actions input', '그럼 b는?')
-  await page.press('.decide .thread.side .thread-actions input', 'Enter'); await sleep(2500)
-  check('a reply on a side thread is another side question, carrying the thread so far', opener.asked.length === 2 && opener.asked[1].prompt.includes(`- 사람: ${sideQuestion}`) && opener.asked[1].prompt.includes('- 너: 연 쪽의 곁 답이야.') && term.got.length === 0, opener.asked[1]?.prompt)
-  await page.$eval('.decide .thread.side .thread-actions input', x => x.blur()); await sleep(200)
+  check('decision mode shows the chat inline with its answer, and a way to the main conversation', await page.$eval('.decide .side-thread', (x, q) => x.textContent.includes(q) && x.textContent.includes('연 쪽의 곁 답이야.') && !x.textContent.includes('곁에서 답하는 중') && Boolean(x.querySelector('.side-to-main')), sideQuestion).catch(() => false))
+  await page.fill('.decide .side-thread .side-follow textarea', '그럼 b는?')
+  await page.press('.decide .side-thread .side-follow textarea', 'Enter'); await sleep(2500)
+  check('a follow-up on a side chat is another side question, carrying the chat so far', opener.asked.length === 2 && opener.asked[1].prompt.includes(`- 사람: ${sideQuestion}`) && opener.asked[1].prompt.includes('- 너: 연 쪽의 곁 답이야.') && term.got.length === 0, opener.asked[1]?.prompt)
+  const followed = await sideChat()
+  check('the follow-up joined the same chat, answered by the same session', followed?.id === side?.id && followed.turns.length === 2 && followed.turns[1].terminal === opener.id && followed.turns[1].reply?.text === '연 쪽의 곁 답이야.', JSON.stringify(followed))
+  await page.$eval('.decide .side-thread .side-follow textarea', x => x.blur()); await sleep(200)
+  // ↗ takes the chat to the main conversation of the session it is bound to, as a comment on the option.
+  await page.click('.decide .side-thread .side-to-main'); await sleep(2000)
+  const toMain = opener.got[0]?.text ?? ''
+  check('↗ sends the chat\'s Q&A and its last question to its session\'s main conversation, as a comment on the option', opener.got.length === 1 && term.got.length === 0 && toMain.includes('[캔버스 코멘트]') && toMain.includes('(D1-a)') && toMain.includes('[Duet 곁 대화]') && toMain.includes(`- 사람: ${sideQuestion}`) && toMain.trimEnd().includes('그럼 b는?'), toMain)
+  check('the option\'s thread keeps only what was asked, not the whole prompt', (await call('GET', `/api/canvas/${name}/threads?ws=${W}`)).threads.some(t => t.target === 'D1-a' && t.items.some(i => i.who === 'person' && i.text === '곁 대화에서 메인 대화로: 그럼 b는?')))
 }
+/** What went to Claude about the decisions themselves (not the ↗ comment on an option). */
+const decisionItems = async () => (await call('GET', `/api/canvas/${name}/threads?ws=${W}`)).threads.filter(t => t.target === 'D1' || t.target === 'D2')
 
 // 3. The code tab: the real lines of the files the option's boxes name.
 await page.click('.dm-tabs button:has-text("코드")'); await sleep(1500)
@@ -187,7 +201,7 @@ check('the batch route skips what is not decided, sending nothing', Array.isArra
 if (sendToo) {
   // The undo bar goes, then both choices go to Claude in one prompt; each decision's thread shows it.
   await sleep(9000)
-  const th = (await call('GET', `/api/canvas/${name}/threads?ws=${W}`)).threads.filter(t => !t.side)
+  const th = await decisionItems()
   // What was sent: the agent may answer on the threads too.
   const items = th.flatMap(t => t.items.filter(i => i.who === 'person').map(i => ({ target: t.target, text: i.text, messageId: i.messageId, terminal: i.terminal })))
   check('both choices went out together, one prompt for both, to the terminal picked', items.length === 2 && items[0].messageId === items[1].messageId && items.every(i => i.terminal === term.id) && term.got.length === 1 && items.some(i => i.target === 'D1') && items.some(i => i.target === 'D2'), JSON.stringify(items))
@@ -201,7 +215,7 @@ if (sendToo) {
   await page.keyboard.press('1'); await page.keyboard.press('Enter'); await sleep(800)
   check('a new choice waits in the tab', (await pendingIds()).join() === 'D2')
   await page.reload({ waitUntil: 'domcontentloaded' }); await sleep(5000)
-  const again = (await call('GET', `/api/canvas/${name}/threads?ws=${W}`)).threads.filter(t => !t.side).flatMap(t => t.items).filter(i => i.who === 'person' && i.messageId !== items[0].messageId)
+  const again = (await decisionItems()).flatMap(t => t.items).filter(i => i.who === 'person' && i.messageId !== items[0].messageId)
   check('after the reload it went out, to the same terminal', again.length === 1 && again[0].terminal === term.id && (await pendingIds()).length === 0, JSON.stringify(again))
   // A choice kept for a Duet conversation (before there were only terminals) goes to the terminal picked now.
   await call('POST', `/api/canvas/${name}/choose`, { ws, decision: 'D2', option: null })
@@ -209,7 +223,7 @@ if (sendToo) {
   await page.evaluate(k => localStorage.setItem(k, JSON.stringify({ ids: ['D2'], to: { sessionId: 's-gone' } })), pendingKey)
   await page.reload({ waitUntil: 'domcontentloaded' }); await sleep(5000)
   const known = new Set([items[0].messageId, ...again.map(i => i.messageId)])
-  const old = (await call('GET', `/api/canvas/${name}/threads?ws=${W}`)).threads.filter(t => !t.side).flatMap(t => t.items).filter(i => i.who === 'person' && !known.has(i.messageId))
+  const old = (await decisionItems()).flatMap(t => t.items).filter(i => i.who === 'person' && !known.has(i.messageId))
   check('a choice kept for an old Duet conversation goes to the terminal picked now', old.length === 1 && old[0].terminal === term.id && (await pendingIds()).length === 0, JSON.stringify(old))
   await page.click('.canvas-bar .dec-chip'); await sleep(800)
 }
@@ -219,6 +233,7 @@ check('esc from the summary returns to the map', !(await state()))
 check('no page errors', errors.length === 0, errors.join('\n'))
 await browser.close()
 await call('DELETE', `/api/canvas/${name}?ws=${W}`).catch(() => {})
+for (let c = await sideChat(); c; c = await sideChat()) await call('DELETE', `/api/side/${c.id}?ws=${W}`)
 if (term) await term.stop()
 if (opener) await opener.stop()
 console.log(failed ? `${failed} failed` : 'all passed')

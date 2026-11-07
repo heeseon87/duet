@@ -88,6 +88,8 @@ export type ServerEvent =
   | { topic: 'canvas'; workspace: string; name: string; revision: number; by: 'agent' | 'person' }
   | { topic: 'canvas-list'; workspace: string }
   | { topic: 'terminals'; terminals: TerminalInfo[] }
+  /** A side chat was asked, answered, dropped or deleted: the browser reads it again (gone when it is not found). */
+  | { topic: 'side'; workspace: string; chat: string }
   /** `stale`: the server's code changed on disk after it started, so the browser may run newer UI than it. */
   | { topic: 'hello'; version: string; stale?: boolean }
   | { topic: 'stale' }
@@ -181,6 +183,7 @@ export type GitInfo = {
 // ------------------------------------------------------------------ canvas
 
 export type { CanvasMap, CanvasElement, CanvasRelation, CanvasDecision, CanvasMessage, CanvasFragment } from './canvas.ts'
+export type { SideAnchor, SideChat, SideChatView, SideReply, SideTurn } from './side.ts'
 
 /**
  * The code a map is about, kept beside the map rather than in its revisions: the tree it is reviewed in and what to
@@ -219,11 +222,6 @@ export type CanvasThread = {
   targetLabel: string
   revision: number
   state: 'open' | 'resolved'
-  /**
-   * A side question on a decision: answered from a fork of a terminal's conversation, kept out of that conversation and
-   * out of what the map tools tell the agent, and passed on with the decision once it is sent.
-   */
-  side?: true
   /** `terminal`: the terminal it went to or came from. `sessionId`: a Duet conversation, from before there were only terminals. */
   items: { id: string; who: 'person' | 'agent'; text: string; ts: number; sessionId?: string; terminal?: string; messageId?: string }[]
   created: number

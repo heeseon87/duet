@@ -9,6 +9,9 @@ import { local, useApp } from '../state.ts'
 import { useReview } from '../review/store.ts'
 import { addedLines } from '../review/diffModel.ts'
 import { linesOf, sourceOf, targetOf, type Source } from './codeLinks.ts'
+import { chatsAbout } from '../../../shared/side.ts'
+import { SideThread } from '../side/SideThread.tsx'
+import { useSide } from '../side/store.ts'
 import { Ask, DeliveryLine, ThreadView, WhyAsk, letterOf } from './DecisionParts.tsx'
 import { MermaidStage, type StageHandle } from './MermaidStage.tsx'
 import { nextDecision, optionShare } from './decisionQueue.ts'
@@ -67,6 +70,8 @@ export function DecisionMode({ map, start, stageKey, onClose }: { map: CanvasMap
   const decide = useCanvas(s => s.decide), undoDecide = useCanvas(s => s.undoDecide), choose = useCanvas(s => s.choose)
   const flush = useCanvas(s => s.flushDecisions)
   const threads = useCanvas(s => s.threads)
+  const mapName = useCanvas(s => s.mapName)
+  const chats = useSide(s => s.chats)
   const [current, setCurrent] = useState(() => (start && decisions.some(d => d.id === start && !d.chosen) ? start : nextDecision(decisions, undefined, [])))
   const [later, setLater] = useState<string[]>([])
   const [picks, setPicks] = useState<Record<string, string>>({})
@@ -165,6 +170,8 @@ export function DecisionMode({ map, start, stageKey, onClose }: { map: CanvasMap
 
   const index = d ? decisions.findIndex(x => x.id === d.id) : -1
   const asked = d ? threads.filter(t => t.target === d.id || d.options.some(o => o.id === t.target)) : []
+  const sideChats = d && mapName ? chatsAbout(chats, mapName, d) : []
+  const askSide = (text: string) => (d && mapName ? useSide.getState().ask({ text, about: { map: mapName, target: pick ?? d.id } }).then(Boolean) : Promise.resolve(false))
   return (
     <div className="decide" role="dialog" aria-label="결정 모드"
       style={{ ...(listCol.width ? { '--dm-list': `${listCol.width}px` } : {}), ...(sideCol.width ? { '--dm-side': `${sideCol.width}px` } : {}) } as React.CSSProperties}>
@@ -223,9 +230,10 @@ export function DecisionMode({ map, start, stageKey, onClose }: { map: CanvasMap
               <div className="dm-ask">
                 <div className="dm-ask-head"><MessageSquare size={13} /> {pick ? `${letterOf(d, pick)}안에 대해` : `${d.id}에 대해`} Claude에게 묻기<span className="grow" /><button className="iconbtn" title="닫기 (esc)" onClick={() => setAsking(false)}><X size={13} /></button></div>
                 <div className="dm-ask-note muted">곁질문이야. 결정을 연 Claude가 하던 일을 멈추지 않고 지금까지의 대화로만 바로 답하고, 대화 기록에는 남지 않아. 결정을 보낼 때 함께 전해져.</div>
-                <Ask side target={pick ?? d.id} autoFocus placeholder="이 선택지에서 궁금한 점 적기" onSent={() => setAsking(false)} />
+                <Ask side={askSide} target={pick ?? d.id} autoFocus placeholder="이 선택지에서 궁금한 점 적기" onSent={() => setAsking(false)} />
               </div>
             )}
+            {sideChats.map(c => <SideThread key={c.id} chat={c} compact />)}
             {asked.map(t => <ThreadView key={t.id} t={t} />)}
             <input ref={whyInput} className="input dm-why" placeholder="고른 이유 (선택)" value={why} onChange={e => setWhy(e.target.value)} />
             <div className="dm-actions">

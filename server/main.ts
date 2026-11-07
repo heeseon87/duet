@@ -8,8 +8,9 @@ import { fileURLToPath } from 'node:url'
 import { z } from 'zod'
 import type { CanvasThread, ContextItem, DiffSource, ReviewComment, ReviewRepo, ServerEvent, TerminalInfo, Workspace } from '../shared/protocol.ts'
 import { decisionOfTarget, deliveryOf, fileOfRef, openerOf, type CanvasDecision, type CanvasPatch, type CanvasRevision, type Delivery } from '../shared/canvas.ts'
+import { bindingOf, lastTurn, type SideChat } from '../shared/side.ts'
 import { refBase } from '../shared/mapFiles.ts'
-import { DUET_HOME, HttpError, readJson, writeJson, ensureDir, newId } from './util.ts'
+import { DUET_HOME, HttpError, readJson, writeJson, ensureDir, newId, slugOf } from './util.ts'
 import { codeHere, gitInfo, grep, headAt, listFiles, log as gitLog, readAt, repoOf, toplevel, workspaceName, currentBranch, mainRoot } from './git/repo.ts'
 import { computeDiff } from './git/diff.ts'
 import { findRepos } from './fs/repos.ts'
@@ -19,7 +20,7 @@ import { CANVAS_TOOLS, runCanvasTool, type CanvasToolName } from './agent/canvas
 import { Terminals, workspaceFor } from './terminals.ts'
 import { CanvasStore } from './canvas/store.ts'
 import { readComments, reviewPrompt, sourceKey, writeComments } from './review/comments.ts'
-import { ANSWER_MAX, sideDigest, sideFailure, sidePrompt } from './side.ts'
+import { mainPrompt, sideDigest, Sides, type SideQuestion } from './side.ts'
 
 const VERSION = '0.1.0'
 const args = new Map<string, string>()
@@ -56,11 +57,29 @@ setInterval(() => {
   broadcast({ topic: 'stale' })
 }, 10_000).unref()
 
-const terminals = new Terminals(() => broadcast({ topic: 'terminals', terminals: terminals.list() }))
+const terminals = new Terminals(() => broadcast({ topic: 'terminals', terminals: terminals.list() }), asks => sides.dropped(asks))
 const canvas = new CanvasStore(
   (workspace, name, revision, by) => { broadcast({ topic: 'canvas', workspace, name, revision, by }); terminals.canvasChanged(workspace) },
   workspace => { broadcast({ topic: 'canvas-list', workspace }); terminals.canvasChanged(workspace) },
 )
+const sides = new Sides({
+  terminals,
+  file: ws => join(DUET_HOME, 'side', `${slugOf(ws)}.json`),
+  changed: (workspace, chat) => broadcast({ topic: 'side', workspace, chat }),
+  decision: (ws, about) => {
+    try {
+      const cur = canvas.get(ws, about.map)
+      const decision = decisionOfTarget(cur.map, about.target)
+      if (!decision) return undefined
+      return { title: cur.map.title, name: about.map, revision: cur.revision, decision, target: about.target, opener: openerOf(canvas.history(ws, about.map), decision.id) }
+    } catch {
+      // The map is gone, or never was.
+      return undefined
+    }
+  },
+})
+/** The longest terminal reply kept on a canvas thread. */
+const REPLY_MAX = 1500
 // A terminal's answer goes back to the canvas thread of the prompt it answered.
 function replyOnCanvas(ws: string, messageId: string, text: string, from: { terminal: string }) {
   try {
@@ -70,7 +89,7 @@ function replyOnCanvas(ws: string, messageId: string, text: string, from: { term
       // The agent already answered on the thread itself (canvas_reply) during this turn.
       const asked = thread.items.findIndex(i => i.messageId === messageId)
       if (thread.items.slice(asked + 1).some(i => i.who === 'agent')) return
-      const short = text.length > ANSWER_MAX ? `${text.slice(0, ANSWER_MAX)}…` : text
+      const short = text.length > REPLY_MAX ? `${text.slice(0, REPLY_MAX)}…` : text
       canvas.addThreadItem(ws, m.name, { threadId: thread.id, target: thread.target, who: 'agent', text: short, ...from })
       return
     }
@@ -88,7 +107,7 @@ function deliveries(ws: string, name: string, threads: CanvasThread[], known?: C
     t.items.forEach((item, i) => {
       // An item sent to a Duet conversation (before there were only terminals) has no live state: it reads as ended.
       const live = item.messageId && item.terminal ? terminals.promptState(item.terminal, item.messageId) : undefined
-      const d = deliveryOf(t.items, i, live, history, t.side)
+      const d = deliveryOf(t.items, i, live, history)
       if (d) out[item.id] = d
     })
   }
@@ -145,16 +164,7 @@ async function workspaceOfPath(path: string): Promise<string | undefined> {
 
 // ------------------------------------------------------------------ where what the person sends goes
 
-/**
- * The terminal a request names, checked before anything is written: none named, one that closed, or one working
- * in another workspace is refused.
- */
-function targetOf(ws: string, b: { terminalId?: string }): TerminalInfo {
-  if (!b.terminalId) throw new HttpError(409, '연결된 터미널이 없어. Claude Code 터미널에서 /duet을 켜 줘.')
-  const terminal = terminals.get(b.terminalId)
-  if (terminal.workspace !== ws) throw new HttpError(400, '그 터미널은 다른 작업 공간에서 일해')
-  return terminal
-}
+const targetOf = (ws: string, b: { terminalId?: string }): TerminalInfo => terminals.target(ws, b.terminalId)
 /** The terminal gets the words with what the person attached, in one prompt. */
 function deliver(to: TerminalInfo, text: string, context: ContextItem[], messageId: string): { terminalId: string } {
   terminals.send(to.id, composePrompt(text, context), messageId)
@@ -473,17 +483,17 @@ route('POST', '/api/canvas/:name/patch', async ({ req, params }) => {
  * A made decision as its thread keeps it (`said`) and as the prompt lists it, with the side questions asked about it:
  * the agent did not see those, as they were answered from a fork of its conversation.
  */
-function madeOf(d: CanvasDecision, threads: CanvasThread[] = []) {
+function madeOf(d: CanvasDecision, map: string, chats: SideChat[] = []) {
   const opt = d.options.find(o => o.id === d.chosen)
   const letter = (d.chosen ?? '').replace(`${d.id}-`, '')
   return {
     letter,
     said: `${letter}로 정함${d.rationale ? ` · 이유 ${d.rationale}` : ''}`,
-    lines: [`- 질문: ${d.id} ${d.question}`, `- 고른 선택지: ${d.chosen} ${opt?.text ?? ''}`, ...(d.rationale ? [`- 이유: ${d.rationale}`] : []), ...sideDigest(threads, d)],
+    lines: [`- 질문: ${d.id} ${d.question}`, `- 고른 선택지: ${d.chosen} ${opt?.text ?? ''}`, ...(d.rationale ? [`- 이유: ${d.rationale}`] : []), ...sideDigest(chats, map, d)],
   }
 }
-/** The thread a decision's choice is kept on: its last, unless that is a side question's. */
-const decisionThread = (threads: CanvasThread[], id: string) => threads.filter(t => t.target === id && !t.side).pop()
+/** The thread a decision's choice is kept on: its last. */
+const decisionThread = (threads: CanvasThread[], id: string) => threads.filter(t => t.target === id).pop()
 const AFTER_CHOICE = '다른 선택지에 딸린 요소는 지도에서 정리했고, 고른 쪽 요소에는 결정 표시가 남아 있어.'
 /** The person's choice. With `notify` it also goes to the terminal, kept like a comment as a thread on the decision. */
 route('POST', '/api/canvas/:name/choose', async ({ req, params }) => {
@@ -494,7 +504,7 @@ route('POST', '/api/canvas/:name/choose', async ({ req, params }) => {
   if (!to) return cur
   const d = cur.map.decisions!.find(x => x.id === b.decision)!
   const threads = canvas.threads(ws, params.name)
-  const made = madeOf(d, threads)
+  const made = madeOf(d, params.name, sides.list(ws))
   const messageId = newId('m-')
   const last = decisionThread(threads, b.decision)
   const thread = canvas.addThreadItem(ws, params.name, { threadId: last?.id, target: b.decision, who: 'person', text: made.said, terminal: to.id, messageId })
@@ -524,21 +534,21 @@ route('POST', '/api/canvas/:name/decided', async ({ req, params }) => {
   if (!made.length) return { sent: [] }
   const to = targetOf(ws, b)
   const messageId = newId('m-')
-  const before = canvas.threads(ws, params.name)
+  const chats = sides.list(ws)
   const threads = made.map(d => {
     const last = decisionThread(canvas.threads(ws, params.name), d.id)
-    return canvas.addThreadItem(ws, params.name, { threadId: last?.id, target: d.id, who: 'person', text: madeOf(d).said, terminal: to.id, messageId })
+    return canvas.addThreadItem(ws, params.name, { threadId: last?.id, target: d.id, who: 'person', text: madeOf(d, params.name).said, terminal: to.id, messageId })
   })
   const sent = deliver(
     to,
     [
       `[캔버스 결정] 지도 "${cur.map.title}" (${params.name}, rev ${cur.revision})에서 결정 ${made.length === 1 ? '하나' : `${made.length}개`}를 정했어.`,
-      ...made.flatMap((d, i) => [...(i ? [''] : []), ...madeOf(d, before).lines]),
+      ...made.flatMap((d, i) => [...(i ? [''] : []), ...madeOf(d, params.name, chats).lines]),
       '',
       `${AFTER_CHOICE} ${made.length === 1 ? '이 결정에' : '이 결정들에'} 맞게 다음 작업을 이어 가 줘.`,
       `(thread ${threads.map(t => t.id).join(', ')}: 답은 채팅으로 하고, 설계가 바뀌면 canvas_update로 지도도 고쳐 줘.)`,
     ].join('\n'),
-    made.map(d => ({ kind: 'canvas' as const, map: params.name, target: d.id, label: `${d.id} → ${madeOf(d).letter}` })),
+    made.map(d => ({ kind: 'canvas' as const, map: params.name, target: d.id, label: `${d.id} → ${madeOf(d, params.name).letter}` })),
     messageId,
   )
   return { sent: made.map(d => d.id), ...sent }
@@ -548,51 +558,74 @@ route('POST', '/api/canvas/:name/restore', async ({ req, params }) => {
   return canvas.restore(knownWorkspace(b.ws), params.name, b.revision)
 })
 route('DELETE', '/api/canvas/:name', ({ url, params }) => { canvas.remove(knownWorkspace(url.searchParams.get('ws')), params.name) })
-/** A comment on the canvas: kept as a thread on the target, and sent to the terminal as a prompt. */
-route('POST', '/api/canvas/:name/comment', async ({ req, params }) => {
-  const b = await body<{ ws: string; target: string; text: string; threadId?: string; terminalId?: string }>(req)
-  const ws = knownWorkspace(b.ws)
-  const cur = canvas.get(ws, params.name)
-  const to = targetOf(ws, b)
+/** A comment on the canvas: kept as a thread on the target, and sent to the terminal as a prompt (`prompt` when it says more). */
+function commentOn(ws: string, name: string, to: TerminalInfo, c: { target: string; text: string; threadId?: string; prompt?: string }) {
+  const cur = canvas.get(ws, name)
   const messageId = newId('m-')
-  const thread = canvas.addThreadItem(ws, params.name, { threadId: b.threadId, target: b.target, who: 'person', text: b.text, terminal: to.id, messageId })
-  const where = b.target ? `"${thread.targetLabel}" (${b.target})` : '지도 전체'
+  const thread = canvas.addThreadItem(ws, name, { threadId: c.threadId, target: c.target, who: 'person', text: c.text, terminal: to.id, messageId })
+  const where = c.target ? `"${thread.targetLabel}" (${c.target})` : '지도 전체'
   const sent = deliver(
     to,
-    `[캔버스 코멘트] 지도 "${cur.map.title}" (${params.name}, rev ${cur.revision})의 ${where}에 대해:\n\n${b.text}\n\n(thread ${thread.id}: 답은 채팅으로 하고, 설계가 바뀌면 canvas_update로 지도도 고쳐 줘.)`,
-    [{ kind: 'canvas', map: params.name, target: b.target, label: thread.targetLabel }],
+    `[캔버스 코멘트] 지도 "${cur.map.title}" (${name}, rev ${cur.revision})의 ${where}에 대해:\n\n${c.prompt ?? c.text}\n\n(thread ${thread.id}: 답은 채팅으로 하고, 설계가 바뀌면 canvas_update로 지도도 고쳐 줘.)`,
+    [{ kind: 'canvas', map: name, target: c.target, label: thread.targetLabel }],
     messageId,
   )
   return { thread, ...sent, messageId }
-})
-/**
- * A side question on a decision or one of its options: the terminal whose agent opened the decision answers it from a
- * fork of its conversation, at once and without tools, and nothing of it enters that conversation. When that terminal is
- * gone (or its mod cannot fork), the one picked on the rail answers. It never falls back to the main conversation: a
- * terminal whose mod cannot fork is refused, and a fork that gives no answer says why on the thread.
- */
-route('POST', '/api/canvas/:name/ask', async ({ req, params }) => {
+}
+route('POST', '/api/canvas/:name/comment', async ({ req, params }) => {
   const b = await body<{ ws: string; target: string; text: string; threadId?: string; terminalId?: string }>(req)
   const ws = knownWorkspace(b.ws)
-  const text = b.text?.trim()
-  if (!text) throw new HttpError(400, '빈 질문이야')
-  const cur = canvas.get(ws, params.name)
-  const d = decisionOfTarget(cur.map, b.target)
-  if (!d) throw new HttpError(400, '곁질문은 결정이나 그 선택지에만 할 수 있어')
-  const earlier = b.threadId ? canvas.threads(ws, params.name).find(t => t.id === b.threadId) : undefined
-  if (b.threadId && !earlier?.side) throw new HttpError(400, '곁질문 스레드가 아니야')
-  const opener = openerOf(canvas.history(ws, params.name), d.id)
-  const live = opener ? terminals.list(ws).find(t => t.id === opener && terminals.canAsk(t.id)) : undefined
-  const to = live ?? targetOf(ws, b)
-  if (!terminals.canAsk(to.id)) throw new HttpError(409, '이 터미널의 Duet mod는 곁질문을 몰라. mod를 새로 받거나, 지도에서 우클릭해 메인 대화로 물어 줘.')
-  const askId = newId('a-')
-  const thread = canvas.addThreadItem(ws, params.name, { threadId: earlier?.id, target: b.target, who: 'person', text, terminal: to.id, messageId: askId, side: true })
-  terminals.ask(to.id, { id: askId, prompt: sidePrompt({ title: cur.map.title, name: params.name, revision: cur.revision, decision: d, target: b.target, earlier: earlier?.items ?? [], question: text }) })
-  return { thread, terminalId: to.id, isOpener: to.id === opener }
+  return commentOn(ws, params.name, targetOf(ws, b), b)
 })
 route('POST', '/api/canvas/:name/threads/:tid', async ({ req, params }) => {
   const b = await body<{ ws: string; state: 'open' | 'resolved' }>(req)
   canvas.setThreadState(knownWorkspace(b.ws), params.name, params.tid, b.state)
+})
+
+// ------------------------------------------------------------------ side chats
+
+const sideAsk = z.object({
+  ws: z.string(),
+  text: z.string(),
+  chat: z.string().optional(),
+  moveTo: z.string().optional(),
+  about: z.object({ map: z.string(), target: z.string() }).optional(),
+  terminalId: z.string().optional(),
+})
+route('GET', '/api/side', ({ url }) => sides.list(knownWorkspace(url.searchParams.get('ws'))))
+route('GET', '/api/side/:id', ({ url, params }) => sides.get(knownWorkspace(url.searchParams.get('ws')), params.id))
+/**
+ * A side question: a follow-up on a chat, a new chat on a decision, or a new chat on the workspace. A fork of a terminal's
+ * conversation answers it; it never falls back to the main conversation, and a fork that gives no answer says why.
+ */
+route('POST', '/api/side/ask', async ({ req }) => {
+  const parsed = sideAsk.safeParse(await body(req))
+  if (!parsed.success) throw new HttpError(400, z.prettifyError(parsed.error))
+  const b = parsed.data
+  const ws = knownWorkspace(b.ws)
+  const question = b.text.trim()
+  if (!question) throw new HttpError(400, '빈 질문이야')
+  const q: SideQuestion = b.chat ? { chat: b.chat, question, moveTo: b.moveTo }
+    : b.about ? { about: b.about, question, terminal: b.terminalId }
+    : { question, terminal: b.terminalId }
+  return sides.ask(ws, q)
+})
+route('DELETE', '/api/side/:id', ({ url, params }) => { sides.remove(knownWorkspace(url.searchParams.get('ws')), params.id) })
+/**
+ * A chat taken to the main conversation, to its session while it lives, else to the terminal picked: a decision chat as
+ * a comment on what it is about, any other as a message.
+ */
+route('POST', '/api/side/:id/main', async ({ req, params }) => {
+  const b = await body<{ ws: string; terminalId?: string }>(req)
+  const ws = knownWorkspace(b.ws)
+  const c = sides.get(ws, params.id)
+  const bound = terminals.list(ws).find(t => t.id === bindingOf(c))
+  const to = bound ?? targetOf(ws, b)
+  const text = mainPrompt(c)
+  // The thread keeps what the person asked; the prompt carries the side Q&A the main agent never saw.
+  if (c.about && canvas.exists(ws, c.about.map)) return commentOn(ws, c.about.map, to, { target: c.about.target, text: `곁 대화에서 메인 대화로: ${lastTurn(c).question}`, prompt: text })
+  const messageId = newId('m-')
+  return { ...deliver(to, text, [], messageId), messageId }
 })
 
 // ------------------------------------------------------------------ terminals
@@ -645,13 +678,15 @@ route('POST', '/api/terminals/:id/messages/:mid', async ({ req, params }) => {
   if (answer) replyOnCanvas(t.workspace, params.mid, answer, { terminal: t.id })
   terminals.release(t.id, params.mid)
 })
-/** The fork's answer to a side question, or why it gave none: either way it goes on the question's thread. */
+/**
+ * The fork's answer to a side question, or why it gave none: either way it goes on the question's turn. Found by the ask
+ * id alone: after /clear the mod posts under a session id that may not be registered.
+ */
 route('POST', '/api/terminals/:id/asks/:aid', async ({ req, params }) => {
   const b = await body<{ answer?: unknown; reason?: unknown; status?: unknown }>(req)
-  const t = terminals.get(params.id)
-  terminals.answered(t.id, params.aid)
+  terminals.answered(params.aid)
   const answer = typeof b.answer === 'string' ? b.answer.trim() : ''
-  replyOnCanvas(t.workspace, params.aid, answer || sideFailure(typeof b.reason === 'string' ? b.reason : undefined, typeof b.status === 'number' ? b.status : undefined), { terminal: t.id })
+  sides.settle(params.aid, answer ? { answer } : { reason: typeof b.reason === 'string' ? b.reason : undefined, status: typeof b.status === 'number' ? b.status : undefined })
 })
 route('POST', '/api/terminals/:id/tools/:tool', async ({ req, params }) => {
   const t = terminals.get(params.id)
@@ -672,9 +707,27 @@ server.on('error', (e: NodeJS.ErrnoException) => {
   }
   throw e
 })
+/**
+ * Side questions on decisions were once side threads on their map: each moves into its workspace's side chats, then off
+ * the map. Adopting first makes a crash in between harmless, as adoption skips what it already took in.
+ */
+function adoptSideThreads() {
+  for (const w of workspaces()) {
+    try {
+      const legacy = canvas.list(w.path).map(m => ({ map: m.name, threads: (canvas.threads(w.path, m.name) as (CanvasThread & { side?: true })[]).filter(t => t.side) })).filter(l => l.threads.length)
+      if (!legacy.length) continue
+      sides.adopt(w.path, legacy)
+      for (const l of legacy) canvas.dropThreads(w.path, l.map, new Set(l.threads.map(t => t.id)))
+    } catch (e) {
+      console.error('side thread adoption failed', w.path, e)
+    }
+  }
+}
 server.listen(PORT, '127.0.0.1', () => {
   // The token file is written only after the port is ours, so a losing second server never overwrites it.
   writeJson(STATE, { port: PORT, pid: process.pid, version: VERSION, codeHash: CODE_HASH, started: Date.now(), id: newId() })
+  // Likewise the one-time move of side threads, so a server that lost the port touches no data.
+  adoptSideThreads()
   console.log(`Duet ${VERSION} → http://127.0.0.1:${PORT}/?t=${TOKEN}`)
 })
 

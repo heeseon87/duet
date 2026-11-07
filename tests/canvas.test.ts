@@ -159,12 +159,6 @@ describe('deliveryOf', () => {
     expect(deliveryOf([reply(10), sent], 1, undefined, revs)).toEqual({ state: 'ended' })
   })
 
-  it('does not credit a side question with a revision the main conversation made meanwhile', () => {
-    expect(deliveryOf([sent, reply(200)], 0, { state: 'asking' }, revs, true)).toEqual({ state: 'asking' })
-    expect(deliveryOf([sent, reply(200)], 0, undefined, revs, true)).toEqual({ state: 'answered' })
-    expect(deliveryOf([sent], 0, undefined, revs, true)).toEqual({ state: 'ended' })
-  })
-
   it('says nothing about what was never sent', () => {
     expect(deliveryOf([{ who: 'person', ts: 1 }], 0, undefined, revs)).toBeUndefined()
     expect(deliveryOf([reply(1)], 0, { state: 'working' }, revs)).toBeUndefined()
@@ -174,7 +168,6 @@ describe('deliveryOf', () => {
     expect(deliveryLabel({ state: 'queued', position: 2 })).toBe('대기열 2번째')
     expect(deliveryLabel({ state: 'delivered' })).toBe('터미널에 전달함')
     expect(deliveryLabel({ state: 'working' })).toBe('작업 중')
-    expect(deliveryLabel({ state: 'asking' })).toBe('곁에서 답하는 중')
     expect(deliveryLabel({ state: 'answered', revision: 33 })).toBe('답함 · rev 33 반영')
     expect(deliveryLabel({ state: 'answered' })).toBe('답함')
     expect(deliveryLabel({ state: 'ended' })).toBe('끝남 · 답 없음')
