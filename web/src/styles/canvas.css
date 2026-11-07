@@ -238,8 +238,8 @@ button.code-added:hover { background: var(--hover); }
 }
 .stage-inner .cv-node .label-container path:first-child { fill: var(--cv-keep-fill) !important; }
 .stage-inner .cv-node .label-container path:last-child { stroke: var(--cv-keep-line) !important; stroke-width: 1.2 !important; transition: stroke .2s, stroke-width .2s; }
-/* Flat cards and areas: Mermaid's look casts a shadow under each. */
-.stage-inner .cv-node .outer-path, .stage-inner .cv-node rect, .stage-inner .cv-cluster rect { filter: none !important; }
+/* Flat cards and areas: Mermaid's look casts a shadow under each, and under a sequence note and a frame's tab. */
+.stage-inner .cv-node .outer-path, .stage-inner .cv-node rect, .stage-inner .cv-cluster rect, .stage-inner .cv-note rect, .stage-inner .labelBox { filter: none !important; }
 .stage-inner .cv-node.cv-add .label-container path:first-child { fill: var(--cv-add-fill) !important; }
 .stage-inner .cv-node.cv-modify .label-container path:first-child { fill: var(--cv-modify-fill) !important; }
 .stage-inner .cv-node.cv-delete .label-container path:first-child { fill: var(--cv-delete-fill) !important; }

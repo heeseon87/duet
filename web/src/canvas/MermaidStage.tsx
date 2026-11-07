@@ -253,8 +253,9 @@ export const MermaidStage = forwardRef<StageHandle, Props & { viewKey: string }>
         suppressErrorRendering: true,
         // Class maps: ELK with the map's order, so packages run left to right in the order the map
         // lists them (dagre ignores the order), and keep it when others fold. Boxes tied by lines
-        // still go where the lines put them.
-        ...(map.diagram === 'class' ? { layout: 'elk', elk: { forceNodeModelOrder: true, considerModelOrder: 'NODES_AND_EDGES' } } : { layout: 'dagre' }),
+        // still go where the lines put them. Lines cross plainly: Mermaid 12.2's hop over a crossing (arc or gap)
+        // rewrites a dashed line's dasharray into one long dash, so a crossing dependency would read as an association.
+        ...(map.diagram === 'class' ? { layout: 'elk', elk: { forceNodeModelOrder: true, considerModelOrder: 'NODES_AND_EDGES', lineHops: false } } : { layout: 'dagre' }),
       } as never)
       const id = `cv${++renderSeq}`
       try {

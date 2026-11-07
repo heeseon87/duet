@@ -43,4 +43,5 @@ body::after { content: ''; position: fixed; inset: 0; z-index: 1000; pointer-eve
 svg.lucide { filter: url(#crayon-wobble); }
 .stage-inner .cv-node .label-container path:last-child,
 .stage-inner .cv-actor rect { filter: url(#crayon-wobble); }
+.stage-inner .cv-note rect { filter: url(#crayon-wobble) !important; }
 .stage-inner .cv-edge { stroke-linecap: round; }
