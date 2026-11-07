@@ -623,7 +623,7 @@ route('POST', '/api/side/:id/main', async ({ req, params }) => {
   const to = bound ?? targetOf(ws, b)
   const text = mainPrompt(c)
   // The thread keeps what the person asked; the prompt carries the side Q&A the main agent never saw.
-  if (c.about && canvas.exists(ws, c.about.map)) return commentOn(ws, c.about.map, to, { target: c.about.target, text: `곁 대화에서 메인 대화로: ${lastTurn(c).question}`, prompt: text })
+  if (c.about && canvas.exists(ws, c.about.map)) return commentOn(ws, c.about.map, to, { target: c.about.target, text: `사이드 채팅에서 메인 대화로: ${lastTurn(c).question}`, prompt: text })
   const messageId = newId('m-')
   return { ...deliver(to, text, [], messageId), messageId }
 })

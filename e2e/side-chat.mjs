@@ -1,5 +1,5 @@
-// Side chats (곁 대화): ⌘J opens a drawer beside the main area; a question there is answered by a fork of the rail's
-// terminal and kept as a chat; a follow-up replays the chat so far, 새 곁 대화 starts one with nothing replayed; 기록 lists
+// Side chats (사이드 채팅): ⌘J opens a drawer beside the main area; a question there is answered by a fork of the rail's
+// terminal and kept as a chat; a follow-up replays the chat so far, 새 사이드 채팅 starts one with nothing replayed; 기록 lists
 // chats by last activity and reopens one; a question being answered shuts its box; a chat whose session closed says so
 // and moves to the terminal picked now (※ on the earlier Q&A, a divider); ↗ sends the chat to the main conversation as one
 // message; a deleted chat stays deleted after a reload; a terminal whose mod cannot fork is refused with nothing kept;
@@ -42,8 +42,13 @@ await page.keyboard.press('Meta+j'); await sleep(400)
 check('⌘J opens the drawer, its box focused', Boolean(await panel()) && await page.evaluate(() => document.activeElement?.matches('.side-panel-foot textarea') ?? false))
 const cols = await page.evaluate(() => ({ main: document.querySelector('.main').getBoundingClientRect(), side: document.querySelector('.side-panel').getBoundingClientRect() }))
 check('it is a column of its own right of the main area', cols.main.right <= cols.side.left + 1 && Math.abs(cols.side.width - 380) < 2 && Math.abs(cols.side.right - 1500) < 2, JSON.stringify(cols))
+const edge = await page.$eval('.side-split', x => { const r = x.getBoundingClientRect(); return { x: r.x + r.width / 2, y: r.y + r.height / 2 } })
+await page.mouse.move(edge.x, edge.y); await page.mouse.down(); await page.mouse.move(edge.x - 120, edge.y, { steps: 6 }); await page.mouse.up(); await sleep(200)
+const wide = await page.$eval('.side-panel', x => x.getBoundingClientRect().width)
+check('dragging its left edge widens it', Math.abs(wide - 500) < 3, String(wide))
+check('its scrollbars are the quiet ones, shown only while scrolling', await page.$eval('.side-panel-body', x => x.classList.contains('quiet-scroll')))
 check('a new chat names the terminal that will answer it', await page.$eval('.side-panel-term', x => x.textContent.includes('A-term')))
-check('the rail\'s 곁 shows the drawer open', await page.$eval('.rail-side', x => x.getAttribute('aria-pressed') === 'true'))
+check('the rail\'s 사이드 shows the drawer open', await page.$eval('.rail-side', x => x.getAttribute('aria-pressed') === 'true'))
 
 // 2. A question waits with its box shut, then the fork's answer lands.
 await page.fill(box, '첫 질문이야')
@@ -61,9 +66,9 @@ await page.fill(box, '이어서 묻는 말'); await page.press(box, 'Enter'); aw
 check('a follow-up asks the same session, replaying the chat so far', A.asked.length === 2 && A.asked[1].prompt.includes('- 사람: 첫 질문이야\n- 너: A의 답: 첫 질문이야') && A.asked[1].prompt.endsWith('질문: 이어서 묻는 말'), A.asked[1]?.prompt)
 check('and it is that chat\'s second turn', (await chats()).find(c => c.id === first)?.turns.length === 2)
 
-// 4. 새 곁 대화 starts a chat with nothing replayed.
+// 4. 새 사이드 채팅 starts a chat with nothing replayed.
 await page.click('.side-new'); await sleep(300)
-check('새 곁 대화 shows an empty chat with the box ready', Boolean(await page.$('.side-empty')) && await page.evaluate(() => document.activeElement?.matches('.side-panel-foot textarea') ?? false))
+check('새 사이드 채팅 shows an empty chat with the box ready', Boolean(await page.$('.side-empty')) && await page.evaluate(() => document.activeElement?.matches('.side-panel-foot textarea') ?? false))
 await page.fill(box, '새로 묻는 말'); await page.press(box, 'Enter'); await sleep(2600)
 check('its question carries nothing earlier', A.asked.length === 3 && !A.asked[2].prompt.includes('앞서 나눈 말'), A.asked[2]?.prompt)
 all = await chats()
@@ -94,7 +99,7 @@ await shot('moved')
 // 7. ↗ sends the chat to the main conversation of its session, as one message.
 await page.click('.side-panel-head .side-to-main'); await sleep(1500)
 check('↗ puts one message in B with the Q&A and the last question, and nothing else reached a terminal as a prompt',
-  B.got.length === 1 && A.got.length === 0 && B.got[0].text.includes('[Duet 곁 대화]') && B.got[0].text.includes('- 사람: 첫 질문이야') && B.got[0].text.trimEnd().endsWith('B에게 이어서'), B.got[0]?.text)
+  B.got.length === 1 && A.got.length === 0 && B.got[0].text.includes('[Duet 사이드 채팅]') && B.got[0].text.includes('- 사람: 첫 질문이야') && B.got[0].text.trimEnd().endsWith('B에게 이어서'), B.got[0]?.text)
 
 // 8. A chat deleted from 기록 stays deleted after a reload.
 await page.click('.side-history-btn'); await sleep(300)
@@ -107,7 +112,10 @@ await page.reload({ waitUntil: 'domcontentloaded' })
 await page.waitForSelector('.rail-side', { timeout: 15000 }); await sleep(1200)
 await page.click('.rail-side'); await sleep(300)
 await page.click('.side-history-btn'); await sleep(300)
-check('the rail\'s 곁 opens the drawer too, and the chat stays deleted after a reload', (await chats()).every(c => c.id !== second) && !(await page.$(`.side-row[data-chat="${second}"]`)) && Boolean(await page.$(`.side-row[data-chat="${first}"]`)))
+check('the rail\'s 사이드 opens the drawer too, and the chat stays deleted after a reload', (await chats()).every(c => c.id !== second) && !(await page.$(`.side-row[data-chat="${second}"]`)) && Boolean(await page.$(`.side-row[data-chat="${first}"]`)))
+check('it keeps the width it was dragged to', Math.abs(await page.$eval('.side-panel', x => x.getBoundingClientRect().width) - 500) < 3)
+await page.dblclick('.side-split'); await sleep(200)
+check('a double-click on its edge puts the width back', Math.abs(await page.$eval('.side-panel', x => x.getBoundingClientRect().width) - 380) < 2)
 
 // 9. A terminal whose mod cannot fork: refused out loud, nothing kept.
 const C = await fakeTerminal({ port, token: T, ws, id: `side-c-${stamp}`, label: 'C-term', canAsk: false })

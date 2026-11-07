@@ -66,7 +66,7 @@ export function FollowUp({ chat, withMain, autoFocus }: { chat: SideChatView; wi
           </button>
         )}
         {withMain && (
-          <button className="iconbtn side-to-main" title="메인 대화로: 이 곁 대화의 문답과 마지막 질문을 보내 (하던 작업이 끝나면 한 턴으로 돌아)" onClick={() => void useSide.getState().toMain(chat.id)}>
+          <button className="iconbtn side-to-main" title="메인 대화로: 이 사이드 채팅의 문답과 마지막 질문을 보내 (하던 작업이 끝나면 한 턴으로 돌아)" onClick={() => void useSide.getState().toMain(chat.id)}>
             <Forward size={13} />
           </button>
         )}

@@ -39,7 +39,7 @@ describe('sidePrompt', () => {
     expect(p).toContain('[Duet 곁질문]')
     expect(p).not.toContain('지도 "')
     expect(p).not.toContain('결정을 보낼 때')
-    expect(p).toContain('이 곁 대화에서 앞서 나눈 말 (오래된 것부터):\n- 사람: 첫 질문\n- 너: 첫 답\n\n질문: 이어서')
+    expect(p).toContain('이 사이드 채팅에서 앞서 나눈 말 (오래된 것부터):\n- 사람: 첫 질문\n- 너: 첫 답\n\n질문: 이어서')
   })
 })
 
@@ -68,7 +68,7 @@ describe('earlierOf', () => {
 describe('mainPrompt', () => {
   it('gives the main conversation the Q&A it never saw and the last question to take up', () => {
     const p = mainPrompt(chat('s1', [turn(1), turn(2, 'A', null)]))
-    expect(p).toContain('[Duet 곁 대화]')
+    expect(p).toContain('[Duet 사이드 채팅]')
     expect(p).toContain('- 사람: 질문 1\n- 곁 답: 답 1')
     expect(p).not.toContain('- 사람: 질문 2')
     expect(p.endsWith('\n질문 2')).toBe(true)

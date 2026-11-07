@@ -52,10 +52,10 @@ export function sidePrompt(a: { decision?: DecisionContext; earlier: string[]; q
     '- 도구는 없어. 지금까지의 대화와 아래 내용만으로, 오래 생각하지 말고 바로 답해.',
     '- 하던 작업을 이어 가지 말고, 이 질문에만 답해.',
     '- 대화에서 확인하지 못한 것은 모른다고 하고, 확인하려면 무엇을 봐야 하는지 말해.',
-    `- 이 문답은 네 대화 기록에 남지 않고 Duet의 곁 대화에만 남아.${a.decision ? ' 사람이 결정을 보낼 때 함께 전해져.' : ''}`,
+    `- 이 문답은 네 대화 기록에 남지 않고 Duet의 사이드 채팅에만 남아.${a.decision ? ' 사람이 결정을 보낼 때 함께 전해져.' : ''}`,
   ]
   if (a.decision) lines.push('', ...decisionBlock(a.decision))
-  if (a.earlier.length) lines.push('', '이 곁 대화에서 앞서 나눈 말 (오래된 것부터):', ...a.earlier)
+  if (a.earlier.length) lines.push('', '이 사이드 채팅에서 앞서 나눈 말 (오래된 것부터):', ...a.earlier)
   lines.push('', `질문: ${a.question}`)
   return lines.join('\n')
 }
@@ -100,10 +100,10 @@ export function earlierOf(turns: SideTurn[], asked: string): string[] {
 export function mainPrompt(c: SideChat): string {
   const { lines, dropped } = replay(c.turns, (t, answerCut) => [`- 사람: ${cut(t.question, Q_CUT)}`, `- 곁 답: ${cut(t.reply.text, answerCut)}`])
   return [
-    '[Duet 곁 대화] 사람이 Duet에서 네 대화 옆으로 나눈 곁 대화야. 곁 답은 네 대화에서 갈라진 fork가 도구 없이 바로 한 답이라, 너는 이 문답을 보지 못했어.',
-    ...(lines.length ? ['', '곁 대화의 문답 (오래된 것부터):', ...(dropped ? [`(앞선 문답 ${dropped}개는 줄였어)`] : []), ...lines] : []),
+    '[Duet 사이드 채팅] 사람이 Duet에서 네 대화 옆으로 나눈 사이드 채팅이야. 곁 답은 네 대화에서 갈라진 fork가 도구 없이 바로 한 답이라, 너는 이 문답을 보지 못했어.',
+    ...(lines.length ? ['', '사이드 채팅의 문답 (오래된 것부터):', ...(dropped ? [`(앞선 문답 ${dropped}개는 줄였어)`] : []), ...lines] : []),
     '',
-    '이 곁 대화의 마지막 질문을 메인 대화에서 이어 받아 줘. 필요하면 확인해서 답해:',
+    '이 사이드 채팅의 마지막 질문을 메인 대화에서 이어 받아 줘. 필요하면 확인해서 답해:',
     lastTurn(c).question,
   ].join('\n')
 }
@@ -125,7 +125,7 @@ export function sideDigest(chats: SideChat[], map: string, d: CanvasDecision): s
       const pair = [`  - ${c.about?.target}에 대해 물음: ${cut(t.question, 300)}`, `    곁 답: ${answer ? cut(answer, 400) : '없음'}`]
       size += pair.join('\n').length
       if (size > DIGEST_MAX) {
-        out.push('  - (곁질문이 더 있어. 곁 대화 기록에 남아 있어)')
+        out.push('  - (곁질문이 더 있어. 사이드 채팅 기록에 남아 있어)')
         return [DIGEST_HEAD, ...out]
       }
       out.push(...pair)
@@ -203,7 +203,7 @@ export class Sides {
 
   get(ws: string, id: string): SideChatView {
     const c = this.read(ws).find(x => x.id === id)
-    if (!c) throw new HttpError(404, '그 곁 대화는 없어')
+    if (!c) throw new HttpError(404, '그 사이드 채팅은 없어')
     return this.view(c)
   }
 
@@ -222,7 +222,7 @@ export class Sides {
     let to: TerminalInfo
     if ('chat' in q) {
       chat = all.find(c => c.id === q.chat)
-      if (!chat) throw new HttpError(404, '그 곁 대화는 없어')
+      if (!chat) throw new HttpError(404, '그 사이드 채팅은 없어')
       const state = followUpOf(this.view(chat), live)
       if (state === 'asking') throw new HttpError(409, '앞 질문의 답을 아직 기다려')
       if (state === 'gone') {

@@ -43,8 +43,8 @@ export function Palette({ onClose }: { onClose: () => void }) {
   const commands: Item[] = useMemo(() => [
     { id: 'tab-canvas', icon: <Shapes size={14} />, label: '캔버스로 가기', hint: '⌘1', run: () => app.setTab('canvas') },
     { id: 'tab-review', icon: <FileDiff size={14} />, label: '리뷰로 가기', hint: '⌘2', run: () => app.setTab('review') },
-    { id: 'side-open', icon: <MessagesSquare size={14} />, label: '곁 대화 열기', hint: '⌘J', run: () => useSide.setState({ open: true }) },
-    { id: 'side-new', icon: <MessagesSquare size={14} />, label: '새 곁 대화', run: () => useSide.getState().show('new') },
+    { id: 'side-open', icon: <MessagesSquare size={14} />, label: '사이드 채팅 열기', hint: '⌘J', run: () => useSide.setState({ open: true }) },
+    { id: 'side-new', icon: <MessagesSquare size={14} />, label: '새 사이드 채팅', run: () => useSide.getState().show('new') },
     { id: 'src-working', icon: <FileDiff size={14} />, label: '리뷰: Changes', run: () => { app.setTab('review'); review.setSource({ kind: 'working' }) } },
     { id: 'src-branch', icon: <FileDiff size={14} />, label: '리뷰: Compare', run: () => { app.setTab('review'); review.setSource({ kind: 'branch', base: review.info?.defaultBase ?? 'main', compare: 'WORKTREE' }) } },
     ...(canvas.map?.diagram === 'class' && canvas.map.elements.some(e => e.kind === 'group') ? [

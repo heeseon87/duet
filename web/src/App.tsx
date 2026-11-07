@@ -178,8 +178,8 @@ function DecideSlot() {
 function SideSlot() {
   const open = useSide(s => s.open), toggle = useSide(s => s.toggle)
   return (
-    <button className="rail-btn rail-side" aria-pressed={open} title={open ? '곁 대화 닫기 (⌘J)' : '곁 대화 (⌘J) · 메인 대화에서 갈라져 묻기'} onClick={toggle}>
-      <MessagesSquare size={16} />곁
+    <button className="rail-btn rail-side" aria-pressed={open} title={open ? '사이드 채팅 닫기 (⌘J)' : '사이드 채팅 (⌘J) · 메인 대화에서 갈라져 묻기'} onClick={toggle}>
+      <MessagesSquare size={16} />사이드
     </button>
   )
 }

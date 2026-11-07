@@ -141,8 +141,8 @@ if (sendToo) {
   // ↗ takes the chat to the main conversation of the session it is bound to, as a comment on the option.
   await page.click('.decide .side-thread .side-to-main'); await sleep(2000)
   const toMain = opener.got[0]?.text ?? ''
-  check('↗ sends the chat\'s Q&A and its last question to its session\'s main conversation, as a comment on the option', opener.got.length === 1 && term.got.length === 0 && toMain.includes('[캔버스 코멘트]') && toMain.includes('(D1-a)') && toMain.includes('[Duet 곁 대화]') && toMain.includes(`- 사람: ${sideQuestion}`) && toMain.trimEnd().includes('그럼 b는?'), toMain)
-  check('the option\'s thread keeps only what was asked, not the whole prompt', (await call('GET', `/api/canvas/${name}/threads?ws=${W}`)).threads.some(t => t.target === 'D1-a' && t.items.some(i => i.who === 'person' && i.text === '곁 대화에서 메인 대화로: 그럼 b는?')))
+  check('↗ sends the chat\'s Q&A and its last question to its session\'s main conversation, as a comment on the option', opener.got.length === 1 && term.got.length === 0 && toMain.includes('[캔버스 코멘트]') && toMain.includes('(D1-a)') && toMain.includes('[Duet 사이드 채팅]') && toMain.includes(`- 사람: ${sideQuestion}`) && toMain.trimEnd().includes('그럼 b는?'), toMain)
+  check('the option\'s thread keeps only what was asked, not the whole prompt', (await call('GET', `/api/canvas/${name}/threads?ws=${W}`)).threads.some(t => t.target === 'D1-a' && t.items.some(i => i.who === 'person' && i.text === '사이드 채팅에서 메인 대화로: 그럼 b는?')))
 }
 /** What went to Claude about the decisions themselves (not the ↗ comment on an option). */
 const decisionItems = async () => (await call('GET', `/api/canvas/${name}/threads?ws=${W}`)).threads.filter(t => t.target === 'D1' || t.target === 'D2')

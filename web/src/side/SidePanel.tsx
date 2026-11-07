@@ -4,12 +4,44 @@ import { bindingOf, lastAt, lastTurn, titleOf, type SideChatView } from '../../.
 import type { TerminalInfo } from '../../../shared/protocol.ts'
 import { confirmDialog } from '../lib/confirm.tsx'
 import { relTime } from '../lib/ui.tsx'
-import { targetTerminal, useApp } from '../state.ts'
+import { local, targetTerminal, useApp } from '../state.ts'
 import { useCanvas } from '../canvas/store.ts'
 import { FollowUp, SideThread } from './SideThread.tsx'
 import { useSide } from './store.ts'
 
 const dotOf = (t: TerminalInfo | undefined) => (t ? (t.activity?.waiting ? 'waiting' : t.status) : 'gone')
+
+const WIDTH = 380
+const WIDTH_MIN = 300
+/** The main area keeps at least this much beside the drawer. */
+const MAIN_MIN = 480
+const fitWidth = (w: number) => Math.round(Math.max(WIDTH_MIN, Math.min(w, window.innerWidth - MAIN_MIN)))
+
+/** The drawer's width, dragged by its left edge and remembered; a double-click puts it back. */
+function useDrawerWidth() {
+  const [wanted, setWanted] = useState(() => Number(local.get('side.width')) || WIDTH)
+  const [dragging, setDragging] = useState(false)
+  const width = fitWidth(wanted)
+  const drag = (e: React.PointerEvent) => {
+    e.preventDefault()
+    const handle = e.currentTarget as HTMLElement
+    handle.setPointerCapture(e.pointerId)
+    const x0 = e.clientX
+    let last = width
+    setDragging(true)
+    const move = (m: PointerEvent) => { last = fitWidth(width + x0 - m.clientX); setWanted(last) }
+    const up = () => {
+      handle.removeEventListener('pointermove', move)
+      handle.removeEventListener('pointerup', up)
+      setDragging(false)
+      local.set('side.width', String(last))
+    }
+    handle.addEventListener('pointermove', move)
+    handle.addEventListener('pointerup', up)
+  }
+  const reset = () => { setWanted(WIDTH); local.set('side.width', String(WIDTH)) }
+  return { width, dragging, drag, reset }
+}
 
 /** What a chat is about, for its row: the decision and its map, else the session it is bound to. */
 function useAboutLabel() {
@@ -32,6 +64,7 @@ export function SidePanel() {
   const headLabel = chat ? lastTurn(chat).terminalLabel : head?.label ?? '보낼 터미널 없음'
   const panel = useRef<HTMLElement>(null)
   const body = useRef<HTMLDivElement>(null)
+  const size = useDrawerWidth()
   const turns = chat?.turns.length ?? 0
   const lastReply = chat ? lastTurn(chat).reply?.at : undefined
 
@@ -49,20 +82,21 @@ export function SidePanel() {
   }
 
   return (
-    <aside ref={panel} className="side-panel" aria-label="곁 대화" onKeyDown={onKeyDown}>
+    <aside ref={panel} className="side-panel" aria-label="사이드 채팅" style={{ width: size.width, flexBasis: size.width }} onKeyDown={onKeyDown}>
+      <div className={`side-split${size.dragging ? ' dragging' : ''}`} onPointerDown={size.drag} onDoubleClick={size.reset} title="끌어서 너비 조절, 두 번 누르면 처음 너비로" />
       <header className="side-panel-head">
         <span className={`term-dot ${dotOf(head)}`} title={head ? '살아 있는 세션' : '세션이 닫혔어'} />
-        <span className="side-panel-term ellipsis" title={chat ? `이 곁 대화가 묶인 세션: ${headLabel}` : `새 곁 대화를 받을 터미널: ${headLabel}`}>{headLabel}</span>
+        <span className="side-panel-term ellipsis" title={chat ? `이 사이드 채팅이 묶인 세션: ${headLabel}` : `새 사이드 채팅을 받을 터미널: ${headLabel}`}>{headLabel}</span>
         <span className="grow" />
-        <button className="btn sm ghost side-new" onClick={() => show('new')} title="새 곁 대화"><SquarePen size={13} /> 새 곁 대화</button>
-        <button className="btn sm ghost side-history-btn" aria-pressed={listing} onClick={() => setListing(!listing)} title="곁 대화 기록"><History size={13} /> 기록</button>
-        <button className="iconbtn side-to-main" disabled={!chat} title="메인 대화로: 이 곁 대화의 문답과 마지막 질문을 보내 (하던 작업이 끝나면 한 턴으로 돌아)"
+        <button className="btn sm ghost side-new" onClick={() => show('new')} title="새 사이드 채팅"><SquarePen size={13} /> 새 사이드 채팅</button>
+        <button className="btn sm ghost side-history-btn" aria-pressed={listing} onClick={() => setListing(!listing)} title="사이드 채팅 기록"><History size={13} /> 기록</button>
+        <button className="iconbtn side-to-main" disabled={!chat} title="메인 대화로: 이 사이드 채팅의 문답과 마지막 질문을 보내 (하던 작업이 끝나면 한 턴으로 돌아)"
           aria-label="메인 대화로" onClick={() => chat && void useSide.getState().toMain(chat.id)}><Forward size={14} /></button>
         <button className="iconbtn" title="닫기 (⌘J)" aria-label="닫기" onClick={toggle}><X size={14} /></button>
       </header>
       {listing ? <SideHistory chats={chats} shown={chat?.id} aboutLabel={aboutLabel} terminals={terminals} /> : (
         <>
-          <div ref={body} className="side-panel-body">
+          <div ref={body} className="side-panel-body quiet-scroll">
             {chat ? (
               <>
                 <div className="side-panel-title"><b>{titleOf(chat)}</b>{chat.about && <span className="chip side-chip">{aboutLabel(chat)}</span>}</div>
@@ -70,7 +104,7 @@ export function SidePanel() {
               </>
             ) : (
               <div className="side-empty">
-                <h3>곁 대화</h3>
+                <h3>사이드 채팅</h3>
                 <p>메인 대화에서 갈라져 묻는 대화야. {head ? <b>{head.label}</b> : '레일에서 고른 터미널'}의 지금까지 대화로 도구 없이 바로 답하고, 하던 일은 멈추지 않아. 문답은 그 대화 기록에 남지 않고 여기 기록에만 남아.</p>
                 <p className="muted">이어서 물으면 앞선 문답을 같이 보내. 메인 대화가 알아야 하면 ↗로 보내.</p>
               </div>
@@ -111,11 +145,11 @@ function NewAsk() {
 function SideHistory({ chats, shown, aboutLabel, terminals }: { chats: SideChatView[]; shown?: string; aboutLabel: (c: SideChatView) => string; terminals: TerminalInfo[] }) {
   const sorted = [...chats].sort((a, b) => lastAt(b) - lastAt(a))
   const remove = async (c: SideChatView) => {
-    if (await confirmDialog({ title: '이 곁 대화를 지울까?', body: titleOf(c), ok: '지우기', danger: true })) await useSide.getState().remove(c.id)
+    if (await confirmDialog({ title: '이 사이드 채팅을 지울까?', body: titleOf(c), ok: '지우기', danger: true })) await useSide.getState().remove(c.id)
   }
-  if (!sorted.length) return <div className="side-panel-body"><div className="side-empty muted">아직 곁 대화가 없어.</div></div>
+  if (!sorted.length) return <div className="side-panel-body quiet-scroll"><div className="side-empty muted">아직 사이드 채팅이 없어.</div></div>
   return (
-    <div className="side-panel-body side-history">
+    <div className="side-panel-body side-history quiet-scroll">
       {sorted.map(c => (
         <div key={c.id} role="button" tabIndex={0} className="side-row" data-chat={c.id} aria-current={c.id === shown}
           onClick={() => useSide.getState().show(c.id)} onKeyDown={e => { if (e.key === 'Enter') useSide.getState().show(c.id) }}>
