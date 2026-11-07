@@ -2,7 +2,7 @@
    Duet is drawn on paper with crayons (after jiral's theme). base.css and canvas.css hold its colors and fonts: warm
    paper and ink, a crayon-blue accent, the rounded Gowun Dodum for the UI (Gowun has 400 only, so bold is synthesized).
    Here are the hand-made details: the handwritten Gaegu for the few titles the app itself writes, corners a little off,
-   the paper's grain, wax on filled things, and line icons and box outlines shaking a little (index.html's
+   the paper's texture, wax on filled things, and line icons and box outlines shaking a little (index.html's
    #crayon-wobble). Code and class maps keep their mono face. */
 :root {
   /* Hand-drawn corners: an odd pair of radii that shrinks with the box into a crooked line (--hand), a calmer one for
@@ -10,7 +10,12 @@
   --hand: 255px 14px 225px 14px / 14px 225px 14px 255px;
   --hand-soft: 16px 22px 14px 24px / 22px 14px 24px 16px;
   --hand-sq: 12px 9px 14px 8px / 8px 13px 9px 12px;
-  --grain: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='g'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.8' numOctaves='3' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 .32 0 0 0 0 .25 0 0 0 0 .16 .55 0 0 0 -.2'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23g)'/%3E%3C/svg%3E");
+  /* The paper's texture: a bump map lit from the top left with faint blotches a few hundred px across, lit with 50% grey
+     and split in two (~/.agents/paper-texture.md). The light half is black where the paper is flat and laid in color-dodge,
+     the dark half is white where it is flat and laid in multiply, so every colour under them gets a few percent lighter on
+     the lit side and darker in the shade. */
+  --grain-light: url("data:image/svg+xml,%3Csvg%20xmlns%3D'http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg'%20width%3D'640'%20height%3D'640'%3E%3Cfilter%20id%3D'p'%20x%3D'0'%20y%3D'0'%20width%3D'100%25'%20height%3D'100%25'%20color-interpolation-filters%3D'sRGB'%3E%3CfeTurbulence%20type%3D'fractalNoise'%20baseFrequency%3D'.45'%20numOctaves%3D'3'%20seed%3D'3'%20stitchTiles%3D'stitch'%20result%3D'n'%2F%3E%3CfeDiffuseLighting%20in%3D'n'%20surfaceScale%3D'.16'%20diffuseConstant%3D'1.1547'%20lighting-color%3D'%23808080'%20result%3D't'%3E%3CfeDistantLight%20azimuth%3D'225'%20elevation%3D'60'%2F%3E%3C%2FfeDiffuseLighting%3E%3CfeTurbulence%20type%3D'fractalNoise'%20baseFrequency%3D'.005'%20numOctaves%3D'3'%20seed%3D'11'%20stitchTiles%3D'stitch'%2F%3E%3CfeColorMatrix%20values%3D'2%200%200%200%20-.5%202%200%200%200%20-.5%202%200%200%200%20-.5%200%200%200%200%201'%20result%3D'm'%2F%3E%3CfeComposite%20in%3D't'%20in2%3D'm'%20operator%3D'arithmetic'%20k1%3D'.05'%20k2%3D'.975'%20k3%3D'0'%20k4%3D'0'%2F%3E%3CfeComponentTransfer%3E%3CfeFuncR%20type%3D'linear'%20slope%3D'2'%20intercept%3D'-1'%2F%3E%3CfeFuncG%20type%3D'linear'%20slope%3D'2'%20intercept%3D'-1'%2F%3E%3CfeFuncB%20type%3D'linear'%20slope%3D'2'%20intercept%3D'-1'%2F%3E%3C%2FfeComponentTransfer%3E%3C%2Ffilter%3E%3Crect%20width%3D'100%25'%20height%3D'100%25'%20filter%3D'url(%23p)'%2F%3E%3C%2Fsvg%3E");
+  --grain-dark: url("data:image/svg+xml,%3Csvg%20xmlns%3D'http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg'%20width%3D'640'%20height%3D'640'%3E%3Cfilter%20id%3D'p'%20x%3D'0'%20y%3D'0'%20width%3D'100%25'%20height%3D'100%25'%20color-interpolation-filters%3D'sRGB'%3E%3CfeTurbulence%20type%3D'fractalNoise'%20baseFrequency%3D'.45'%20numOctaves%3D'3'%20seed%3D'3'%20stitchTiles%3D'stitch'%20result%3D'n'%2F%3E%3CfeDiffuseLighting%20in%3D'n'%20surfaceScale%3D'.16'%20diffuseConstant%3D'1.1547'%20lighting-color%3D'%23808080'%20result%3D't'%3E%3CfeDistantLight%20azimuth%3D'225'%20elevation%3D'60'%2F%3E%3C%2FfeDiffuseLighting%3E%3CfeTurbulence%20type%3D'fractalNoise'%20baseFrequency%3D'.005'%20numOctaves%3D'3'%20seed%3D'11'%20stitchTiles%3D'stitch'%2F%3E%3CfeColorMatrix%20values%3D'2%200%200%200%20-.5%202%200%200%200%20-.5%202%200%200%200%20-.5%200%200%200%200%201'%20result%3D'm'%2F%3E%3CfeComposite%20in%3D't'%20in2%3D'm'%20operator%3D'arithmetic'%20k1%3D'.05'%20k2%3D'.975'%20k3%3D'0'%20k4%3D'0'%2F%3E%3CfeComponentTransfer%3E%3CfeFuncR%20type%3D'linear'%20slope%3D'2'%20intercept%3D'0'%2F%3E%3CfeFuncG%20type%3D'linear'%20slope%3D'2'%20intercept%3D'0'%2F%3E%3CfeFuncB%20type%3D'linear'%20slope%3D'2'%20intercept%3D'0'%2F%3E%3C%2FfeComponentTransfer%3E%3C%2Ffilter%3E%3Crect%20width%3D'100%25'%20height%3D'100%25'%20filter%3D'url(%23p)'%2F%3E%3C%2Fsvg%3E");
   --wax: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='w'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.12 .8' numOctaves='3' seed='4' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 1 0 0 0 0 .99 0 0 0 0 .95 2.6 0 0 0 -1.45'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23w)'/%3E%3C/svg%3E");
 }
 body { font-synthesis: weight; }
@@ -21,8 +26,15 @@ body { font-synthesis: weight; }
   font-family: 'Gaegu', var(--font-ui); font-weight: 700; font-synthesis: none; font-size-adjust: ex-height 0.385;
 }
 
-/* Paper grain over everything, never in the way of a click. */
-body::after { content: ''; position: fixed; inset: 0; z-index: 1000; pointer-events: none; background-image: var(--grain); }
+/* One grain over the whole screen: the page, the map and its drawing, panels, popovers, chips and avatars all show it
+   alike, never in the way of a click. Both layers are fixed to the window, so the grain stays put when the map pans and
+   keeps one size at every zoom. A white shade in multiply alone only darkened, and a grey soft-light all but vanished
+   on the light sheets. */
+body::before, body::after {
+  content: ''; position: fixed; inset: 0; z-index: 1000; pointer-events: none; background-size: 640px; background-attachment: fixed;
+}
+body::before { background-image: var(--grain-light); mix-blend-mode: color-dodge; }
+body::after { background-image: var(--grain-dark); mix-blend-mode: multiply; }
 
 /* Corners */
 :is(.btn, .chip, .seg, .toast, .map-pick, .rev-chip, .compare-chip, .code-tabs button, .scope-chip, .bound-chip, .ws-pick, .float-composer, .decision-ask, .dm-option, .dm-ask, .dm-undo, .dm-done, .dm-back) { border-radius: var(--hand); }
