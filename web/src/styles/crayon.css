@@ -56,4 +56,7 @@ svg.lucide { filter: url(#crayon-wobble); }
 .stage-inner .cv-node .label-container path:last-child,
 .stage-inner .cv-actor rect { filter: url(#crayon-wobble); }
 .stage-inner .cv-note rect { filter: url(#crayon-wobble) !important; }
+/* An open package is a light area in a soft crayon line whose edge shakes like the boxes'; a bare tint read as flat
+   beside the drawn boxes. A selected or focused package keeps its own line (canvas.css). */
+.stage-inner .cv-cluster > rect { filter: url(#crayon-wobble) !important; stroke: var(--cv-group-line) !important; stroke-width: 1.5px; rx: 12px; ry: 12px; }
 .stage-inner .cv-edge { stroke-linecap: round; }
