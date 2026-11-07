@@ -88,8 +88,8 @@ export type ServerEvent =
   | { topic: 'canvas'; workspace: string; name: string; revision: number; by: 'agent' | 'person' }
   | { topic: 'canvas-list'; workspace: string }
   | { topic: 'terminals'; terminals: TerminalInfo[] }
-  /** A side chat was asked, answered, dropped or deleted: the browser reads it again (gone when it is not found). */
-  | { topic: 'side'; workspace: string; chat: string }
+  /** A side chat was asked, answered or dropped (the browser reads it again), or deleted (`gone`). */
+  | { topic: 'side'; workspace: string; chat: string; gone?: true }
   /** `stale`: the server's code changed on disk after it started, so the browser may run newer UI than it. */
   | { topic: 'hello'; version: string; stale?: boolean }
   | { topic: 'stale' }

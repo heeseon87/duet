@@ -22,7 +22,7 @@ body { font-synthesis: weight; }
 
 /* Handwriting only for what the app itself titles; a title someone wrote (a repo, a map, a decision) keeps the UI face,
    and so does the body: Gaegu at 13px was hard to read in jiral. Gaegu draws small, so it is set 1.08 times larger. */
-:is(.welcome h1, .welcome .brand, .empty-canvas h3, .confirm h3) {
+:is(.welcome h1, .welcome .brand, .empty-canvas h3, .confirm h3, .side-empty h3) {
   font-family: 'Gaegu', var(--font-ui); font-weight: 700; font-synthesis: none; font-size-adjust: ex-height 0.385;
 }
 

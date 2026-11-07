@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { FileDiff, Keyboard, Palette as PaletteIcon, Signpost, RotateCw, Search, Shapes, Terminal, WifiOff } from 'lucide-react'
+import { FileDiff, Keyboard, MessagesSquare, Palette as PaletteIcon, Signpost, RotateCw, Search, Shapes, Terminal, WifiOff } from 'lucide-react'
 import type { TerminalInfo } from '../../shared/protocol.ts'
 import { connection, subscribe } from './api.ts'
 import { local, targetTerminal, useApp } from './state.ts'
@@ -13,6 +13,8 @@ import { Palette } from './Palette.tsx'
 import { Shortcuts } from './Shortcuts.tsx'
 import { sourceLabel, useReview } from './review/store.ts'
 import { useCanvas } from './canvas/store.ts'
+import { SidePanel } from './side/SidePanel.tsx'
+import { useSide } from './side/store.ts'
 
 function Welcome() {
   const { workspaces, openWorkspace, toast } = useApp()
@@ -172,7 +174,17 @@ function DecideSlot() {
   )
 }
 
-/** The app's left rail: the two views, decision mode, the terminal things go to, and what is about the app itself. */
+/** The side chat drawer from anywhere: questions off a terminal's conversation that leave it as it is. */
+function SideSlot() {
+  const open = useSide(s => s.open), toggle = useSide(s => s.toggle)
+  return (
+    <button className="rail-btn rail-side" aria-pressed={open} title={open ? '곁 대화 닫기 (⌘J)' : '곁 대화 (⌘J) · 메인 대화에서 갈라져 묻기'} onClick={toggle}>
+      <MessagesSquare size={16} />곁
+    </button>
+  )
+}
+
+/** The app's left rail: the two views, decision mode, side chats, the terminal things go to, and what is about the app itself. */
 function Rail({ onHelp }: { onHelp: () => void }) {
   const { tab, setTab, setPalette } = useApp()
   const drafts = useReview(s => s.comments.filter(c => c.state === 'draft').length)
@@ -191,6 +203,7 @@ function Rail({ onHelp }: { onHelp: () => void }) {
         </button>
       </div>
       <DecideSlot />
+      <SideSlot />
       <span className="rail-sep" />
       <TerminalSlot />
       <span className="grow" />
@@ -205,6 +218,7 @@ function Rail({ onHelp }: { onHelp: () => void }) {
 
 export function App() {
   const { workspace, tab, setTab, paletteOpen, setPalette, openWorkspace, toast } = useApp()
+  const sideOpen = useSide(s => s.open)
   const [booted, setBooted] = useState(false)
   const [help, setHelp] = useState(false)
 
@@ -234,6 +248,7 @@ export function App() {
       if (mod && shortcutKey(e).toLowerCase() === 'k') { e.preventDefault(); setPalette(!useApp.getState().paletteOpen) }
       else if (mod && e.key === '1') { e.preventDefault(); setTab('canvas') }
       else if (mod && e.key === '2') { e.preventDefault(); setTab('review') }
+      else if (mod && !e.shiftKey && !e.altKey && shortcutKey(e).toLowerCase() === 'j') { e.preventDefault(); useSide.getState().toggle() }
       else if (e.key === '?' && !isTypingTarget(e.target)) { e.preventDefault(); setHelp(h => !h) }
     }
     window.addEventListener('keydown', key)
@@ -251,6 +266,7 @@ export function App() {
           {tab === 'canvas' ? <CanvasView /> : <ReviewView />}
         </section>
       </div>
+      {sideOpen && <SidePanel />}
       {paletteOpen && <Palette onClose={() => setPalette(false)} />}
       {help && <Shortcuts onClose={() => setHelp(false)} />}
       <Toasts />

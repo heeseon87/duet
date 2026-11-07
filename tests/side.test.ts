@@ -169,7 +169,7 @@ describe('Sides', () => {
     const terminals = new Terminals(() => undefined, ids => sides.dropped(ids))
     const changed: string[] = []
     const decisions: Record<string, DecisionContext | undefined> = { 'groups/D1-a': ctx('D1-a', 'OPENER'), 'groups/D1-b': ctx('D1-b', 'OPENER') }
-    const sides: Sides = new Sides({ terminals, file: () => file, changed: (_, c) => { changed.push(c) }, decision: (_, a) => decisions[`${a.map}/${a.target}`] })
+    const sides: Sides = new Sides({ terminals, file: () => file, changed: (_, c, gone) => { changed.push(gone ? `${c} gone` : c) }, decision: (_, a) => decisions[`${a.map}/${a.target}`] })
     const register = (id: string, canAsk = o.canAsk ?? true) => terminals.register({ id, workspace: WS, cwd: WS, label: `${id} label`, canAsk })
     const saved = () => (existsSync(file) ? readFileSync(file, 'utf8') : undefined)
     const asked = async (id: string) => (await terminals.poll(id, 0, () => undefined)).ask
@@ -288,11 +288,12 @@ describe('Sides', () => {
     expect(s.sides.list(WS).map(c => c.id)).toEqual(['t1'])
   })
 
-  it('forgets a deleted chat', () => {
+  it('forgets a deleted chat, and says it is gone', () => {
     const s = make()
     s.register('A')
     const v = s.sides.ask(WS, { question: 'q', terminal: 'A' })
     s.sides.remove(WS, v.id)
+    expect(s.changed.at(-1)).toBe(`${v.id} gone`)
     expect(s.sides.list(WS)).toEqual([])
     expect(() => s.sides.get(WS, v.id)).toThrow(expect.objectContaining({ status: 404 }))
   })

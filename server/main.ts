@@ -65,7 +65,7 @@ const canvas = new CanvasStore(
 const sides = new Sides({
   terminals,
   file: ws => join(DUET_HOME, 'side', `${slugOf(ws)}.json`),
-  changed: (workspace, chat) => broadcast({ topic: 'side', workspace, chat }),
+  changed: (workspace, chat, gone) => broadcast({ topic: 'side', workspace, chat, ...(gone ? { gone } : {}) }),
   decision: (ws, about) => {
     try {
       const cur = canvas.get(ws, about.map)

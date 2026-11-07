@@ -7,6 +7,17 @@ import { sendingTo } from '../terminalTarget.ts'
 type SideState = {
   /** The workspace's side chats; the server sends the most recently active first. */
   chats: SideChatView[]
+  /** The drawer is open. */
+  open: boolean
+  /** The chat the drawer shows, or a chat not started yet ('new'): nothing is kept before its first question. */
+  shown: string
+  /** The drawer lists the chats (기록) instead of showing one. */
+  listing: boolean
+  toggle: () => void
+  /** Opens the drawer on this chat, or on a new one. */
+  show: (chat: string) => void
+  setListing: (on: boolean) => void
+  remove: (chat: string) => Promise<void>
   /** What was typed and not sent yet, by chat id ('new' for a chat not started). */
   drafts: Record<string, string>
   setDraft: (chat: string, text: string) => void
@@ -32,6 +43,23 @@ const put = (chats: SideChatView[], c: SideChatView) => (chats.some(x => x.id ==
 
 export const useSide = create<SideState>(set => ({
   chats: [],
+  open: false,
+  shown: 'new',
+  listing: false,
+  toggle: () => set(s => ({ open: !s.open })),
+  show: chat => set({ open: true, shown: chat, listing: false }),
+  setListing: on => set({ listing: on }),
+  remove: async chat => {
+    const w = ws()
+    if (!w) return
+    try {
+      await api.del(`/api/side/${chat}${q({ ws: w })}`)
+    } catch (e) {
+      useApp.getState().toast((e as Error).message, 'error')
+      return
+    }
+    drop(chat)
+  },
   drafts: {},
   setDraft: (chat, text) => set(s => ({ drafts: { ...s.drafts, [chat]: text } })),
 
@@ -74,6 +102,8 @@ export const useSide = create<SideState>(set => ({
   },
 }))
 
+const drop = (id: string) => useSide.setState(s => ({ chats: s.chats.filter(c => c.id !== id), ...(s.shown === id ? { shown: 'new' } : {}) }))
+
 /** One chat read again after the server said it changed; gone when the server no longer has it. */
 async function refetch(id: string) {
   const w = ws()
@@ -82,13 +112,20 @@ async function refetch(id: string) {
     const c = await api.get<SideChatView>(`/api/side/${id}${q({ ws: w })}`)
     if (ws() === w) useSide.setState(s => ({ chats: put(s.chats, c) }))
   } catch (e) {
-    if (e instanceof ApiError && e.status === 404) useSide.setState(s => ({ chats: s.chats.filter(c => c.id !== id) }))
+    if (e instanceof ApiError && e.status === 404) drop(id)
   }
 }
 
 subscribe(ev => {
   // After a reconnect (the server may have restarted), what was asked has been answered or dropped.
   if (ev.topic === 'hello') void useSide.getState().load()
-  if (ev.topic === 'side' && ev.workspace === ws()) void refetch(ev.chat)
+  if (ev.topic === 'side' && ev.workspace === ws()) {
+    if (ev.gone) drop(ev.chat)
+    else void refetch(ev.chat)
+  }
 })
-useApp.subscribe((s, prev) => { if (s.workspace?.path !== prev.workspace?.path) void useSide.getState().load() })
+useApp.subscribe((s, prev) => {
+  if (s.workspace?.path === prev.workspace?.path) return
+  useSide.setState({ shown: 'new', listing: false, drafts: {} })
+  void useSide.getState().load()
+})

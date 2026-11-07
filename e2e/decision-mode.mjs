@@ -1,7 +1,8 @@
 // Decision mode: the chip opens the open decisions one after another over the canvas, Claude's pick comes chosen, keys
 // pick (1·2·3, also with the Korean input source), put off (l) and ask (q), ⏎ decides and moves on, a choice can be
 // taken back, the summary comes after the last, the side shows the map and the real code an option touches, and esc
-// closes the mode alone. Nothing goes to a terminal unless DUET_SEND=1: then a stand-in terminal gets the choices, in one
+// closes the mode alone (esc in the empty box of the side chat drawer over it closes only the drawer). Nothing goes to a
+// terminal unless DUET_SEND=1: then a stand-in terminal gets the choices, in one
 // prompt at the end (with the side questions asked on the way) and once more after a reload, and q's side question is
 // answered by the terminal whose agent drew the decisions, not the one picked, with nothing sent to either; it is kept as
 // a side chat on the option (GET /api/side), shown inline, followed up there, and taken to the main conversation by ↗.
@@ -178,6 +179,12 @@ m = await mapNow()
 s = await state()
 check('되돌리기 takes the choice back: the option\'s parts return, D2 is open again with b picked', m.map.decisions[1].chosen === undefined && m.revision === revBefore + 1 && m.map.elements.some(e => e.id === 'Res') && s?.q.includes('성공') && s.picked === 'D2-b', JSON.stringify({ rev: m.revision, s }))
 check('and nothing waits for Claude about it', (await pendingIds()).length === 0)
+
+// The side chat drawer opens over decision mode; esc in its empty box closes the drawer and leaves the mode open.
+await page.keyboard.press('Meta+j'); await sleep(400)
+check('⌘J opens the side chat drawer beside decision mode, its box focused', Boolean(await page.$('.side-panel')) && Boolean(await state()) && await page.evaluate(() => document.activeElement?.matches('.side-panel-foot textarea') ?? false))
+await page.keyboard.press('Escape'); await sleep(300)
+check('esc in its empty box closes the drawer alone: decision mode stays', !(await page.$('.side-panel')) && Boolean(await state()))
 
 // 5. Esc closes the mode alone; the chip opens it again where things stand.
 await page.keyboard.press('Escape'); await sleep(400)

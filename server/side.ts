@@ -170,7 +170,8 @@ type Deps = {
   terminals: Terminals
   /** The file a workspace's chats are kept in. */
   file: (ws: string) => string
-  changed: (ws: string, chat: string) => void
+  /** `gone`: the chat was deleted. */
+  changed: (ws: string, chat: string, gone?: true) => void
   decision: (ws: string, about: SideAnchor) => DecisionContext | undefined
 }
 
@@ -285,7 +286,7 @@ export class Sides {
     const rest = all.filter(c => c.id !== id)
     if (rest.length === all.length) return
     this.write(ws, rest)
-    this.deps.changed(ws, id)
+    this.deps.changed(ws, id, true)
   }
 
   /** Takes in side threads from before side chats; a thread already taken in is left alone, so this runs on every start. */

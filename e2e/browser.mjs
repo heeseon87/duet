@@ -49,10 +49,10 @@ export async function toggleFold(page, id) {
  * A stand-in for a Claude Code terminal running the Duet mod: it registers in `ws`, keeps polling so the server
  * keeps it, and finishes each message Duet sends it (with `answer(message)`'s text as its answer, when given),
  * `workMs` after starting on it. `got` holds what arrived; `hold()` keeps the next message unfinished until `release()`.
- * Like the mod, it answers side questions at once, held message or not (`side(ask)`'s text, `asked` holds them),
- * unless `canAsk` is false (a mod older than side questions).
+ * Like the mod, it answers side questions beside whatever it holds (`side(ask)`'s text, `asked` holds them), `sideMs`
+ * later while it goes on polling, unless `canAsk` is false (a mod older than side questions).
  */
-export async function fakeTerminal({ port = 7981, token, ws, id = `e2e-${Date.now().toString(36)}`, label = 'e2e', answer, workMs = 0, canAsk = true, side } = {}) {
+export async function fakeTerminal({ port = 7981, token, ws, id = `e2e-${Date.now().toString(36)}`, label = 'e2e', answer, workMs = 0, canAsk = true, side, sideMs = 0 } = {}) {
   const H = { 'x-duet-token': token, 'content-type': 'application/json' }
   const url = p => `http://127.0.0.1:${port}${p}`
   const post = (p, body) => fetch(url(p), { method: 'POST', headers: H, body: JSON.stringify(body) })
@@ -71,8 +71,11 @@ export async function fakeTerminal({ port = 7981, token, ws, id = `e2e-${Date.no
       if (!on) break
       if (!p) { await sleep(300); continue }
       if (p.ask) {
-        asked.push(p.ask)
-        await post(`/api/terminals/${id}/asks/${p.ask.id}`, { answer: side?.(p.ask) ?? '곁 답이야.' })
+        const ask = p.ask
+        asked.push(ask)
+        const reply = () => post(`/api/terminals/${id}/asks/${ask.id}`, { answer: side?.(ask) ?? '곁 답이야.' })
+        if (sideMs) void sleep(sideMs).then(() => (on ? reply() : undefined))
+        else await reply()
       }
       if (!p.message || p.message.id === held?.id) continue
       got.push(p.message)

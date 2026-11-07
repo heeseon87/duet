@@ -54,7 +54,7 @@ export function FollowUp({ chat, withMain, autoFocus }: { chat: SideChatView; wi
   }
   return (
     <div className="side-follow">
-      {state === 'gone' && <div className="side-gone">{lastTurn(chat).terminalLabel} 세션이 닫혔거나 /clear로 바뀌었어</div>}
+      {state === 'gone' && <div className="side-gone">{lastTurn(chat).terminalLabel} 세션이 닫혔거나 /clear로 바뀌었어. {railLive ? `이어 물으면 ${railLive.label}로 옮겨 물어.` : '레일에서 살아 있는 터미널을 골라 줘.'}</div>}
       <div className="side-follow-row">
         <textarea className="input grow" rows={1} autoFocus={autoFocus} value={text} disabled={state === 'asking'}
           placeholder={state === 'asking' ? '곁에서 답하는 중' : state === 'gone' ? '이어서 물을 말' : '이어서 묻기'}
