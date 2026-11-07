@@ -37,8 +37,9 @@ body::after { content: ''; position: fixed; inset: 0; z-index: 1000; pointer-eve
 :is(.btn.primary, .btn.agent, .badge, .toast, .rail-btn[aria-selected='true'], .seg button[aria-pressed='true'], .zoom-bar button[aria-pressed='true'], .chip.accent, .chip.agent, .chip.add, .chip.del, .chip.warn, .brand-mark i) { background-image: var(--wax); }
 
 /* Line icons shaking a little, as if drawn by hand. Only leaves get the filter: on a box holding a fixed
-   popover it would move the popover with it. Box outlines on the map shake the same way; lines do not, since a filter on
-   a straight line has an empty area and the line would vanish. */
+   popover it would move the popover with it. Box outlines on the map shake the same way. Lines take no filter: a
+   straight line's filter area is empty and the line vanishes, and on a thin line it breaks the stroke into dashes.
+   annotate draws relation lines and messages wavy instead (handLine.ts). */
 svg.lucide { filter: url(#crayon-wobble); }
 .stage-inner .cv-node .label-container path:last-child,
 .stage-inner .cv-actor rect { filter: url(#crayon-wobble); }

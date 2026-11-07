@@ -7,6 +7,7 @@ import type { CodeMark } from '../../../shared/mapFiles.ts'
 import type { CanvasThread } from '../../../shared/protocol.ts'
 import { DURATION, measure, morph, reducedMotion, type Morph } from './morph.ts'
 import { partIds } from './codeNav.ts'
+import { handDrawn } from './handLine.ts'
 
 type Mermaid = typeof import('mermaid').default
 let mermaidP: Promise<Mermaid> | undefined
@@ -616,6 +617,7 @@ function annotate(svg: SVGSVGElement, id: string, map: CanvasMap, p: ReturnType<
       hit.setAttribute('class', 'cv-edge-hit')
       hit.setAttribute('data-target', key)
       path.parentNode?.insertBefore(hit, path.nextSibling)
+      path.setAttribute('d', handDrawn(path.getAttribute('d') ?? '', keys))
     }
     for (const label of svg.querySelectorAll<SVGGElement>('.edgeLabel g.label[data-id]')) {
       const m = /_(\d+)$/.exec(label.getAttribute('data-id') ?? '')
@@ -650,6 +652,16 @@ function annotate(svg: SVGSVGElement, id: string, map: CanvasMap, p: ReturnType<
       hit.setAttribute('class', 'cv-edge-hit')
       hit.removeAttribute('marker-end')
       l.parentNode?.insertBefore(hit, l.nextSibling)
+      // A line has no path to bend: it becomes a path with the same look between the same two ends.
+      if (l instanceof SVGLineElement) {
+        const ends = ['x1', 'y1', 'x2', 'y2']
+        const [x1, y1, x2, y2] = ends.map(a => l.getAttribute(a))
+        const wavy = document.createElementNS('http://www.w3.org/2000/svg', 'path')
+        for (const a of l.attributes) if (!ends.includes(a.name)) wavy.setAttribute(a.name, a.value)
+        wavy.setAttribute('d', handDrawn(`M${x1},${y1}L${x2},${y2}`, mid))
+        wavy.setAttribute('fill', 'none')
+        l.replaceWith(wavy)
+      } else if (l instanceof SVGPathElement) l.setAttribute('d', handDrawn(l.getAttribute('d') ?? '', mid))
     })
     const notes = [...svg.querySelectorAll('[data-et="note"]')]
     notes.forEach((n, i) => {
