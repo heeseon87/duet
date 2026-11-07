@@ -1,10 +1,11 @@
-import { resolve } from 'node:path'
+import { existsSync } from 'node:fs'
+import { isAbsolute, relative, resolve } from 'node:path'
 import { z } from 'zod'
-import { DECISION_WHY_TAGS, RELATION_RULES, toMermaid, type CanvasPatch } from '../../shared/canvas.ts'
+import { DECISION_WHY_TAGS, fileOfRef, RELATION_RULES, toMermaid, type CanvasPatch } from '../../shared/canvas.ts'
 import { refBase } from '../../shared/mapFiles.ts'
 import { describeSource } from '../../shared/protocol.ts'
 import type { CanvasStore } from '../canvas/store.ts'
-import { codeHere, codeSourceOf, missingRefs } from '../git/repo.ts'
+import { codeHere, codeSourceOf, listFilesSync, missingRefs } from '../git/repo.ts'
 
 const change = z.enum(['keep', 'result', 'modify', 'delete', 'add'])
 const member = z.object({ text: z.string(), change: z.enum(['add', 'modify', 'delete']).optional() })
@@ -60,7 +61,8 @@ export const INSTRUCTIONS = `Duet canvas: design maps the person reviews with yo
 - A class map shows groups (packages), classes and labelled relations. Use it to discuss structure: who depends on whom, and what passes along each line.
 - Label every relation with what it carries ("upload(location, files)"), and number the steps of a flow with "step".
 - Pick each relation's kind from the code that ties the two and give that code in via ("field userRepository"): a field, an injected one included, is an association, not a dependency.
-- Mark how each element touches the code with "change": add (new), modify, delete, result (data that comes out), keep.
+- Mark how each element touches the code with "change": add (new), modify, delete, result (data that comes out); leave it out for a part the work keeps as it is.
+- Leave out what goes without saying: an element's kind class, a relation's kind association, a label the same as the id.
 - When a design fork needs the person's choice, add a decision (D1 with options D1-a, D1-b) and tag the elements and relations of each option with decision/option. Never choose for them; they choose in the browser.
 - Give every decision a why: what keeps you from settling it from the code and the request, with its tags (convention, scope, irreversible, context, tie). If no tag fits, it is not the person's decision: pick yourself and say in chat what you picked and why.
 - When one option fits better on what you found, name it in recommended (and say why in its impact); leave it out on a tie. The person sees it as your pick and still decides.
@@ -77,12 +79,18 @@ export const CANVAS_TOOLS = {
   canvas_list: { description: 'List the design maps of this workspace.', shape: {} },
   canvas_read: { description: 'Read a map: its JSON, the Mermaid it draws, and open comment threads.', shape: { name: z.string() } },
   canvas_create: {
-    description: 'Create a new design map (empty). Then fill it with canvas_update.',
+    description: 'Create a new design map and draw its first version in the same call: elements, relations (messages for a sequence map) and decisions take the same shape as in canvas_update. Leave them out to start empty. Change the map later with canvas_update.',
     shape: {
       name: z.string().describe('lowercase file name, e.g. thumbnail-worker'),
       diagram: z.enum(['class', 'sequence']),
       title: z.string(),
       context: z.string().optional().describe('one or two sentences: what this map is for'),
+      note: z.string().optional().describe('one short line for the revision timeline when you draw here'),
+      direction: z.enum(['TB', 'LR', 'BT', 'RL']).optional(),
+      elements: z.array(element).optional(),
+      relations: z.array(relation).optional(),
+      messages: z.array(message).optional(),
+      decisions: z.array(decision).optional(),
       code: z.string().optional().describe('only for a map made to review code that exists: what it reviews, "pr" (the PR of the checked-out branch), "pr:123", "branch:main...feature" or "commits:abc..def". Leave it out for a design map: it is bound to this tree from its current commit, so the code built from it shows in the review'),
       repo: z.string().optional().describe('a folder of the git repository the code is in, absolute or relative to this folder; for code built in a worktree, that worktree (a design map follows its uncommitted changes). Leave it out when that is this folder\'s tree. In another repository outside the workspace, the map\'s files are relative to its root'),
     },
@@ -119,13 +127,44 @@ export type CanvasToolName = keyof typeof CANVAS_TOOLS
 /** Where a bound map's relative part files start: the workspace, or the root of another repository outside it. */
 const filesFrom = (workspace: string, root: string) => ` Its parts' files are relative to ${refBase(workspace, root)}.`
 
+/**
+ * Part files made relative to where the map's files start (`base`). The agent may write a path from its own folder or
+ * from the code's repository, an absolute one inside the base, or the end of a path (a file name alone) that only one
+ * file of those trees has. A path found nowhere stays as written: a planned file need not exist yet. An end that
+ * several files share stays too, with a note naming them.
+ */
+export function rebaseFiles(patch: CanvasPatch, base: string, roots: string[], list: (root: string) => string[] = listFilesSync): { patch: CanvasPatch; notes: string[] } {
+  const notes: string[] = []
+  if (!patch.elements?.some(e => e.files?.length)) return { patch, notes }
+  const trees = [...new Set([...roots, base])]
+  const listed = new Map<string, string[]>()
+  const filesOf = (root: string) => { let l = listed.get(root); if (!l) listed.set(root, l = list(root)); return l }
+  const fix = (ref: string) => {
+    const file = fileOfRef(ref), span = ref.slice(file.length)
+    const inBase = (abs: string) => { const rel = relative(base, abs); return rel && !rel.startsWith('..') && !isAbsolute(rel) ? rel + span : undefined }
+    const at = (abs: string) => inBase(abs) ?? abs + span
+    if (isAbsolute(file)) return inBase(file) ?? ref
+    if (existsSync(resolve(base, file))) return ref
+    for (const root of roots) if (root !== base && existsSync(resolve(root, file))) return at(resolve(root, file))
+    const end = file.replace(/^\.\//, '')
+    for (const root of trees) {
+      const hits = filesOf(root).filter(p => p === end || p.endsWith(`/${end}`))
+      if (hits.length === 1) return at(resolve(root, hits[0]))
+      if (hits.length > 1) {
+        notes.push(`files "${end}": ${hits.length} files end so in ${root} (${hits.slice(0, 3).join(', ')}${hits.length > 3 ? ', …' : ''}); give more of the path`)
+        return ref
+      }
+    }
+    return ref
+  }
+  return { patch: { ...patch, elements: patch.elements.map(e => (e.files?.length ? { ...e, files: e.files.map(fix) } : e)) }, notes }
+}
+
 /** A terminal signs its revisions and replies; its `cwd` is where a new map's code is. */
 export type Caller = { terminal?: { id: string; label: string; cwd?: string } }
 
 /** One canvas tool call on arguments its shape already checked; the text is what the agent reads. */
 export function runCanvasTool(store: CanvasStore, workspace: string, name: CanvasToolName, args: Record<string, unknown>, caller: Caller = {}): { text: string; isError?: boolean } {
-  // A terminal reads the guide with the map it reads or makes.
-  const guide = caller.terminal ? [INSTRUCTIONS, ''] : []
   const signed = (note: string) => (caller.terminal ? `터미널 · ${caller.terminal.label} · ${note}` : note)
   try {
     switch (name) {
@@ -139,7 +178,6 @@ export function runCanvasTool(store: CanvasStore, workspace: string, name: Canva
         const cur = store.get(workspace, map)
         const threads = store.threads(workspace, map).filter(t => t.state === 'open')
         const parts = [
-          ...guide,
           `rev ${cur.revision}`,
           ...(cur.code ? [`Its code (what the person reviews beside it): ${describeSource(cur.code.source)} in ${cur.code.root}.${filesFrom(workspace, cur.code.root)}`] : []),
           '```json', JSON.stringify(cur.map, null, 1), '```',
@@ -152,7 +190,7 @@ export function runCanvasTool(store: CanvasStore, workspace: string, name: Canva
         return { text: parts.join('\n') }
       }
       case 'canvas_create': {
-        const { name: map, diagram, title, context, code: asked, repo } = args as { name: string; diagram: 'class' | 'sequence'; title: string; context?: string; code?: string; repo?: string }
+        const { name: map, diagram, title, context, code: asked, repo, note, ...drawing } = args as { name: string; diagram: 'class' | 'sequence'; title: string; context?: string; code?: string; repo?: string; note?: string } & CanvasPatch
         const from = caller.terminal?.cwd || workspace
         const here = codeHere(repo ? resolve(from, repo) : from, workspace)
         const source = asked ? codeSourceOf(asked) : undefined
@@ -162,15 +200,23 @@ export function runCanvasTool(store: CanvasStore, workspace: string, name: Canva
         const missing = here && source ? missingRefs(here.root, source) : []
         if (missing.length) return { isError: true, text: `Nothing was made: ${missing.join(', ')} is not a commit in ${here!.root}. Pass repo: a folder of the repository the code is in.` }
         const code = here && source ? { ...here, source } : here
-        const cur = store.create(workspace, map, diagram, title, context, 'agent', signed('새 지도'), code)
+        const roots = [from, ...(code ? [code.root] : [])]
+        const files = rebaseFiles(drawing, refBase(workspace, code?.root), roots)
+        const made = store.createDrawn(workspace, map, diagram, title, context, 'agent', signed(note || '새 지도'), code, files.patch)
+        const notes = [...files.notes, ...made.notes]
+        if (!made.ok) return { isError: true, text: ['Nothing was made. Fix these and call again:', ...made.errors.map(e => `- ${e}`), ...notes.map(n => `note: ${n}`)].join('\n') }
         const bound = code ? ` Its review shows ${describeSource(code.source)} in ${code.root}.${filesFrom(workspace, code.root)}` : ''
-        return { text: [...guide, `Created ${map} (rev ${cur.revision}). The person sees it on the Canvas tab.${bound}`].join('\n') }
+        return { text: [`Created ${map} (rev ${made.cur.revision}). The person sees it on the Canvas tab.${bound}`, ...made.changes.map(c => `  ${c}`), ...notes.map(n => `note: ${n}`)].join('\n') }
       }
       case 'canvas_update': {
         const { name: map, note, baseRevision, ...rest } = args as { name: string; note: string; baseRevision?: number }
-        const res = store.update(workspace, map, rest as CanvasPatch, 'agent', signed(note), baseRevision)
-        if (!res.ok) return { isError: true, text: ['Nothing was written. Fix these and call again:', ...res.errors.map(e => `- ${e}`), ...res.notes.map(n => `note: ${n}`)].join('\n') }
-        return { text: [`rev ${res.revision}`, ...res.changes.map(c => `  ${c}`), ...res.notes.map(n => `note: ${n}`)].join('\n') }
+        const root = store.get(workspace, map).code?.root
+        const roots = [...(caller.terminal?.cwd ? [caller.terminal.cwd] : []), ...(root ? [root] : [])]
+        const files = rebaseFiles(rest as CanvasPatch, refBase(workspace, root), roots)
+        const res = store.update(workspace, map, files.patch, 'agent', signed(note), baseRevision)
+        const notes = [...files.notes, ...res.notes]
+        if (!res.ok) return { isError: true, text: ['Nothing was written. Fix these and call again:', ...res.errors.map(e => `- ${e}`), ...notes.map(n => `note: ${n}`)].join('\n') }
+        return { text: [`rev ${res.revision}`, ...res.changes.map(c => `  ${c}`), ...notes.map(n => `note: ${n}`)].join('\n') }
       }
       case 'canvas_reply': {
         const { name: map, threadId, text } = args as { name: string; threadId: string; text: string }

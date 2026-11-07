@@ -75,12 +75,24 @@ export class CanvasStore {
   }
 
   create(workspace: string, name: string, diagram: 'class' | 'sequence', title: string, context: string | undefined, by: 'agent' | 'person', note = '새 지도', code?: MapCode): Current {
+    const made = this.createDrawn(workspace, name, diagram, title, context, by, note, code)
+    if (!made.ok) throw new HttpError(400, made.errors.join('\n'))
+    return made.cur
+  }
+
+  /** Makes a map whose first revision is already drawn from a patch; nothing is written when the drawing does not validate. */
+  createDrawn(workspace: string, name: string, diagram: 'class' | 'sequence', title: string, context: string | undefined, by: 'agent' | 'person',
+    note = '새 지도', code?: MapCode, patch: CanvasPatch = {}):
+    { ok: true; cur: Current; changes: string[]; notes: string[] } | { ok: false; errors: string[]; notes: string[] } {
     if (this.exists(workspace, name)) throw new HttpError(409, `${name} 지도가 이미 있어`)
-    const map = emptyMap(diagram, title)
-    if (context) map.context = context
-    const cur = this.write(workspace, name, map, 1, by, note, code)
+    const empty = emptyMap(diagram, title)
+    if (context) empty.context = context
+    const res = applyPatch(empty, patch, by)
+    if (res.errors.length) return { ok: false, errors: res.errors, notes: res.notes }
+    const changes = describeDiff(diffMaps(empty, res.map), res.map)
+    const cur = this.write(workspace, name, res.map, 1, by, note, code)
     this.onList(workspace)
-    return cur
+    return { ok: true, cur, changes, notes: res.notes }
   }
 
   /** Binds the map to other code (or to none); the map and its revisions stay as they are. */

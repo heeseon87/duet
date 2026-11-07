@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 import { argsOf, duetHomeOf, followsSpawn, heardPin, heldEnds, heldPrune, heldQuiet, heldSpawned, heldStarts, labelOf, LINE_MAX, lineOf, linkOf, matchMap, newMapOf, noRepo, pinNote, QUIET_MS, reportFrom, runDuet, saidOf, shownMap, statusText, unreachable, waitingOf, type Held, type MapSummary } from '../mod/hooks/duet.ts'
-import { modTools } from '../scripts/mod-tools.ts'
+import { modTools, modToolSpecs } from '../scripts/mod-tools.ts'
 
 const sent: Held = { id: 'msg1', text: '트랜잭션 경계를 여기로 옮기면 어때?', isWorking: false }
 const handBack = (agent: string) => `<agent-message from="${agent}">\n[Subagent hand-back] Owner: platform team</agent-message>`
@@ -215,6 +215,15 @@ describe('the terminal mod', () => {
 
   it('has the tools of Duet\'s own conversations, up to date', () => {
     expect(readFileSync(new URL('../mod/hooks/tools.ts', import.meta.url), 'utf8')).toBe(modTools())
+  })
+
+  it('carries the drawing guide on the create tool, which sits in every prompt', async () => {
+    const { INSTRUCTIONS } = await import('../server/agent/canvasTools.ts')
+    const TOOLS = modToolSpecs()
+    const create = TOOLS.find(t => t.spec.name === 'duet_map_create')!.spec
+    expect(create.isDeferred).toBe(false)
+    expect(create.description.endsWith(INSTRUCTIONS)).toBe(true)
+    expect(TOOLS.filter(t => t.spec.description.includes(INSTRUCTIONS))).toHaveLength(1)
   })
 })
 

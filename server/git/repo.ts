@@ -103,6 +103,14 @@ export async function listFiles(root: string): Promise<string[]> {
   return out.split('\n').filter(Boolean)
 }
 
+/** listFiles, synchronously: for a canvas tool call, which runs to its end in one go. Empty outside a git tree. */
+export function listFilesSync(root: string): string[] {
+  try {
+    return execFileSync('git', ['ls-files', '-co', '--exclude-standard'], { cwd: root, encoding: 'utf8', maxBuffer: 128 * 1024 * 1024, stdio: ['ignore', 'pipe', 'ignore'], env: { ...process.env, GIT_OPTIONAL_LOCKS: '0' } })
+      .split('\n').filter(Boolean)
+  } catch { return [] }
+}
+
 export type LogEntry = { sha: string; short: string; subject: string; author: string; date: number; refs: string }
 
 export async function log(root: string, ref = 'HEAD', limit = 60): Promise<LogEntry[]> {
