@@ -2,14 +2,29 @@ import { useEffect, useRef, useState } from 'react'
 
 /** How long a scroller counts as scrolling after its last scroll: its thin bars and a rail's thumb stay that long. */
 const QUIET_MS = 900
+/** How long after the last scroll or wheel the page counts as moving: the map's lit lines hold still that long. */
+const STILL_MS = 250
 
 /**
  * Marks a `.quiet-scroll` element `.scrolling` while it scrolls and a little after, so its thin native bars show only
  * then (base.css). One listener for the page, so a scroller needs only the class.
+ *
+ * Any scroll or wheel (a map zoom too) also marks the page `.page-scrolling`, and the map's lit lines stop flowing
+ * meanwhile (canvas.css): each step of the flow repaints the map under the lines, wobbly boxes included, and on a busy
+ * GPU that cost the decision pane's scroll half its frames.
  */
 export function watchScrolling() {
   const timers = new WeakMap<Element, ReturnType<typeof setTimeout>>()
+  const root = document.documentElement
+  let still: ReturnType<typeof setTimeout>
+  const moving = () => {
+    root.classList.add('page-scrolling')
+    clearTimeout(still)
+    still = setTimeout(() => root.classList.remove('page-scrolling'), STILL_MS)
+  }
+  document.addEventListener('wheel', moving, { capture: true, passive: true })
   document.addEventListener('scroll', e => {
+    moving()
     const el = e.target
     if (!(el instanceof Element) || !el.classList.contains('quiet-scroll')) return
     el.classList.add('scrolling')

@@ -298,6 +298,8 @@ svg[id^='cv'] g.node > .label-group p { font-family: var(--font-ui); font-size: 
 }
 .stage-inner .cv-edge.cv-sel { stroke-width: calc(2.2px / var(--k, 1)) !important; }
 @keyframes cv-flow { from { stroke-dashoffset: 0; } to { stroke-dashoffset: var(--flow, -20px); } }
+/* The flow holds still while the page scrolls or a wheel turns (ScrollRail.tsx's watchScrolling). */
+.page-scrolling .stage-inner :is(.cv-edge, .cv-msg):is(.cv-sel, .cv-rel) { animation-play-state: paused; }
 @media (prefers-reduced-motion: reduce) { .stage-inner .cv-edge.cv-sel, .stage-inner .cv-edge.cv-rel, .stage-inner .cv-msg.cv-sel, .stage-inner .cv-msg.cv-rel { animation: none; } }
 /* Arrowheads, triangles and diamonds take their line's color, so a lit line's head is lit too. Mermaid colors the marker
    element itself; its shapes only inherit that, so a rule on them wins. Hollow heads keep their transparent fill. */
