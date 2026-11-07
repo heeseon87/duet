@@ -17,7 +17,7 @@ const WIDTH_MIN = 300
 const MAIN_MIN = 480
 const fitWidth = (w: number) => Math.round(Math.max(WIDTH_MIN, Math.min(w, window.innerWidth - MAIN_MIN)))
 
-/** The drawer's width, dragged by its left edge and remembered; a double-click puts it back. */
+/** The drawer's width, dragged by its right edge and remembered; a double-click puts it back. */
 function useDrawerWidth() {
   const [wanted, setWanted] = useState(() => Number(local.get('side.width')) || WIDTH)
   const [dragging, setDragging] = useState(false)
@@ -29,7 +29,7 @@ function useDrawerWidth() {
     const x0 = e.clientX
     let last = width
     setDragging(true)
-    const move = (m: PointerEvent) => { last = fitWidth(width + x0 - m.clientX); setWanted(last) }
+    const move = (m: PointerEvent) => { last = fitWidth(width + m.clientX - x0); setWanted(last) }
     const up = () => {
       handle.removeEventListener('pointermove', move)
       handle.removeEventListener('pointerup', up)

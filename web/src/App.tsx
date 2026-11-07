@@ -261,12 +261,12 @@ export function App() {
   return (
     <div className="app">
       <Rail onHelp={() => setHelp(true)} />
+      {sideOpen && <SidePanel />}
       <div className="main">
         <section className="stage">
           {tab === 'canvas' ? <CanvasView /> : <ReviewView />}
         </section>
       </div>
-      {sideOpen && <SidePanel />}
       {paletteOpen && <Palette onClose={() => setPalette(false)} />}
       {help && <Shortcuts onClose={() => setHelp(false)} />}
       <Toasts />

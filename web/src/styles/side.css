@@ -22,8 +22,8 @@
 .side-gone { font-size: 11.5px; line-height: 1.45; color: var(--warn); background: var(--warn-bg); border-radius: var(--hand); padding: 4px 10px; }
 .side-move { white-space: nowrap; }
 
-/* The drawer (⌘J): the third column of the app, beside the map, the review or decision mode. */
-.side-panel { flex: 0 0 380px; width: 380px; min-width: 0; max-width: calc(100vw - 480px);display: flex; flex-direction: column; border-left: 1px solid var(--line); background: var(--panel); position: relative; z-index: 15; box-shadow: -2px 0 0 var(--line); }
+/* The drawer (⌘J): a column between the rail and the main area, beside the map, the review or decision mode. */
+.side-panel { flex: 0 0 380px; width: 380px; min-width: 0; max-width: calc(100vw - 480px);display: flex; flex-direction: column; border-right: 1px solid var(--line); background: var(--panel); position: relative; z-index: 15; box-shadow: 2px 0 0 var(--line); }
 .side-panel-head { display: flex; align-items: center; gap: 4px; height: 44px; padding: 0 6px 0 12px; border-bottom: 1px solid var(--line); flex: none; }
 .side-panel-head .term-dot.gone { background: transparent; border: 1px solid var(--ink-4); }
 .side-panel-term { font-size: 12px; color: var(--ink-2); margin-left: 4px; min-width: 40px; }
@@ -56,5 +56,5 @@
 .side-row:hover .side-row-del, .side-row:focus-within .side-row-del { opacity: 1; }
 
 .rail-btn.rail-side[aria-pressed='true'] { background: var(--accent-soft); color: var(--accent-ink); }
-.side-split { position: absolute; left: -4px; top: 0; bottom: 0; width: 8px; cursor: col-resize; z-index: 5; transition: background .15s; }
+.side-split { position: absolute; right: -4px; top: 0; bottom: 0; width: 8px; cursor: col-resize; z-index: 5; transition: background .15s; }
 .side-split:hover, .side-split.dragging { background: color-mix(in srgb, var(--accent) 30%, transparent); }
