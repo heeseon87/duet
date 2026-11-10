@@ -1,5 +1,5 @@
-// Package titles: an open package is titled with its name (label), not its id, from the left, with its fold button at
-// the end of the title's row; a name wider than the frame is cut with an ellipsis inside the frame and shown whole by the pointer (only then), even where a line coming into the package
+// Package titles: an open package is titled with its name (label), not its id, from the left, with its fold button
+// (shown while the pointer is in the package) at the end of the title's row; a name wider than the frame is cut with an ellipsis inside the frame and shown whole by the pointer (only then), even where a line coming into the package
 // crosses the title; a package with no name keeps its id; a folded package shows its name too.
 //   DUET_PORT=7981 DUET_TOKEN=... DUET_WS=<workspace> DUET_SHOTS=/dir node e2e/package-title.mjs   (makes and removes a map named package-title)
 import { open, sleep } from './browser.mjs'
@@ -35,6 +35,11 @@ const shot = async n => { if (shots) await page.screenshot({ path: `${shots}/pac
 await page.evaluate(([w, m]) => { localStorage.setItem('duet.tab', 'canvas'); localStorage.setItem(`duet.canvas.current:${w}`, m); localStorage.removeItem(`duet.canvas.collapsed:${w}:${m}`) }, [ws, NAME])
 await page.reload({ waitUntil: 'domcontentloaded' })
 await page.waitForSelector('.stage-inner > svg .cv-cluster', { state: 'attached', timeout: 15000 }); await sleep(1200)
+/** Puts the pointer in the package, off its title: an open package shows its fold button only then. */
+const into = async id => {
+  const at = await page.$eval(`.stage-inner > svg .cv-cluster[data-target="${id}"] > rect`, e => { const r = e.getBoundingClientRect(); return { x: r.left + 6, y: r.bottom - 6 } })
+  await page.mouse.move(at.x, at.y, { steps: 2 }); await sleep(250)
+}
 const title = id => page.evaluate(id => {
   const g = document.querySelector(`.stage-inner > svg .cv-cluster[data-target="${id}"]`), p = g?.querySelector('.cluster-label p'), frame = g?.querySelector(':scope > rect')
   if (!p || !frame) return null
@@ -43,10 +48,14 @@ const title = id => page.evaluate(id => {
   // Cut as drawn: the text's own box wider than its line (scrollWidth and clientWidth round, and miss a fraction).
   const range = document.createRange(); range.selectNodeContents(p)
   return { text: p.textContent, cut: range.getBoundingClientRect().width > pr.width + 0.5, ellipsis: getComputedStyle(p).textOverflow, inside: pr.left >= fr.left - 1 && pr.right <= fr.right + 1,
-    clear: !fold || pr.right <= fold.left, atLeft: Math.abs(pr.left - fr.left - 12 * k) < 2,
-    inRow: !fold || Math.abs((fold.top + fold.bottom) / 2 - (pr.top + pr.bottom) / 2) < 3 }
+    fold: Boolean(fold), clear: Boolean(fold) && pr.right <= fold.left, atLeft: Math.abs(pr.left - fr.left - 12 * k) < 2,
+    inRow: Boolean(fold) && Math.abs((fold.top + fold.bottom) / 2 - (pr.top + pr.bottom) / 2) < 3 }
 }, id)
-const api = await title('g_api'), long = await title('g_long'), plain = await title('plain')
+await page.mouse.move(1, 1); await sleep(250)
+check('with the pointer away, an open package shows no fold button', (await title('g_api'))?.fold === false && (await title('g_long'))?.fold === false)
+await into('g_api'); const api = await title('g_api')
+await into('g_long'); const long = await title('g_long')
+const plain = await title('plain')
 check('an open package shows its name, not its id, from the left, its fold button at the end of that row', api?.text === 'user.group.controller' && !api.cut && api.inside && api.atLeft && api.inRow && api.clear, JSON.stringify(api))
 check('a name wider than its frame is cut with an ellipsis, inside the frame and clear of the fold button', long?.text === LONG && long.cut && long.ellipsis === 'ellipsis' && long.inside && long.clear, JSON.stringify(long))
 check('a package with no name keeps its id', plain?.text === 'plain', JSON.stringify(plain))

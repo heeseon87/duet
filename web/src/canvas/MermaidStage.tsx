@@ -457,7 +457,10 @@ export const MermaidStage = forwardRef<StageHandle, Props & { viewKey: string }>
   const overKey = useRef('')
   const foldsRef = useRef<Fold[]>([])
   foldsRef.current = folds
+  /** Where the pointer last was over the stage, to place it again once the drawing has moved under it (a fit, a fold). */
+  const pointer = useRef<{ x: number; y: number } | undefined>(undefined)
   const pointAt = useCallback((cx?: number, cy?: number) => {
+    pointer.current = cx === undefined || cy === undefined ? undefined : { x: cx, y: cy }
     const box = outer.current?.getBoundingClientRect(), v = viewRef.current
     const x = box && cx !== undefined ? (cx - box.left - v.x) / v.k : NaN, y = box && cy !== undefined ? (cy - box.top - v.y) / v.k : NaN
     const ids = foldsRef.current.filter(f => !f.folded && x >= f.x && x <= f.x + f.w && y >= f.y && y <= f.y + f.h).map(f => f.target)
@@ -466,6 +469,7 @@ export const MermaidStage = forwardRef<StageHandle, Props & { viewKey: string }>
     overKey.current = key
     setOver(new Set(ids))
   }, [])
+  useEffect(() => { if (pointer.current) pointAt(pointer.current.x, pointer.current.y) }, [view, folds, pointAt])
   const setMoving = useCallback((on: boolean) => {
     const el = outer.current
     if (!el) return
@@ -554,6 +558,7 @@ export const MermaidStage = forwardRef<StageHandle, Props & { viewKey: string }>
     const dx = e.clientX - d.x, dy = e.clientY - d.y
     if (!d.moved && Math.hypot(dx, dy) < 4) return
     if (!d.moved) { d.moved = true; outer.current?.setPointerCapture(e.pointerId); setMoving(true) }
+    pointer.current = { x: e.clientX, y: e.clientY }
     setView(v => ({ ...v, x: d.vx + dx, y: d.vy + dy }))
   }
   const onPointerUp = (e: React.PointerEvent) => {

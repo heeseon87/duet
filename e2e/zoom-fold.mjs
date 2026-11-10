@@ -1,7 +1,8 @@
 // Zooming to a part and folding a package without the menu: double-clicking a box or a package frames it (a package no
-// longer folds that way; a line or the empty canvas still fits the map), and every package that can fold shows its fold
-// button at the right end of its title row (a folded one: on its top edge), with no pointer near it; the buttons wait while a fold slides and
-// go with their corners through a wheel, a drag and a glide, shrinking as the map zooms out.
+// longer folds that way; a line or the empty canvas still fits the map). An open package shows its fold button at the
+// right end of its title row only while the pointer is in it (the packages holding it show theirs too); a folded one
+// keeps its button on its top edge. The buttons wait while a fold slides, go with their corners through a glide, step
+// out while the map is dragged or the wheel turns, and shrink as the map zooms out.
 //   DUET_PORT=7981 DUET_TOKEN=... DUET_WS=<workspace> DUET_SHOTS=/dir node e2e/zoom-fold.mjs   (makes and removes a map named zoom-fold)
 import { open, sleep } from './browser.mjs'
 const port = Number(process.env.DUET_PORT ?? 7979)
@@ -77,16 +78,32 @@ const pointOn = (k, inside = [], outside = []) => page.evaluate(([k, inside, out
 }, [k, inside, outside])
 const line = 'api2->store1:association'
 
-// 1. Every package that can fold shows its button at its right corner, on the title row, with the pointer nowhere near.
-await page.mouse.move(1, 1)
+/** Puts the pointer in the package's own padding (bottom left), so in no package nested in it. */
+const into = async id => { const r = await rect(`${cluster(id)} > rect`); await page.mouse.move(r.left + 6, r.bottom - 6, { steps: 2 }); await sleep(250) }
+const away = async () => { await page.mouse.move(1, 1); await sleep(250) }
+const hidden = () => page.evaluate(() => ({ moving: document.querySelector('.stage-canvas').hasAttribute('data-moving'), folds: getComputedStyle(document.querySelector('.stage-folds')).visibility }))
+
+// 1. An open package shows its fold button only while the pointer is in it, along with the packages holding it:
+//    at its right corner, on the title row.
+await away()
 await page.keyboard.press('f'); await sleep(600)
-check('every foldable package has a button, unhovered', JSON.stringify(await groups()) === '["api","auth","store"]', JSON.stringify(await groups()))
+check('with the pointer away, no open package shows a button', JSON.stringify(await groups()) === '[]', JSON.stringify(await groups()))
+await into('store')
+check('the pointer in a package shows its button', JSON.stringify(await groups()) === '["store"]', JSON.stringify(await groups()))
+check('at its right corner, on the title row', allOn(await corners()), JSON.stringify(await corners()))
+await into('auth')
+check('in a nested package: its button and its parent\'s', JSON.stringify(await groups()) === '["api","auth"]', JSON.stringify(await groups()))
 check('each at its right corner, on the title row', allOn(await corners()), JSON.stringify(await corners()))
 const inner = await rect('.stage-fold[data-group="auth"]'), outer_ = await rect(cluster('api'))
 check('a nested package\'s button stays inside its parent', inner.left > outer_.left && inner.right < outer_.right && inner.top > outer_.top, JSON.stringify({ inner, outer_ }))
 await shot('package')
+await into('api')
+check('in the parent only, the nested package\'s button goes', JSON.stringify(await groups()) === '["api"]', JSON.stringify(await groups()))
+await away()
+check('leaving takes the button away', JSON.stringify(await groups()) === '[]', JSON.stringify(await groups()))
 
-// 2. A click folds and unfolds; the buttons wait while the fold slides, then stand on the new frames.
+// 2. A click folds and unfolds; the buttons wait while the fold slides. A folded package keeps its button, pointer or not.
+await into('store')
 await page.click('.stage-fold[data-group="store"]')
 const waited = await page.waitForFunction(() => document.querySelector('.morph-overlay') && !document.querySelector('.stage-fold'), undefined, { timeout: 3000 }).then(() => true, () => false)
 check('while the fold slides, the buttons wait', waited)
@@ -94,34 +111,48 @@ await sleep(1000)
 check('Collapse folds the package', Boolean(await page.$(node('store'))) && !(await page.$(cluster('store'))))
 check('clicking the button did not pick anything under it', !(await page.$('.stage-inner > svg .cv-sel')))
 const title = id => page.$eval(`.stage-fold[data-group="${id}"]`, b => b.title).catch(() => null)
+await away()
+check('a folded package keeps its button with the pointer away', JSON.stringify(await groups()) === '["store"]', JSON.stringify(await groups()))
 check('the folded package offers Expand', await title('store') === 'Expand', String(await title('store')))
-check('after the fold, every button is on its new corner', allOn(await corners()), JSON.stringify(await corners()))
-await page.click('.stage-fold[data-group="store"]'); await sleep(1200)
-check('Expand unfolds it', Boolean(await page.$(cluster('store'))) && await title('store') === 'Collapse')
+check('after the fold, the button is on its new corner', allOn(await corners()), JSON.stringify(await corners()))
 
-// 3. The buttons go with their corners: a wheel, a drag, and a glide all the way through.
-const s0 = await stage()
-await page.mouse.move(s0.left + 40, s0.bottom - 60)
-await page.mouse.wheel(0, -240); await sleep(300)
-check('after a wheel zoom, still on their corners', allOn(await corners()), JSON.stringify(await corners()))
-// Zoomed out, the buttons shrink with the drawing (22px at 100%), and once smaller than 8px they are gone.
+// 3. The buttons go with their corners through a glide, and step out while the map is dragged or the wheel turns.
+await page.keyboard.press('f'); await sleep(140)
+check('mid-glide, the folded package\'s button moves with the drawing', allOn(await corners(3)), JSON.stringify(await corners(3)))
+await sleep(600)
+await page.click('.stage-fold[data-group="store"]'); await sleep(1200)
+await into('store')
+check('Expand unfolds it', Boolean(await page.$(cluster('store'))) && await title('store') === 'Collapse')
+await page.mouse.wheel(0, -240)
+const turning = await hidden()
+check('while the wheel turns, the buttons are hidden', turning.moving && turning.folds === 'hidden', JSON.stringify(turning))
+await sleep(400)
+const rested = await hidden()
+check('once it rests they are back, on their corners', !rested.moving && rested.folds === 'visible' && JSON.stringify(await groups()) === '["store"]' && allOn(await corners()), JSON.stringify({ rested, groups: await groups(), corners: await corners() }))
+// Zoomed out, the button shrinks with the drawing (22px at 100%), and once smaller than 8px it is gone. The wheel
+// zooms at the pointer, so the pointer stays in the package throughout.
 const sides = () => page.$$eval('.stage-fold', bs => [...new Set(bs.map(b => Math.round(b.getBoundingClientRect().height)))])
 const steps = []
-for (let i = 0; i < 6; i++) {
-  await page.mouse.wheel(0, 240); await sleep(300)
-  const k = parseInt(await zoom()) / 100, want = Math.round(22 * Math.min(1, k)), got = await sides()
+// The drawing's own scale: the readout rounds to a percent, which is too coarse where the button is about to go.
+const scale = () => page.$eval('.stage-inner', e => Number(/scale\(([\d.]+)\)/.exec(e.style.transform)?.[1] ?? 1))
+for (let i = 0; i < 7; i++) {
+  await page.mouse.wheel(0, 240); await sleep(400)
+  const k = await scale(), want = Math.round(22 * Math.min(1, k)), got = await sides()
   // A small button still takes a click across 18px, off its own edge.
   const hit = want >= 8 && want < 16 ? await page.$eval('.stage-fold[data-group="store"]', b => { const r = b.getBoundingClientRect(); return document.elementFromPoint(r.left - (18 - r.width) / 2 + 0.5, r.top + r.height / 2)?.closest('.stage-fold') === b }) : true
   steps.push({ k, want, got, hit, ok: want < 8 ? got.length === 0 : got.length === 1 && Math.abs(got[0] - want) <= 1 && allOn(await corners()) && hit })
 }
-check('zoomed out, the buttons shrink on their corners, then go', steps.every(x => x.ok) && steps.some(x => x.want < 16 && x.want >= 8) && steps.some(x => x.want < 8), JSON.stringify(steps))
-for (let i = 0; i < 6; i++) { await page.mouse.wheel(0, -240); await sleep(80) }
-await sleep(300)
-await page.mouse.down(); await page.mouse.move(s0.left + 160, s0.bottom - 120, { steps: 6 }); await page.mouse.up(); await sleep(200)
-check('after a drag, still on their corners', allOn(await corners()), JSON.stringify(await corners()))
-await page.keyboard.press('f'); await sleep(140)
-check('mid-glide, they move with the drawing', allOn(await corners(3)), JSON.stringify(await corners(3)))
-await sleep(600)
+check('zoomed out, the button shrinks on its corner, then goes', steps.every(x => x.ok) && steps.some(x => x.want < 16 && x.want >= 8) && steps.some(x => x.want < 8), JSON.stringify(steps))
+for (let i = 0; i < 7; i++) { await page.mouse.wheel(0, -240); await sleep(80) }
+await sleep(400)
+await into('store')
+const from = await rect(`${cluster('store')} > rect`)
+await page.mouse.down(); await page.mouse.move(from.left + 66, from.bottom - 46, { steps: 6 })
+const dragging = await hidden()
+check('while the map is dragged, the buttons are hidden', dragging.moving && dragging.folds === 'hidden', JSON.stringify(dragging))
+await page.mouse.up(); await sleep(250)
+const dropped = await hidden()
+check('after the drag they are back, on their corners', !dropped.moving && dropped.folds === 'visible' && JSON.stringify(await groups()) === '["store"]' && allOn(await corners()), JSON.stringify({ dropped, groups: await groups(), corners: await corners() }))
 
 // 4. Double-click: a box or a package frames it; the package stays open; a line or the empty canvas fits the map.
 await page.keyboard.press('f'); await sleep(600)
