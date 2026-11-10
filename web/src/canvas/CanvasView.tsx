@@ -439,6 +439,16 @@ export function CanvasView() {
                 <button onClick={() => s.setAllCollapsed(false)} title="Expand all packages" disabled={!s.collapsed.size}><ChevronsUpDown size={13} /></button>
               </div>
             )}
+            {shownMap?.diagram === 'class' && (() => {
+              const across = shownMap.direction === 'LR' || shownMap.direction === 'RL'
+              const turn = (direction: 'TB' | 'LR') => { if ((direction === 'LR') !== across) void s.patch({ direction }, direction === 'TB' ? '흐름을 위에서 아래로' : '흐름을 왼쪽에서 오른쪽으로') }
+              return (
+                <div className="seg">
+                  <button aria-pressed={!across} disabled={Boolean(s.preview)} onClick={() => turn('TB')} title="위에서 아래로 흐르게"><ArrowDown size={13} /></button>
+                  <button aria-pressed={across} disabled={Boolean(s.preview)} onClick={() => turn('LR')} title="왼쪽에서 오른쪽으로 흐르게"><ArrowRight size={13} /></button>
+                </div>
+              )
+            })()}
             <ExportMenu map={shownMap} stage={stage} name={s.name ?? 'map'} />
             {s.name && <button className="iconbtn" title="지도 지우기" onClick={async () => { if (await confirmDialog({ title: '이 지도를 지울까?', body: '지도와 기록, 코멘트가 ~/.duet/trash로 옮겨져.', ok: '지우기', danger: true })) void s.remove(s.name!) }}><Trash2 size={14} /></button>}
           </div>
