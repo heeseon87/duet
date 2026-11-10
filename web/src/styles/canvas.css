@@ -227,6 +227,10 @@ button.code-added:hover { background: var(--hover); }
 .stage-fold::before { content: ''; position: absolute; inset: min(0px, calc((100% - 18px) / 2)); }
 .stage-fold svg { width: 56%; height: 56%; }
 .stage-fold:hover { color: var(--ink); border-color: var(--ink-3); }
+.stage-folds { position: absolute; left: 0; top: 0; z-index: 3; transform-origin: 0 0; will-change: transform; }
+.stage-canvas.gliding .stage-folds { transition: transform .3s var(--ease); }
+/* While the map is dragged or zoomed the buttons step out: a wheel zoom scales their layer with the drawing, and they would swell with it. */
+.stage-canvas[data-moving] .stage-folds { visibility: hidden; }
 .stage-canvas.gliding .stage-fold { transition: left .3s var(--ease), top .3s var(--ease), width .3s var(--ease), height .3s var(--ease); }
 .empty-canvas > .empty { flex: 1; height: auto; min-height: 0; }
 .empty-canvas .hero-mark { width: 48px; height: 48px; border-radius: 14px; display: grid; place-items: center; background: var(--accent-soft); color: var(--accent); }
@@ -300,6 +304,8 @@ svg[id^='cv'] g.node > .label-group p { font-family: var(--font-ui); font-size: 
 @keyframes cv-flow { from { stroke-dashoffset: 0; } to { stroke-dashoffset: var(--flow, -20px); } }
 /* The flow holds still while the page scrolls or a wheel turns (ScrollRail.tsx's watchScrolling). */
 .page-scrolling .stage-inner :is(.cv-edge, .cv-msg):is(.cv-sel, .cv-rel) { animation-play-state: paused; }
+/* A drag marks no scroll: the stage's own mark (MermaidStage.tsx's setMoving) holds the flow through it too. */
+.stage-canvas[data-moving] .stage-inner :is(.cv-edge, .cv-msg):is(.cv-sel, .cv-rel) { animation-play-state: paused; }
 @media (prefers-reduced-motion: reduce) { .stage-inner .cv-edge.cv-sel, .stage-inner .cv-edge.cv-rel, .stage-inner .cv-msg.cv-sel, .stage-inner .cv-msg.cv-rel { animation: none; } }
 /* Arrowheads, triangles and diamonds take their line's color, so a lit line's head is lit too. Mermaid colors the marker
    element itself; its shapes only inherit that, so a rule on them wins. Hollow heads keep their transparent fill. */

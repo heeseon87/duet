@@ -42,6 +42,11 @@ export const sleep = ms => new Promise(r => setTimeout(r, ms))
 
 /** Folds or unfolds this package with the button on its frame's top right corner. */
 export async function toggleFold(page, id) {
+  // An open package shows its fold button only while the pointer is in it; a folded one always does.
+  if (!(await page.$(`.stage-fold[data-group="${id}"]`))) {
+    const r = await page.$eval(`.stage-inner > svg .cv-cluster[data-target="${id}"] > rect`, e => { const b = e.getBoundingClientRect(); return { x: b.left + b.width / 2, y: b.top + 10 } })
+    await page.mouse.move(r.x, r.y)
+  }
   await page.click(`.stage-fold[data-group="${id}"]`, { timeout: 3000 })
 }
 

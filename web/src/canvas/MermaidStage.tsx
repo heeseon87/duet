@@ -439,12 +439,51 @@ export const MermaidStage = forwardRef<StageHandle, Props & { viewKey: string }>
     flowZoom(svg, kStep)
   }, [map, selected, peek, glow, threads, ghostsFrom, code, revised, kStep])
 
+  const drag = useRef<{ x: number; y: number; vx: number; vy: number; moved: boolean } | null>(null)
+  /**
+   * While the map is dragged or the wheel turns, the stage is marked `data-moving`: the hand-drawn shake and the lit
+   * lines' flow rest (crayon.css, canvas.css), as each costs the GPU on every frame. An attribute set by hand, not
+   * state: marking must not render the stage again.
+   */
+  const stillTimer = useRef<ReturnType<typeof setTimeout>>(undefined)
+  /**
+   * The zoom the fold buttons were last laid out at, held while the wheel turns: through a wheel zoom the fold layer
+   * is scaled like the drawing instead, and the buttons are laid out again (at their own size) once the wheel rests.
+   */
+  const heldK = useRef<number | undefined>(undefined)
+  const [, relayFolds] = useState(0)
+  /** The open packages the pointer is in, innermost and outer alike. Set anew only when the set changes, not on every move. */
+  const [over, setOver] = useState<ReadonlySet<string>>(() => new Set())
+  const overKey = useRef('')
+  const foldsRef = useRef<Fold[]>([])
+  foldsRef.current = folds
+  const pointAt = useCallback((cx?: number, cy?: number) => {
+    const box = outer.current?.getBoundingClientRect(), v = viewRef.current
+    const x = box && cx !== undefined ? (cx - box.left - v.x) / v.k : NaN, y = box && cy !== undefined ? (cy - box.top - v.y) / v.k : NaN
+    const ids = foldsRef.current.filter(f => !f.folded && x >= f.x && x <= f.x + f.w && y >= f.y && y <= f.y + f.h).map(f => f.target)
+    const key = ids.join('\n')
+    if (key === overKey.current) return
+    overKey.current = key
+    setOver(new Set(ids))
+  }, [])
+  const setMoving = useCallback((on: boolean) => {
+    const el = outer.current
+    if (!el) return
+    clearTimeout(stillTimer.current)
+    if (on) el.setAttribute('data-moving', '')
+    else if (!drag.current?.moved) el.removeAttribute('data-moving')
+  }, [])
+  useEffect(() => () => clearTimeout(stillTimer.current), [])
+
   // Wheel: zoom at the cursor. Shift + wheel, or a sideways swipe, pans; dragging pans too.
   useEffect(() => {
     const el = outer.current
     if (!el) return
     const wheel = (e: WheelEvent) => {
       e.preventDefault()
+      setMoving(true)
+      heldK.current ??= viewRef.current.k
+      stillTimer.current = setTimeout(() => { setMoving(false); heldK.current = undefined; relayFolds(n => n + 1) }, 160)
       const box = el.getBoundingClientRect()
       // Firefox reports lines or pages; turn them into pixels like everyone else.
       const unit = e.deltaMode === 1 ? 33 : e.deltaMode === 2 ? 800 : 1
@@ -457,9 +496,8 @@ export const MermaidStage = forwardRef<StageHandle, Props & { viewKey: string }>
     }
     el.addEventListener('wheel', wheel, { passive: false })
     return () => el.removeEventListener('wheel', wheel)
-  }, [zoom])
+  }, [zoom, setMoving])
 
-  const drag = useRef<{ x: number; y: number; vx: number; vy: number; moved: boolean } | null>(null)
   const onPointerDown = (e: React.PointerEvent) => {
     // Control-click on a Mac is a right click: the menu, not a pick.
     if (e.button !== 0 || e.ctrlKey) return
@@ -472,12 +510,17 @@ export const MermaidStage = forwardRef<StageHandle, Props & { viewKey: string }>
    * brings a corner in carries its button along. Zoomed out, the buttons shrink with the drawing and go once too small
    * to read; a package too small to hold one has none.
    */
-  const foldSize = Math.round(FOLD_BTN * Math.min(1, view.k))
-  const foldButtons = settling || foldSize < FOLD_MIN ? [] : folds.flatMap(f => {
-    const l = view.x + f.x * view.k, t = view.y + f.y * view.k, r = l + f.w * view.k
+  const foldK = heldK.current ?? view.k
+  const foldSize = Math.round(FOLD_BTN * Math.min(1, foldK))
+  // An open package shows its button only while the pointer is in it (so do the packages holding it); a folded one
+  // always does, as the button is all that tells it from a plain box.
+  const foldButtons = settling || foldSize < FOLD_MIN ? [] : folds.filter(f => f.folded || over.has(f.target)).flatMap(f => {
+    // In the fold layer's own pixels, at the zoom they were laid out for: the layer carries the view's offset and
+    // whatever the wheel has zoomed since (see the markup below).
+    const l = f.x * foldK, t = f.y * foldK, r = l + f.w * foldK
     const left = r - foldSize * (1 + 8 / FOLD_BTN)
-    const top = f.folded || f.title === undefined ? t - foldSize / 2 : t + f.title * view.k - foldSize / 2
-    return left < l + 4 || f.h * view.k < foldSize ? [] : [{ ...f, left, top }]
+    const top = f.folded || f.title === undefined ? t - foldSize / 2 : t + f.title * foldK - foldSize / 2
+    return left < l + 4 || f.h * foldK < foldSize ? [] : [{ ...f, left, top }]
   })
 
   /**
@@ -506,11 +549,11 @@ export const MermaidStage = forwardRef<StageHandle, Props & { viewKey: string }>
 
   const onPointerMove = (e: React.PointerEvent) => {
     const d = drag.current
-    if (!d) { showTip(e.clientX, e.clientY); return }
+    if (!d) { showTip(e.clientX, e.clientY); pointAt(e.clientX, e.clientY); return }
     hideTip()
     const dx = e.clientX - d.x, dy = e.clientY - d.y
     if (!d.moved && Math.hypot(dx, dy) < 4) return
-    if (!d.moved) { d.moved = true; outer.current?.setPointerCapture(e.pointerId) }
+    if (!d.moved) { d.moved = true; outer.current?.setPointerCapture(e.pointerId); setMoving(true) }
     setView(v => ({ ...v, x: d.vx + dx, y: d.vy + dy }))
   }
   const onPointerUp = (e: React.PointerEvent) => {
@@ -518,7 +561,7 @@ export const MermaidStage = forwardRef<StageHandle, Props & { viewKey: string }>
     if (e.button !== 0 || e.ctrlKey) return
     const d = drag.current
     drag.current = null
-    if (d?.moved) return
+    if (d?.moved) { setMoving(false); return }
     // A click, not a drag: find what is under the pointer. A decision pin picks its decision.
     const at = document.elementFromPoint(e.clientX, e.clientY) as Element | null
     onSelect(at?.closest('[data-pin]')?.getAttribute('data-pin') ?? at?.closest('[data-target]')?.getAttribute('data-target') ?? undefined, { keep: e.altKey })
@@ -546,18 +589,23 @@ export const MermaidStage = forwardRef<StageHandle, Props & { viewKey: string }>
       onPointerDown={onPointerDown}
       onPointerMove={onPointerMove}
       onPointerUp={onPointerUp}
+      onPointerCancel={() => { drag.current = null; setMoving(false) }}
       onDoubleClick={onDoubleClick}
       onContextMenu={onContextMenu}
-      onPointerLeave={hideTip}
+      onPointerLeave={() => { hideTip(); pointAt() }}
     >
       <div className="stage-inner" ref={inner} style={{ transform: `translate(${view.x}px, ${view.y}px) scale(${view.k})` }} />
-      {foldButtons.map(f => (
-        // Its own clicks: not a drag, a pick or a double-click of the stage underneath.
-        <button key={f.target} className="stage-fold" data-group={f.target} title={f.folded ? 'Expand' : 'Collapse'} style={{ left: f.left, top: f.top, width: foldSize, height: foldSize }}
-          onPointerDown={e => e.stopPropagation()} onPointerUp={e => e.stopPropagation()} onDoubleClick={e => e.stopPropagation()} onClick={() => onToggleGroup(f.target)}>
-          {f.folded ? <Plus size={14} /> : <Minus size={14} />}
-        </button>
-      ))}
+      {/* The fold buttons ride one layer moved like the drawing: a pan or a wheel zoom only moves that layer, so no
+          button is laid out or painted again while the map is dragged or zoomed. */}
+      <div className="stage-folds" style={{ transform: `translate(${view.x}px, ${view.y}px) scale(${view.k / foldK})` }}>
+        {foldButtons.map(f => (
+          // Its own clicks: not a drag, a pick or a double-click of the stage underneath.
+          <button key={f.target} className="stage-fold" data-group={f.target} title={f.folded ? 'Expand' : 'Collapse'} style={{ left: f.left, top: f.top, width: foldSize, height: foldSize }}
+            onPointerDown={e => e.stopPropagation()} onPointerUp={e => e.stopPropagation()} onDoubleClick={e => e.stopPropagation()} onClick={() => onToggleGroup(f.target)}>
+            {f.folded ? <Plus size={14} /> : <Minus size={14} />}
+          </button>
+        ))}
+      </div>
       {error && <div className="stage-error"><b>그리기 실패</b><pre>{error}</pre></div>}
       <div className="stage-tip" ref={tip} hidden />
       {props.controls === undefined ? <div className="zoom-readout">{Math.round(view.k * 100)}%</div> : (
