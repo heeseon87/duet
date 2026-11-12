@@ -13,9 +13,12 @@
   /* The paper's texture: a bump map lit from the top left, lit with 50% grey and split in two (~/.agents/paper-texture.md).
      The light half is black where the paper is flat and laid in color-dodge, the dark half is white where it is flat and
      laid in multiply, so every colour under them gets a few percent lighter on the lit side and darker in the shade.
-     No blotches: they moved the mid grey, so in a light one the grain went flat and white on near-white surfaces. */
-  --grain-light: url("data:image/svg+xml,%3Csvg%20xmlns%3D'http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg'%20width%3D'640'%20height%3D'640'%3E%3Cfilter%20id%3D'p'%20x%3D'0'%20y%3D'0'%20width%3D'100%25'%20height%3D'100%25'%20color-interpolation-filters%3D'sRGB'%3E%3CfeTurbulence%20type%3D'fractalNoise'%20baseFrequency%3D'.45'%20numOctaves%3D'3'%20seed%3D'3'%20stitchTiles%3D'stitch'%2F%3E%3CfeDiffuseLighting%20surfaceScale%3D'.16'%20diffuseConstant%3D'1.1547'%20lighting-color%3D'%23808080'%3E%3CfeDistantLight%20azimuth%3D'225'%20elevation%3D'60'%2F%3E%3C%2FfeDiffuseLighting%3E%3CfeComponentTransfer%3E%3CfeFuncR%20type%3D'linear'%20slope%3D'2'%20intercept%3D'-1'%2F%3E%3CfeFuncG%20type%3D'linear'%20slope%3D'2'%20intercept%3D'-1'%2F%3E%3CfeFuncB%20type%3D'linear'%20slope%3D'2'%20intercept%3D'-1'%2F%3E%3C%2FfeComponentTransfer%3E%3C%2Ffilter%3E%3Crect%20width%3D'100%25'%20height%3D'100%25'%20filter%3D'url(%23p)'%2F%3E%3C%2Fsvg%3E");
-  --grain-dark: url("data:image/svg+xml,%3Csvg%20xmlns%3D'http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg'%20width%3D'640'%20height%3D'640'%3E%3Cfilter%20id%3D'p'%20x%3D'0'%20y%3D'0'%20width%3D'100%25'%20height%3D'100%25'%20color-interpolation-filters%3D'sRGB'%3E%3CfeTurbulence%20type%3D'fractalNoise'%20baseFrequency%3D'.45'%20numOctaves%3D'3'%20seed%3D'3'%20stitchTiles%3D'stitch'%2F%3E%3CfeDiffuseLighting%20surfaceScale%3D'.16'%20diffuseConstant%3D'1.1547'%20lighting-color%3D'%23808080'%3E%3CfeDistantLight%20azimuth%3D'225'%20elevation%3D'60'%2F%3E%3C%2FfeDiffuseLighting%3E%3CfeComponentTransfer%3E%3CfeFuncR%20type%3D'linear'%20slope%3D'2'%20intercept%3D'0'%2F%3E%3CfeFuncG%20type%3D'linear'%20slope%3D'2'%20intercept%3D'0'%2F%3E%3CfeFuncB%20type%3D'linear'%20slope%3D'2'%20intercept%3D'0'%2F%3E%3C%2FfeComponentTransfer%3E%3C%2Ffilter%3E%3Crect%20width%3D'100%25'%20height%3D'100%25'%20filter%3D'url(%23p)'%2F%3E%3C%2Fsvg%3E");
+     No blotches: they moved the mid grey, so in a light one the grain went flat and white on near-white surfaces.
+     Both halves are PNG tiles baked at 2x from cmux's crayon_one.glsl, so the page shows the terminal's grain: Chrome drew
+     the same grain as an SVG filter tile softer and coarser on screen (neighbour correlation .72/.28 at 1/2 px, against
+     the shader's .67/.18). */
+  --grain-light: url('./grain-light.png');
+  --grain-dark: url('./grain-dark.png');
   --wax: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='w'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.12 .8' numOctaves='3' seed='4' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 1 0 0 0 0 .99 0 0 0 0 .95 2.6 0 0 0 -1.45'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23w)'/%3E%3C/svg%3E");
 }
 body { font-synthesis: weight; }
@@ -31,7 +34,7 @@ body { font-synthesis: weight; }
    keeps one size at every zoom. A white shade in multiply alone only darkened, and a grey soft-light all but vanished
    on the light sheets. */
 body::before, body::after {
-  content: ''; position: fixed; inset: 0; z-index: 1000; pointer-events: none; background-size: 640px; background-attachment: fixed;
+  content: ''; position: fixed; inset: 0; z-index: 1000; pointer-events: none; background-size: var(--grain-size, 640px); background-attachment: fixed;
 }
 body::before { background-image: var(--grain-light); mix-blend-mode: color-dodge; }
 body::after { background-image: var(--grain-dark); mix-blend-mode: multiply; }

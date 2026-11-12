@@ -11,6 +11,8 @@ import './styles/side.css'
 import './styles/crayon.css'
 import { App } from './App.tsx'
 import { watchScrolling } from './lib/ScrollRail.tsx'
+import { lockGrainToDevicePixels } from './lib/grain.ts'
 
 watchScrolling()
+lockGrainToDevicePixels()
 createRoot(document.getElementById('root')!).render(<App />)
