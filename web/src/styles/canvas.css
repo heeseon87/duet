@@ -4,7 +4,7 @@
    the untouched gray line, so the fill alone carries the plan; removed and result boxes also
    take a colored line. */
 :root {
-  --cv-keep-fill: #fffefa; --cv-keep-line: #b5a487;
+  --cv-keep-fill: #f8f7f5; --cv-keep-line: #b5a487;
   --cv-add-fill: #e4f0d6; --cv-add-line: #4a9445;
   --cv-modify-fill: #ebe5f8; --cv-modify-line: #7a5fd0;
   --cv-delete-fill: #fbe1d6; --cv-delete-line: #c43d2b;
@@ -12,10 +12,10 @@
   /* Packages: a pale area without a frame; one inside another takes the stage's own color, so each level shows.
      The line outlines a folded package, which is drawn as a box. */
   --cv-group-fill: #f6efe0; --cv-group-fill-2: var(--cv-bg); --cv-group-line: #d2c2a3;
-  --cv-edge: #7d6f5e; --cv-label-bg: #fffcf5;
+  --cv-edge: #7d6f5e; --cv-label-bg: #f8f6f3;
   /* Text on the accent (a picked line's label, an open decision's pin, a comment count). */
   --cv-sel-ink: #ffffff;
-  --cv-bg: #fffcf5; --cv-group-ink: #6a5f54;
+  --cv-bg: #f8f6f3; --cv-group-ink: #6a5f54;
   --cv-note-fill: #fff3cf; --cv-note-line: #e2c878;
 }
 
