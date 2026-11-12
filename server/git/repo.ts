@@ -106,7 +106,7 @@ export async function listFiles(root: string): Promise<string[]> {
 /** listFiles, synchronously: for a canvas tool call, which runs to its end in one go. Empty outside a git tree. */
 export function listFilesSync(root: string): string[] {
   try {
-    return execFileSync('git', ['ls-files', '-co', '--exclude-standard'], { cwd: root, encoding: 'utf8', maxBuffer: 128 * 1024 * 1024, stdio: ['ignore', 'pipe', 'ignore'], env: { ...process.env, GIT_OPTIONAL_LOCKS: '0' } })
+    return execFileSync('git', ['ls-files', '-co', '--exclude-standard'], { cwd: root, encoding: 'utf8', maxBuffer: 128 * 1024 * 1024, stdio: ['ignore', 'pipe', 'ignore'], windowsHide: true, env: { ...process.env, GIT_OPTIONAL_LOCKS: '0' } })
       .split('\n').filter(Boolean)
   } catch { return [] }
 }
@@ -179,7 +179,7 @@ export async function grep(root: string, query: string, limit = 400): Promise<Gr
 export function codeHere(cwd: string, home?: string): MapCode | undefined {
   if (!existsSync(cwd)) return undefined
   const at = (args: string[]) => {
-    try { return execFileSync('git', args, { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'], env: { ...process.env, GIT_OPTIONAL_LOCKS: '0' } }).trim() } catch { return '' }
+    try { return execFileSync('git', args, { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'], windowsHide: true, env: { ...process.env, GIT_OPTIONAL_LOCKS: '0' } }).trim() } catch { return '' }
   }
   const top = at(['rev-parse', '--show-toplevel'])
   if (!top) return undefined
@@ -194,7 +194,7 @@ export function missingRefs(root: string, source: DiffSource): string[] {
   const refs = source.kind === 'branch' ? [source.base, source.compare] : source.kind === 'commits' ? [source.from, source.to] : []
   return refs.filter((ref): ref is string => !!ref && ref !== 'WORKTREE').filter(ref => {
     try {
-      execFileSync('git', ['rev-parse', '--verify', '-q', `${ref}^{commit}`], { cwd: root, stdio: 'ignore', env: { ...process.env, GIT_OPTIONAL_LOCKS: '0' } })
+      execFileSync('git', ['rev-parse', '--verify', '-q', `${ref}^{commit}`], { cwd: root, stdio: 'ignore', windowsHide: true, env: { ...process.env, GIT_OPTIONAL_LOCKS: '0' } })
       return false
     } catch {
       return true
