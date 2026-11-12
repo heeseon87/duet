@@ -66,6 +66,8 @@ export function run(cmd: string, args: string[], opts: { cwd?: string; env?: Nod
       maxBuffer: opts.maxBuffer ?? 64 * 1024 * 1024,
       timeout: opts.timeout ?? 30_000,
       encoding: 'utf8',
+      // The server runs detached with no console on Windows: without this each child opens a console window of its own.
+      windowsHide: true,
     }, (err, stdout, stderr) => {
       const code = err ? (typeof (err as { code?: unknown }).code === 'number' ? (err as { code: number }).code : 1) : 0
       // A missing program (ENOENT) leaves stderr empty: the error's own message says what happened.
