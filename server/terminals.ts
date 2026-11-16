@@ -1,3 +1,4 @@
+import { sep } from 'node:path'
 import type { PromptState } from '../shared/canvas.ts'
 import type { TerminalActivity, TerminalInfo } from '../shared/protocol.ts'
 import { HttpError } from './util.ts'
@@ -29,12 +30,18 @@ const under = (path: string, root: string) => path === root || path.startsWith(r
  * The open workspace a folder belongs to: the deepest workspace that holds it, else the first whose
  * conversations wrote in, or whose maps point into, the repo the folder is in. A folder in no repo
  * and no workspace belongs nowhere, whatever was written under it.
+ *
+ * Paths are compared with `/`: on Windows git names a workspace `C:/repo` while node names the same
+ * folder `C:\repo`, so where `\` is the separator it is read as `/`. Elsewhere `\` is part of a name.
  */
-export function workspaceFor(path: string, repo: string | undefined, workspaces: { path: string; reaches: string[] }[]): string | undefined {
-  const holding = workspaces.filter(w => under(path, w.path)).sort((a, b) => b.path.length - a.path.length)[0]
+export function workspaceFor(path: string, repo: string | undefined, workspaces: { path: string; reaches: string[] }[], separator: string = sep): string | undefined {
+  const slashed = (p: string) => (separator === '\\' ? p.replaceAll('\\', '/') : p)
+  const here = slashed(path)
+  const holding = workspaces.filter(w => under(here, slashed(w.path))).sort((a, b) => b.path.length - a.path.length)[0]
   if (holding) return holding.path
   if (!repo) return undefined
-  return workspaces.find(w => w.reaches.some(r => under(r, repo)))?.path
+  const root = slashed(repo)
+  return workspaces.find(w => w.reaches.some(r => under(slashed(r), root)))?.path
 }
 
 /**
