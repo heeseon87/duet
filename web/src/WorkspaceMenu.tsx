@@ -18,11 +18,11 @@ export function WorkspaceMenu() {
   const worktrees = info?.worktrees.filter(w => !w.bare) ?? []
   return (
     <>
-      <button ref={ref} className="ws-pick" onClick={() => setOpen(o => !o)} title={workspace.path}>
+      <button ref={ref} className="ws-pick" onClick={() => setOpen(o => !o)} title={info?.branch ? `${workspace.path} · ${info.branch}` : workspace.path}>
         {workspace.name.includes(' / ')
           ? <span className="ws-name"><span className="repo">{workspace.name.split(' / ')[0]}</span><span className="slash">/</span><b>{workspace.name.split(' / ')[1]}</b></span>
           : <span className="ws-name"><b>{workspace.name}</b></span>}
-        {info?.branch && <span className="branch"><GitBranch size={12} />{info.branch}</span>}
+        {info?.branch && <span className="branch"><GitBranch size={12} /><span className="branch-name">{info.branch}</span></span>}
         <ChevronDown size={12} />
       </button>
       {open && (

@@ -189,15 +189,18 @@ table.diff.split td.no { position: relative; }
 .empty.small p { font-size: 12px; }
 
 
-.ws-pick { flex: 0 1 auto; display: flex; align-items: center; gap: 8px; border: 0; background: transparent; padding: 3px 6px; margin-left: -6px; border-radius: var(--r-1); max-width: min(320px, 28cqw); min-width: 0; font-family: var(--font-mono); font-size: 11.5px; color: var(--ink-3); }
+.ws-pick { flex: 0 1 auto; display: flex; align-items: center; gap: 8px; border: 0; background: transparent; padding: 3px 6px; margin-left: -6px; border-radius: var(--r-1); max-width: min(460px, 40cqw); min-width: 0; font-family: var(--font-mono); font-size: 11.5px; color: var(--ink-3); }
 .ws-pick b { font-weight: 500; color: var(--ink-2); }
-.ws-name { display: flex; align-items: baseline; gap: 4px; min-width: 0; white-space: nowrap; }
+.ws-pick > svg { flex: none; }
+/* A long repo name and a long branch share the width: each gives way and ends in an ellipsis, the branch first. */
+.ws-name { flex: 0 1 auto; display: flex; align-items: baseline; gap: 4px; min-width: 0; white-space: nowrap; }
 .ws-name .repo { color: var(--ink-3); overflow: hidden; text-overflow: ellipsis; min-width: 0; max-width: 200px; }
 .ws-name .slash { color: var(--ink-4); }
-.ws-name b { flex: none; }
-.ws-pick .branch { overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.ws-name b { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .ws-pick:hover { background: var(--hover); }
-.ws-pick .branch { display: inline-flex; align-items: center; gap: 3px; color: var(--ink-3); font-family: var(--font-mono); font-size: 11.5px; white-space: nowrap; }
+.ws-pick .branch { flex: 0 3 auto; display: inline-flex; align-items: center; gap: 3px; min-width: 0; color: var(--ink-3); font-family: var(--font-mono); font-size: 11.5px; white-space: nowrap; }
+.ws-pick .branch > svg { flex: none; }
+.ws-pick .branch-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 
 .view-opts { display: flex; align-items: center; gap: 4px; margin-right: 4px; }
 .view-opts .seg button { height: 24px; padding: 0 7px; }
