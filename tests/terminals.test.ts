@@ -22,6 +22,17 @@ describe('workspaceFor', () => {
     expect(workspaceFor('/h/lone', '/h/lone', [ws('/h/am', ['/h/other'])])).toBeUndefined()
     expect(workspaceFor('/tmp', undefined, [ws('/h/am', ['/tmp/x/src/A.kt'])])).toBeUndefined()
   })
+
+  it('on Windows, matches a folder written with backslashes against a workspace git names with slashes', () => {
+    expect(workspaceFor('C:\\h\\am', 'C:/h/am', [ws('C:/h/am')], '\\')).toBe('C:/h/am')
+    expect(workspaceFor('C:\\h\\am\\src', 'C:/h/am', [ws('C:/h/am')], '\\')).toBe('C:/h/am')
+    expect(workspaceFor('C:\\h\\am2', 'C:/h/am2', [ws('C:/h/am')], '\\')).toBeUndefined()
+    expect(workspaceFor('C:\\h\\other\\sub', 'C:/h/other', [ws('C:/h/side', ['C:\\h\\other\\src\\A.kt'])], '\\')).toBe('C:/h/side')
+  })
+
+  it('keeps a backslash as part of the name where it is not the separator', () => {
+    expect(workspaceFor('/h/am\\src', '/h/am\\src', [ws('/h/am')], '/')).toBeUndefined()
+  })
 })
 
 describe('Terminals', () => {

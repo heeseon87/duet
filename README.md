@@ -20,7 +20,7 @@ git clone https://github.com/heeseon87/duet.git $HOME\github\duet
 cd $HOME\github\duet; npm install; npm link
 ```
 
-Windows에서 맞춘 것은 설치, 실행(웹 빌드, 서버 띄우기, 브라우저 열기), mod가 서버를 찾는 것까지다. 서버에는 경로를 `/`로 나누어 비교하는 곳이 남아 있어서 터미널이 작업 공간에 붙지 않거나 지도의 파일을 찾지 못할 수 있다. 아직 Windows에서 돌려 확인하지는 않았다.
+Windows에서 맞춘 것은 설치, 실행(웹 빌드, 서버 띄우기, 브라우저 열기), mod가 서버를 찾는 것, 터미널의 폴더(`C:\repo`)를 작업 공간(`C:/repo`)에 붙이는 것까지다. 서버에는 경로를 `/`로 나누어 비교하는 곳이 더 남아 있어서 지도의 파일을 찾지 못할 수 있다.
 
 첫 `duet`이 웹 화면을 빌드하므로 개발 의존성까지 설치한다(`npm install --omit=dev`로는 빌드하지 못한다). 업데이트는 `git pull` 뒤 `duet`이다. 실행기가 웹을 다시 빌드하고, 터미널이 처리 중인 메시지가 없으면 서버를 다시 띄운다.
 
