@@ -57,6 +57,7 @@ body::after { background-image: var(--grain-dark); mix-blend-mode: multiply; }
    annotate draws relation lines and messages wavy instead (handLine.ts). */
 svg.lucide { filter: url(#crayon-wobble); }
 .stage-inner .cv-node .label-container path:last-child,
+.stage-inner .cv-corners,
 .stage-inner .cv-actor rect { filter: url(#crayon-wobble); }
 .stage-inner .cv-note rect { filter: url(#crayon-wobble) !important; }
 /* An open package is a light area in a soft crayon line whose edge shakes like the boxes'; a bare tint read as flat
@@ -64,6 +65,6 @@ svg.lucide { filter: url(#crayon-wobble); }
 .stage-inner .cv-cluster > rect { filter: url(#crayon-wobble) !important; stroke: var(--cv-group-line) !important; stroke-width: 1.5px; rx: 12px; ry: 12px; }
 /* While the map is dragged or zoomed (MermaidStage.tsx's setMoving) the shake rests: the filter is worked out again
    for every frame the drawing moves, which a busy GPU cannot keep up with. It comes back when the map stops. */
-.stage-canvas[data-moving] .stage-inner :is(.cv-node .label-container path:last-child, .cv-actor rect, .cv-note rect, .cv-cluster > rect),
+.stage-canvas[data-moving] .stage-inner :is(.cv-node .label-container path:last-child, .cv-corners, .cv-actor rect, .cv-note rect, .cv-cluster > rect),
 .stage-canvas[data-moving] svg.lucide { filter: none !important; }
 .stage-inner .cv-edge { stroke-linecap: round; }

@@ -240,8 +240,10 @@ button.code-added:hover { background: var(--hover); }
 .stage-inner .cv-node, .stage-inner .cv-cluster, .stage-inner .cv-edge, .stage-inner .cv-label, .stage-inner .cv-msg, .stage-inner .cv-msg-text, .stage-inner .cv-actor, .stage-inner .cv-note {
   transition: opacity .2s var(--ease);
 }
-.stage-inner .cv-node .label-container path:first-child { fill: var(--cv-keep-fill) !important; }
-.stage-inner .cv-node .label-container path:last-child { stroke: var(--cv-keep-line) !important; stroke-width: 1.2 !important; transition: stroke .2s, stroke-width .2s; }
+/* The face takes no line of its own: Mermaid's sheet strokes it along the top, right and bottom (its path is not closed), a solid line that would show through a dashed outline on those three sides. */
+.stage-inner .cv-node .label-container path:first-child { fill: var(--cv-keep-fill) !important; stroke: none !important; }
+/* The outline is a closed rectangle (MermaidStage.tsx's onePass), which Mermaid's sheet would fill over the face's color. */
+.stage-inner .cv-node .label-container path:last-child { fill: none !important; stroke: var(--cv-keep-line) !important; stroke-width: 1.2 !important; transition: stroke .2s, stroke-width .2s; }
 /* Flat cards and areas: Mermaid's look casts a shadow under each, and under a sequence note and a frame's tab. */
 .stage-inner .cv-node .outer-path, .stage-inner .cv-node rect, .stage-inner .cv-cluster rect, .stage-inner .cv-note rect, .stage-inner .labelBox { filter: none !important; }
 .stage-inner .cv-node.cv-add .label-container path:first-child { fill: var(--cv-add-fill) !important; }
@@ -252,6 +254,10 @@ button.code-added:hover { background: var(--hover); }
 .stage-inner .cv-node.cv-result .label-container path:first-child { fill: var(--cv-result-fill) !important; }
 .stage-inner .cv-node.cv-result .label-container path:last-child { stroke: var(--cv-result-line) !important; stroke-width: 1.6 !important; }
 .stage-inner .cv-node.cv-open .label-container path:last-child { stroke-dasharray: 6 4 !important; }
+/* Not built yet: only the corners are drawn, in the code line's color. An open decision's dashes still run between them. */
+.stage-inner .cv-node.cv-pending:not(.cv-open) .label-container path:last-child { stroke: transparent !important; }
+/* Mermaid's own sheet colors every path in a node by the drawing's id, so these need !important as the box rules do. */
+.stage-inner .cv-node .cv-corners { fill: none !important; stroke: var(--warn) !important; stroke-width: 2.4px !important; stroke-linecap: round; stroke-linejoin: round; pointer-events: none; }
 .stage-inner .cv-node[data-group] .label-container path:first-child { fill: var(--cv-group-fill) !important; }
 .stage-inner .cv-node[data-group] .label-container path:last-child { stroke: var(--cv-group-line) !important; stroke-dasharray: 3 3 !important; }
 .stage-inner .cv-cluster rect { fill: var(--cv-group-fill) !important; stroke: transparent !important; stroke-width: 1.2px; rx: 6px; ry: 6px; }

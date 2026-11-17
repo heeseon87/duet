@@ -642,6 +642,7 @@ function annotate(svg: SVGSVGElement, id: string, map: CanvasMap, p: ReturnType<
       g.setAttribute('data-target', tid)
       if (el?.kind === 'group') g.setAttribute('data-group', tid)
       g.classList.add('cv-node')
+      onePass(g)
       cardNode(g)
     }
     // A package inside another (inside another…): Mermaid draws them all side by side, so the depth is the map's.
@@ -728,6 +729,37 @@ function annotate(svg: SVGSVGElement, id: string, map: CanvasMap, p: ReturnType<
 /** Where a box's lines start, in from its left edge: Mermaid's own inset for the members, which the name now shares. */
 const CARD_LEFT = 12
 
+/**
+ * Mermaid strokes each side of a box twice, as two curves whose dashes fall in each other's gaps, so a dashed border
+ * reads solid on most sides. The outline becomes the fill's rectangle, gone round once.
+ */
+function onePass(g: SVGGElement) {
+  const paths = g.querySelectorAll<SVGPathElement>('.label-container path')
+  const d = paths[0]?.getAttribute('d')
+  if (paths.length > 1 && d) paths[paths.length - 1].setAttribute('d', /z\s*$/i.test(d) ? d : `${d} Z`)
+}
+
+/** How far a corner mark runs along each side. */
+const CORNER = 14
+
+/** A box that is not built yet has only its corners drawn (canvas.css hides its sides unless a decision is open on it). */
+function pendingCorners(node: SVGGraphicsElement, b: DOMRect | undefined) {
+  const old = node.querySelector<SVGPathElement>(':scope > .cv-corners')
+  const key = b ? `${b.x} ${b.y} ${b.width} ${b.height}` : ''
+  if (old?.getAttribute('data-box') === key) return
+  old?.remove()
+  if (!b) return
+  const p = document.createElementNS('http://www.w3.org/2000/svg', 'path')
+  p.setAttribute('class', 'cv-corners')
+  p.setAttribute('data-box', key)
+  const x0 = b.x, y0 = b.y, x1 = b.x + b.width, y1 = b.y + b.height, n = Math.min(CORNER, b.width / 3, b.height / 3)
+  p.setAttribute('d', `M${x0} ${y0 + n}V${y0}H${x0 + n}M${x1 - n} ${y0}H${x1}V${y0 + n}M${x1} ${y1 - n}V${y1}H${x1 - n}M${x0 + n} ${y1}H${x0}V${y1 - n}`)
+  // Over the card's face, under its text and badges.
+  const face = node.querySelector(':scope > .label-container')
+  if (face) face.after(p)
+  else node.appendChild(p)
+}
+
 /** The room under each part of a card: none between the stereotype and the name, a little more under the name. */
 const CARD_GAP: Record<string, number> = { 'annotation-group': 0, 'label-group': 6, 'members-group': 4 }
 
@@ -806,7 +838,7 @@ function titlePackage(g: SVGGElement, name: string) {
   })
 }
 
-const CHANGE_CLASS = ['cv-add', 'cv-modify', 'cv-delete', 'cv-result', 'cv-keep', 'cv-ghost', 'cv-open', 'cv-sel', 'cv-in', 'cv-rel', 'cv-ctx', 'cv-dim', 'cv-glow', 'cv-glow-mod', 'cv-new', 'cv-changed', 'cv-peek']
+const CHANGE_CLASS = ['cv-add', 'cv-modify', 'cv-delete', 'cv-result', 'cv-keep', 'cv-ghost', 'cv-open', 'cv-pending', 'cv-sel', 'cv-in', 'cv-rel', 'cv-ctx', 'cv-dim', 'cv-glow', 'cv-glow-mod', 'cv-new', 'cv-changed', 'cv-peek']
 
 /** The zoom, on the few lines that flow, so their width and dashes stay the same on screen, and on the decision pins and revision marks. Set nowhere else: on an ancestor it would restyle the whole drawing at every zoom step. */
 function flowZoom(svg: SVGSVGElement, k: number) {
@@ -1108,6 +1140,8 @@ function decorate(svg: SVGSVGElement, map: CanvasMap, o: { selected?: string; pe
     if (change && !node.classList.contains('cv-cluster')) add(`cv-${change}`)
     const decision = el?.decision ?? rel?.decision ?? msg?.decision
     if (decision && openDecisions.has(decision)) add('cv-open')
+    // A folded package keeps its own dotted line.
+    if (!folded && node.classList.contains('cv-node') && o.code?.get(target)?.state === 'pending') add('cv-pending')
     if (picked.size) {
       if (keys.some(k => picked.has(k)) || (folded && holding.has(target))) add('cv-sel')
       else if (keys.some(k => inside.has(k))) add('cv-in')
@@ -1137,6 +1171,7 @@ function decorate(svg: SVGSVGElement, map: CanvasMap, o: { selected?: string; pe
     const count = keys.reduce((n, k) => n + (threadCount.get(k) ?? 0), 0)
     if (box && node.classList.contains('cv-node')) {
       codeBadge(node as SVGGraphicsElement, o.code?.get(target), box)
+      pendingCorners(node as SVGGraphicsElement, want.has('cv-pending') ? box : undefined)
       revMark(node as SVGGraphicsElement, revised.has(target) ? o.revised!.revision : undefined, box, count > 0)
     }
     if (box) {
