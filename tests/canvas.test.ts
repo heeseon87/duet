@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { applyPatch, ARROW_TERMS, arrowsOf, chooseOption, decisionOfTarget, deliveryLabel, deliveryOf, describeDiff, diffMaps, emptyMap, labelOf, normalizeDecisions, openerOf, RELATION_RULES, relationKey, reopenDecision, reorderedGroups, safeText, toMermaid, validate, type CanvasMap } from '../shared/canvas.ts'
+import { applyPatch, ARROW_TERMS, arrowsOf, chooseOption, decisionOfTarget, deliveryLabel, deliveryOf, describeDiff, diffMaps, emptyMap, labelOf, normalizeDecisions, openerOf, RELATION_RULES, relationKey, reopenDecision, memberText, reorderedGroups, safeText, toMermaid, validate, type CanvasMap } from '../shared/canvas.ts'
 
 function base(): CanvasMap {
   const m = emptyMap('class', 'test')
@@ -238,6 +238,17 @@ describe('Mermaid text', () => {
     expect(safeText('List<Swing>: a')).toBe('List‹Swing›∶ a')
     expect(safeText('static$')).toBe('static＄')
     expect(safeText('say "hi" {x}')).toBe('say ″hi″ ❴x❵')
+  })
+
+  it('keeps Mermaid from reading a member without a name before its parentheses as a method', () => {
+    // Mermaid's own test for a method (classTypes.ts): it throws when a line with a ")" fails it.
+    const method = /([#+~-])?(.+)\((.*)\)([\s$*])?(.*)([$*])?/
+    const reads = (t: string) => t.indexOf(')') <= 0 || method.test(t)
+    for (const raw of ['(user_id, window_start) unique', '  (a)', 'a) first', 'x)', '＋ (a, b)']) expect(reads(memberText(raw)), raw).toBe(true)
+    expect(memberText('(user_id, window_start) unique')).toBe('\u200b(user_id, window_start) unique')
+    expect(memberText('a) first')).toBe('a） first')
+    expect(memberText('findRows(userId) List')).toBe('findRows(userId) List')
+    expect(memberText('PK: user_id')).toBe('PK∶ user_id')
   })
 
   it('draws groups as namespaces and numbers steps', () => {

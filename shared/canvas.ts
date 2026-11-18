@@ -622,6 +622,20 @@ export function stepMark(n: number): string {
   return n >= 1 && n <= 20 ? CIRCLED[n - 1] : `(${n})`
 }
 
+/** How Mermaid reads a member with a ")" past its first character: as a method, a name before "(…)". */
+const METHOD = /.+\(.*\)/
+
+/**
+ * A member's line for Mermaid. Mermaid takes a line with a ")" for a method and throws on one that has no name before
+ * its "(" ("(user_id, time) unique") or no "(" at all ("a) first"). A zero-width space stands in for the name; a lone
+ * ")" becomes a look-alike, so the line reads as a plain member.
+ */
+export function memberText(s: string): string {
+  const t = safeText(s).trim()
+  if (t.indexOf(')') <= 0 || METHOD.test(t)) return t
+  return METHOD.test(`\u200b${t}`) ? `\u200b${t}` : t.replace(/\)/g, '）')
+}
+
 const MEMBER_MARK = { add: '＋ ', modify: '✎ ', delete: '－ ' } as const
 
 /** A kind of arrow a map draws: a class map's relation, or a sequence map's message (a note draws none). */
@@ -744,7 +758,7 @@ export function toMermaid(map: CanvasMap, opts: RenderOptions = {}): RenderPlan 
     const label = safeText(e.label ?? e.id)
     const body: string[] = []
     if (e.kind && e.kind !== 'class') body.push(`${indent}  <<${e.kind}>>`)
-    for (const m of e.members ?? []) body.push(`${indent}  ${safeText((m.change ? MEMBER_MARK[m.change] : '') + m.text)}`)
+    for (const m of e.members ?? []) body.push(`${indent}  ${memberText((m.change ? MEMBER_MARK[m.change] : '') + m.text)}`)
     if (!body.length) { lines.push(`${indent}class ${e.id}["${label}"]`); return }
     lines.push(`${indent}class ${e.id}["${label}"] {`, ...body, `${indent}}`)
   }
