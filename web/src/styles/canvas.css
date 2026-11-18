@@ -397,6 +397,20 @@ svg[id^='cv'] g.node > .label-group p { font-family: var(--font-ui); font-size: 
 .stage-inner .cv-rev path { fill: var(--agent) !important; stroke: none !important; }
 .stage-inner .cv-rev text { fill: var(--panel) !important; font-size: 10px; font-weight: 700; font-family: var(--font-mono); }
 
+/* A part with a note: a small sheet on its bottom right corner. */
+.stage-inner .cv-memo rect { fill: var(--panel) !important; stroke: var(--ink-3) !important; stroke-width: 1.2 !important; }
+.stage-inner .cv-memo path { fill: none !important; stroke: var(--ink-3) !important; stroke-width: 1.1 !important; stroke-linecap: round; }
+/* The picked part's note, on a card beside it (placed by the stage, in its pixels), gliding with the drawing. */
+.note-card {
+  position: absolute; left: 0; top: 0; z-index: 5; width: max-content; max-width: 340px; max-height: 50%; overflow: auto; cursor: auto; user-select: text;
+  padding: 8px 12px 10px; border: 1px solid var(--line-strong); border-radius: 6px; background: var(--panel); box-shadow: var(--shadow-2);
+}
+.stage-canvas.gliding .note-card { transition: transform .3s var(--ease); }
+/* A note by the pointer: its lines kept, wrapped at the tip's width. */
+.stage-tip.memo { max-width: 340px; padding: 6px 10px; white-space: pre-wrap; word-break: keep-all; overflow-wrap: anywhere; line-height: 1.5; }
+.note-card-head { display: flex; align-items: center; gap: 6px; margin-bottom: 4px; font-family: var(--font-mono); font-size: 10.5px; color: var(--ink-3); }
+.note-card p { margin: 0; font-size: 12.5px; line-height: 1.55; color: var(--ink); white-space: pre-wrap; word-break: keep-all; overflow-wrap: anywhere; }
+
 @keyframes slide-in { from { opacity: 0; transform: translateX(10px); } }
 
 /* The flow list: a class map's numbered steps, top left over the stage, see-through until the pointer comes. It stops

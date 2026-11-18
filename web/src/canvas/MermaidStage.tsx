@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useImperativeHandle, useLayoutEffect, useRef, useState, forwardRef } from 'react'
-import { Minus, Plus } from 'lucide-react'
+import { Minus, Plus, StickyNote } from 'lucide-react'
 import { flushSync } from 'react-dom'
 import { relationKey, shapedBy, toMermaid, type CanvasMap, type MapDiff } from '../../../shared/canvas.ts'
 import { optionShare } from './decisionQueue.ts'
@@ -7,6 +7,7 @@ import type { CodeMark } from '../../../shared/mapFiles.ts'
 import type { CanvasThread } from '../../../shared/protocol.ts'
 import { DURATION, measure, morph, reducedMotion, type Morph } from './morph.ts'
 import { partIds } from './codeNav.ts'
+import { noteOf } from './note.ts'
 import { handDrawn } from './handLine.ts'
 
 type Mermaid = typeof import('mermaid').default
@@ -439,6 +440,22 @@ export const MermaidStage = forwardRef<StageHandle, Props & { viewKey: string }>
     flowZoom(svg, kStep)
   }, [map, selected, peek, glow, threads, ghostsFrom, code, revised, kStep])
 
+  /**
+   * The picked part's note, on a card beside it. Its box is kept in the drawing's own pixels (before the view's zoom),
+   * so a pan or a zoom moves the card without measuring again.
+   */
+  const note = noteOf(map, selected)
+  const [noteBox, setNoteBox] = useState<{ x: number; y: number; w: number; h: number } | undefined>(undefined)
+  useLayoutEffect(() => {
+    const host = inner.current
+    const node = note && selected ? [...(host?.querySelectorAll<SVGElement>('[data-target]') ?? [])].find(n => n.getAttribute('data-target') === selected && !n.classList.contains('cv-edge-hit')) : undefined
+    const s = host?.getBoundingClientRect()
+    const ke = s && host!.offsetWidth ? s.width / host!.offsetWidth : 0
+    const r = node?.getBoundingClientRect()
+    const next = s && r && ke ? { x: (r.left - s.left) / ke, y: (r.top - s.top) / ke, w: r.width / ke, h: r.height / ke } : undefined
+    setNoteBox(was => (was && next && was.x === next.x && was.y === next.y && was.w === next.w && was.h === next.h) || (!was && !next) ? was : next)
+  }, [map, selected, note?.note, settling, folds])
+
   const drag = useRef<{ x: number; y: number; vx: number; vy: number; moved: boolean } | null>(null)
   /**
    * While the map is dragged or the wheel turns, the stage is marked `data-moving`: the hand-drawn shake and the lit
@@ -541,12 +558,19 @@ export const MermaidStage = forwardRef<StageHandle, Props & { viewKey: string }>
       const p = document.elementsFromPoint(cx, cy).find(n => n.closest('.cv-cluster .cluster-label'))?.closest('.cluster-label')?.querySelector('p')
       const range = document.createRange()
       if (p) range.selectNodeContents(p)
-      const name = p && range.getBoundingClientRect().width > p.getBoundingClientRect().width + 0.5 ? p.textContent ?? '' : ''
+      const cut = p && range.getBoundingClientRect().width > p.getBoundingClientRect().width + 0.5 ? p.textContent ?? '' : ''
+      // A part's note, unless that part is picked: its card already shows the note.
+      const hovered = document.elementFromPoint(cx, cy)?.closest('[data-target]')?.getAttribute('data-target') ?? undefined
+      const memo = hovered === selected ? undefined : noteOf(map, hovered)?.note
+      const name = memo ?? cut
       if (!name) { el.hidden = true; return }
       if (el.textContent !== name) { el.textContent = name; el.hidden = true }
-      el.style.left = `${cx - stage.left + 12}px`
-      el.style.top = `${cy - stage.top + 16}px`
+      el.classList.toggle('memo', !!memo)
       el.hidden = false
+      // Kept inside the stage: a long note by the right or the bottom edge goes to the pointer's other side.
+      const x = cx - stage.left + 12, y = cy - stage.top + 16
+      el.style.left = `${Math.max(4, x + el.offsetWidth > stage.width - 4 ? x - el.offsetWidth - 24 : x)}px`
+      el.style.top = `${Math.max(4, y + el.offsetHeight > stage.height - 4 ? y - el.offsetHeight - 28 : y)}px`
     })
   }
   const hideTip = () => { cancelAnimationFrame(tipFrame.current); if (tip.current) tip.current.hidden = true }
@@ -613,6 +637,20 @@ export const MermaidStage = forwardRef<StageHandle, Props & { viewKey: string }>
       </div>
       {error && <div className="stage-error"><b>그리기 실패</b><pre>{error}</pre></div>}
       <div className="stage-tip" ref={tip} hidden />
+      {note && noteBox && !settling && (() => {
+        // To the part's right; below it when the stage has no room there.
+        const k = view.k, right = view.x + (noteBox.x + noteBox.w) * k + 10
+        const beside = right + NOTE_W <= (outer.current?.clientWidth ?? Infinity) - 8
+        const x = beside ? right : view.x + noteBox.x * k, y = beside ? view.y + noteBox.y * k : view.y + (noteBox.y + noteBox.h) * k + 10
+        return (
+          // Its own clicks, like the fold buttons: reading or selecting its text must not drag the map or drop the pick.
+          <div className="note-card" role="note" style={{ transform: `translate(${Math.round(x)}px, ${Math.round(y)}px)` }}
+            onPointerDown={e => e.stopPropagation()} onPointerUp={e => e.stopPropagation()} onDoubleClick={e => e.stopPropagation()} onContextMenu={e => e.stopPropagation()}>
+            <div className="note-card-head"><StickyNote size={12} /><span className="ellipsis">{note.label}</span></div>
+            <p>{note.note}</p>
+          </div>
+        )
+      })()}
       {props.controls === undefined ? <div className="zoom-readout">{Math.round(view.k * 100)}%</div> : (
         // Its own clicks, like the fold buttons: not a drag, a pick or a double-click of the stage underneath.
         <div className="zoom-bar" role="toolbar" aria-label="배율"
@@ -626,6 +664,9 @@ export const MermaidStage = forwardRef<StageHandle, Props & { viewKey: string }>
     </div>
   )
 })
+
+/** The note card's widest, as in canvas.css: what the stage must have free at a part's right to put the card there. */
+const NOTE_W = 340
 
 /** Tag every drawn part with the map id it stands for. */
 function annotate(svg: SVGSVGElement, id: string, map: CanvasMap, p: ReturnType<typeof toMermaid>) {
@@ -843,7 +884,7 @@ const CHANGE_CLASS = ['cv-add', 'cv-modify', 'cv-delete', 'cv-result', 'cv-keep'
 /** The zoom, on the few lines that flow, so their width and dashes stay the same on screen, and on the decision pins and revision marks. Set nowhere else: on an ancestor it would restyle the whole drawing at every zoom step. */
 function flowZoom(svg: SVGSVGElement, k: number) {
   if (svg.getAttribute('data-k') !== String(k)) svg.setAttribute('data-k', String(k))
-  for (const g of svg.querySelectorAll<SVGGElement>('.cv-pins, .cv-rev')) pinZoom(g, k)
+  for (const g of svg.querySelectorAll<SVGGElement>('.cv-pins, .cv-rev, .cv-memo')) pinZoom(g, k)
   for (const el of svg.querySelectorAll<SVGElement>('.cv-edge.cv-sel, .cv-edge.cv-rel, .cv-msg.cv-sel, .cv-msg.cv-rel')) {
     if (el.style.getPropertyValue('--k') !== String(k)) el.style.setProperty('--k', String(k))
   }
@@ -1086,6 +1127,20 @@ function revMark(node: SVGGraphicsElement, rev: number | undefined, b: DOMRect, 
   pinZoom(g, Number(node.ownerSVGElement?.getAttribute('data-k')) || 1)
 }
 
+/** A part with a note: a small sheet on its bottom right corner. The note itself shows by the pointer on hover, and on a card beside the part once picked. */
+function noteMark(node: SVGGraphicsElement, has: boolean, b: DOMRect) {
+  const old = node.querySelector<SVGGElement>(':scope > .cv-memo')
+  if (!!old === has) return
+  old?.remove()
+  if (!has) return
+  const g = document.createElementNS('http://www.w3.org/2000/svg', 'g')
+  g.setAttribute('class', 'cv-memo')
+  g.setAttribute('data-at', `${b.x + b.width - 12},${b.y + b.height}`)
+  g.innerHTML = '<rect x="-7" y="-7" width="14" height="14" rx="3"></rect><path d="M-3.5 -2.5h7M-3.5 0h7M-3.5 2.5h4"></path>'
+  node.appendChild(g)
+  pinZoom(g, Number(node.ownerSVGElement?.getAttribute('data-k')) || 1)
+}
+
 /** Zoomed out, pins grow (up to 2.4×) so the decisions still read when the boxes' own text no longer does. */
 function pinZoom(g: SVGGElement, k: number) {
   const s = Math.min(2.4, Math.max(1, 0.8 / k)).toFixed(2)
@@ -1174,6 +1229,7 @@ function decorate(svg: SVGSVGElement, map: CanvasMap, o: { selected?: string; pe
       pendingCorners(node as SVGGraphicsElement, want.has('cv-pending') ? box : undefined)
       revMark(node as SVGGraphicsElement, revised.has(target) ? o.revised!.revision : undefined, box, count > 0)
     }
+    if (box) noteMark(node as SVGGraphicsElement, !!el?.note?.trim(), box)
     if (box) {
       const ids = new Set([...(pins.own.get(target) ?? []), ...(folded ? pins.inside.get(target) ?? [] : [])])
       drawPins(node as SVGGraphicsElement, [...ids].sort(decisionOrder), openDecisions, box)
