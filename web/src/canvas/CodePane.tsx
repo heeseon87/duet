@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
-import { ChevronLeft, ChevronRight, Columns2, Copy, Ellipsis, FileCode2, FileDiff, ListTree, Loader2, Minus, Palette, Pin as PinIcon, Plus, X } from 'lucide-react'
+import { ChevronLeft, ChevronRight, Columns2, Copy, Ellipsis, FileCode2, FileDiff, ListTree, Loader2, Maximize2, Minimize2, Minus, Palette, Pin as PinIcon, Plus, X } from 'lucide-react'
 import { fileOfRef, labelOf, relationKey, type CanvasMap } from '../../../shared/canvas.ts'
 import type { DiffFile } from '../../../shared/protocol.ts'
 import { absoluteRef, refBase } from '../../../shared/mapFiles.ts'
@@ -10,12 +10,11 @@ import { local, useApp } from '../state.ts'
 import { repoFiles } from '../lib/files.ts'
 import { Popover, useAnchor } from '../lib/ui.tsx'
 import { useReview } from '../review/store.ts'
-import { PathLabel } from '../review/DiffView.tsx'
 import { escapeRe, matchRanges } from '../review/FindBar.tsx'
 import { addedLines, widestCols, type Seg } from '../review/diffModel.ts'
 import { setLivePosition, useCanvas } from './store.ts'
 import { lastSeek, linesOf, linkAt, partsOfFile, pinSource, refsFor, resolveLink, sourceOf, targetOf, withNamedFiles, type PartLink, type ReviewSide, type Seek, type Source } from './codeLinks.ts'
-import { MIN_WIDTH, blocksOf, isPart, layoutColumns, linkView, nextBlock, shown, type Doc, type Entry, type Pin } from './codeNav.ts'
+import { MIN_WIDTH, STAGE_MIN, blocksOf, isPart, layoutColumns, linkView, nextBlock, shown, type Doc, type Entry, type Pin } from './codeNav.ts'
 import { ContextMenu, type MenuEntry, type Point } from './ContextMenu.tsx'
 import { painter, type Painter } from './paint.ts'
 import { activeAt, outlineOf, type OutlineItem, type SymbolKind } from './outline.ts'
@@ -105,14 +104,17 @@ type Choice = { at: Point; name: string; links: PartLink[]; go: (link: PartLink)
  * Pinned files stand to its left and never move; when the room runs out the oldest hide. A word clicked in any column
  * is lit in all of them. `slide`: opened just now by the person, so the column slides in beside the gliding map.
  */
-export function CodeColumns({ map: drawn, slide, onPeek, onClose }: { map: CanvasMap; slide: boolean; onPeek: (target?: string) => void; onClose: () => void }) {
+export function CodeColumns({ map: drawn, slide, full, onFull, onPeek, onClose }: {
+  map: CanvasMap; slide: boolean; full: boolean; onFull: () => void; onPeek: (target?: string) => void; onClose: () => void
+}) {
   const map = useNamedFiles(drawn)
   const entry = useCanvas(s => shown(s.trail))
   const pins = useCanvas(s => s.pins), resizePin = useCanvas(s => s.resizePin)
   const toast = useApp(s => s.toast)
   const live = entry && isPart(map, entry.view.target) ? entry : undefined
   const host = useRef<HTMLDivElement>(null)
-  const room = useRoom(host)
+  // With the code alone the map keeps no room: the live column takes what the pins leave.
+  const room = useRoom(host) + (full ? STAGE_MIN : 0)
   const settings = useSettings()
   // The live column's width as last left, kept apart for two ends side by side, which first take twice the room.
   const [wanted, setWanted] = useState(() => ({ stack: Number(local.get('canvas.codeWidth')) || 520, side: Number(local.get('canvas.codeWidthSide')) || 0 }))
@@ -147,7 +149,7 @@ export function CodeColumns({ map: drawn, slide, onPeek, onClose }: { map: Canva
           }} />
       ))}
       {live && layout.live !== undefined && (
-        <LiveColumn map={map} entry={live} width={layout.live} settings={settings} word={word} onWord={setWord} hidden={layout.hidden} slide={slide || mounted.current}
+        <LiveColumn map={map} entry={live} width={layout.live} settings={settings} word={word} onWord={setWord} hidden={layout.hidden} slide={slide || mounted.current} full={full} onFull={onFull}
           onWidth={(w, done) => {
             const fit = layoutColumns(room, w, []).live!
             setWanted(o => ({ ...o, [mode]: fit }))
@@ -251,7 +253,7 @@ function ChangedMarks({ changedFile, changed, onStep }: ReturnType<typeof useCha
     {changed.size > 0 && (
       <button className="code-added" title={`더해지거나 바뀐 줄 ${changed.size}개 · 누르면 다음 묶음으로 (]), ⇧ 누르고 누르면 이전 ([)`} onClick={e => onStep?.(e.shiftKey ? -1 : 1)}>+{changed.size}</button>
     )}
-    {changedFile && <label className="toggle" title="리뷰의 Viewed"><input type="checkbox" checked={viewed} onChange={() => toggleViewed(changedFile)} /> Viewed</label>}
+    {changedFile && <label className="toggle" title="리뷰의 Viewed"><input type="checkbox" checked={viewed} onChange={() => toggleViewed(changedFile)} /><span className="toggle-text"> Viewed</span></label>}
   </>
 }
 
@@ -289,29 +291,25 @@ function PinColumn({ map, pin, width, settings, word, onWord, hidden, onWidth, o
   const unpin = useCanvas(s => s.unpin)
   const { mapName, review } = useReadContext()
   const source = pinSource(pin, mapName, review)
-  const changed = useChanged(source)
   const pane = useRef<HTMLElement>(null)
   const spot = useRef<DocSpot>({})
   useWheelZoom(pane, settings)
   return (
     <aside className="code-pane pinned" ref={pane} style={{ width, '--code-scale': settings.scale } as React.CSSProperties}>
       <div className="code-split" onPointerDown={edgeDrag(pane, width, onWidth)} title="끌어서 폭 조절" />
-      <div className="code-pane-head">
-        <PinIcon size={13} className="code-pin-mark" aria-hidden />
-        <b className="ellipsis" title={pin.path}>{pin.label}</b>
-        <ChangedMarks {...changed} onStep={d => spot.current.step?.(d)} />
-        <span className="grow" />
-        {hidden > 0 && <HiddenPins n={hidden} />}
-        <button className="iconbtn" aria-label="고정 풀기" title="고정 풀기" onClick={() => unpin(pin.id)}><X size={14} /></button>
-      </div>
       <CodeDoc map={map} file={{ refs: [], ref: pin.path, source }} label={pin.label} nonce={0} at={pin.line} lead={false} width={width}
-        settings={settings} word={word} onWord={onWord} spot={spot.current} onPeek={onPeek} onChoose={onChoose} />
+        settings={settings} word={word} onWord={onWord} spot={spot.current} onPeek={onPeek} onChoose={onChoose} rowClass="code-pane-head"
+        head={<><PinIcon size={13} className="code-pin-mark" aria-hidden /><DocHead label={pin.label} source={source} onStep={d => spot.current.step?.(d)} /></>}
+        tail={<>
+          {hidden > 0 && <HiddenPins n={hidden} />}
+          <button className="iconbtn" aria-label="고정 풀기" title="고정 풀기" onClick={() => unpin(pin.id)}><X size={14} /></button>
+        </>} />
     </aside>
   )
 }
 
-function LiveColumn({ map, entry, width, settings, word, onWord, hidden, slide, onWidth, onPeek, onChoose, onClose }: {
-  map: CanvasMap; entry: Entry; width: number; settings: Settings; word?: Word; onWord: SetWord; hidden: number; slide: boolean
+function LiveColumn({ map, entry, width, settings, word, onWord, hidden, slide, full, onFull, onWidth, onPeek, onChoose, onClose }: {
+  map: CanvasMap; entry: Entry; width: number; settings: Settings; word?: Word; onWord: SetWord; hidden: number; slide: boolean; full: boolean; onFull: () => void
   onWidth: (w: number, done: boolean) => void; onPeek: (target?: string) => void; onChoose: (c: Choice) => void; onClose: () => void
 }) {
   const setTab = useApp(s => s.setTab), toast = useApp(s => s.toast), openFile = useReview(s => s.openFile)
@@ -335,30 +333,51 @@ function LiveColumn({ map, entry, width, settings, word, onWord, hidden, slide, 
   }, [])
   const solo = docs.length === 1
   const side = !solo && settings.side
-  const soloChanged = useChanged(solo ? files[0].source : undefined)
   // A relation's two ends: the code its via names is the evidence for the line.
   const via = map.relations.find(r => relationKey(r) === entry.view.target)?.via
   const head = labelOf(map, entry.view.target)
   const pinTitle = `고정: 이 파일을 옆 칸에 남기기 (${PIN_KEY} + 클릭으로 옮기면서도)`
+  // The column has no head of its own: the first file's row carries the way back and forward, what is shown, and the tools.
+  const lead = <>
+    <button className="iconbtn code-nav" disabled={!canBack} aria-label="뒤로" title={`뒤로 (${NAV_KEYS[0]})`} onClick={back}><ChevronLeft size={14} /></button>
+    <button className="iconbtn code-nav" disabled={!canForward} aria-label="앞으로" title={`앞으로 (${NAV_KEYS[1]})`} onClick={forward}><ChevronRight size={14} /></button>
+    {!solo && <b className="code-title" title={head}>{head}</b>}
+  </>
+  const tools = <>
+    {hidden > 0 && <HiddenPins n={hidden} />}
+    {!solo && <button className="iconbtn" aria-pressed={side} aria-label="나란히 보기" title={side ? '위아래로 보기' : '나란히 보기: 두 끝을 옆으로 나눠서'} onClick={settings.toggleSide}><Columns2 size={14} /></button>}
+    <button className="iconbtn" aria-pressed={settings.outline} title={settings.outline ? '구조 닫기' : '구조: 이 파일의 클래스·함수 목록'} onClick={settings.toggleOutline}><ListTree size={14} /></button>
+    {files.some(f => varLangOf(f.source?.path)) && (
+      <button className="iconbtn" aria-pressed={settings.vars} title={settings.vars ? '변수 색 끄기' : '변수 색: 변수마다 선언부터 쓰는 곳까지 한 색으로, 스코프별로'} onClick={settings.toggleVars}><Palette size={14} /></button>
+    )}
+    <button className="iconbtn" aria-pressed={full} aria-label="코드만 보기" title={full ? '지도와 함께 보기 (z)' : '코드만 보기: 지도와 머리 줄을 숨기고 코드 칸을 넓게 (z)'} onClick={onFull}>{full ? <Minimize2 size={14} /> : <Maximize2 size={14} />}</button>
+    <button ref={more.ref} className="iconbtn" aria-pressed={more.open} aria-label="더 보기: 글자 크기, 경로 복사, 리뷰에서 보기" title="더 보기: 글자 크기, 경로 복사, 리뷰에서 보기" onClick={more.toggle}><Ellipsis size={14} /></button>
+    <button className="iconbtn" title="닫기 (c)" onClick={onClose}><X size={14} /></button>
+  </>
+  // Two ends one above the other: each fits its file's height until the person drags the line between them.
+  const stacked = docs.length === 2 && !side
+  const [split, setSplit] = useState<number | undefined>(() => Number(local.get('canvas.codeSplit')) || undefined)
+  const docsBox = useRef<HTMLDivElement>(null)
+  const dragSplit = (e: React.PointerEvent) => {
+    const box = docsBox.current?.getBoundingClientRect()
+    if (!box) return
+    e.preventDefault()
+    const handle = e.currentTarget as HTMLElement
+    handle.setPointerCapture(e.pointerId)
+    let last = split
+    const move = (m: PointerEvent) => { last = Math.min(0.9, Math.max(0.1, (m.clientY - box.top) / box.height)); setSplit(last) }
+    const up = () => {
+      handle.removeEventListener('pointermove', move)
+      handle.removeEventListener('pointerup', up)
+      if (last !== undefined) local.set('canvas.codeSplit', last.toFixed(3))
+    }
+    handle.addEventListener('pointermove', move)
+    handle.addEventListener('pointerup', up)
+  }
+  const fitSplit = () => { setSplit(undefined); local.set('canvas.codeSplit', '') }
   return (
     <aside className={`code-pane live${slideIn ? ' slide' : ''}`} ref={pane} style={{ width, '--code-scale': settings.scale } as React.CSSProperties}>
       <div className="code-split" onPointerDown={edgeDrag(pane, width, onWidth)} title="끌어서 폭 조절" />
-      <div className="code-pane-head">
-        <button className="iconbtn code-nav" disabled={!canBack} aria-label="뒤로" title={`뒤로 (${NAV_KEYS[0]})`} onClick={back}><ChevronLeft size={14} /></button>
-        <button className="iconbtn code-nav" disabled={!canForward} aria-label="앞으로" title={`앞으로 (${NAV_KEYS[1]})`} onClick={forward}><ChevronRight size={14} /></button>
-        <b className="ellipsis">{head}</b>
-        {solo && <ChangedMarks {...soloChanged} onStep={d => spots.current[0].step?.(d)} />}
-        <span className="grow" />
-        {hidden > 0 && <HiddenPins n={hidden} />}
-        {solo && files[0].source && <button className="iconbtn" aria-label="고정" title={pinTitle} onClick={() => pin()}><PinIcon size={14} /></button>}
-        {!solo && <button className="iconbtn" aria-pressed={side} aria-label="나란히 보기" title={side ? '위아래로 보기' : '나란히 보기: 두 끝을 옆으로 나눠서'} onClick={settings.toggleSide}><Columns2 size={14} /></button>}
-        <button className="iconbtn" aria-pressed={settings.outline} title={settings.outline ? '구조 닫기' : '구조: 이 파일의 클래스·함수 목록'} onClick={settings.toggleOutline}><ListTree size={14} /></button>
-        {files.some(f => varLangOf(f.source?.path)) && (
-          <button className="iconbtn" aria-pressed={settings.vars} title={settings.vars ? '변수 색 끄기' : '변수 색: 변수마다 선언부터 쓰는 곳까지 한 색으로, 스코프별로'} onClick={settings.toggleVars}><Palette size={14} /></button>
-        )}
-        <button ref={more.ref} className="iconbtn" aria-pressed={more.open} aria-label="더 보기: 글자 크기, 경로 복사, 리뷰에서 보기" title="더 보기: 글자 크기, 경로 복사, 리뷰에서 보기" onClick={more.toggle}><Ellipsis size={14} /></button>
-        <button className="iconbtn" title="닫기 (c)" onClick={onClose}><X size={14} /></button>
-      </div>
       {more.open && (
         <Popover anchor={more.ref.current} onClose={more.close} align="end" width={230} className="code-more">
           <div className="code-more-row">
@@ -379,30 +398,44 @@ function LiveColumn({ map, entry, width, settings, word, onWord, hidden, slide, 
           ))}
         </Popover>
       )}
-      <div className={`code-docs${side ? ' side' : ''}`}>
-        {docs.map((doc, i) => (
+      <div className={`code-docs${side ? ' side' : ''}`} ref={docsBox}>
+        {docs.map((doc, i) => [
+          stacked && i === 1 && <div key="split" className="code-hsplit" onPointerDown={dragSplit} onDoubleClick={fitSplit} title="끌어서 위아래 높이 조절, 두 번 누르면 파일 길이에 맞추기" />,
           <CodeDoc key={i} map={map} file={files[i]} seek={doc.seek} label={labelOf(map, doc.part)} nonce={entry.nonce} at={entry.at?.[i]} lead={i === 0} width={side ? width / 2 : width}
             settings={settings} word={word} onWord={onWord} spot={spots.current[i]} onTab={r => useCanvas.getState().showFile(i, r)} onPeek={onPeek} onChoose={onChoose}
-            head={solo ? undefined : <DocHead label={labelOf(map, doc.part)} source={files[i].source} via={i === 0 ? via : undefined} onPin={files[i].source && (() => pin(i))} pinTitle={pinTitle} onStep={d => spots.current[i].step?.(d)} />} />
-        ))}
+            rowClass={i === 0 ? 'code-pane-head' : undefined} fit={stacked && split === undefined}
+            style={stacked && split !== undefined ? { flex: `${i === 0 ? split : 1 - split} 1 0` } : undefined}
+            head={<>
+              {i === 0 && lead}
+              <DocHead label={labelOf(map, doc.part)} source={files[i].source} onStep={d => spots.current[i].step?.(d)} />
+            </>}
+            tail={<>
+              {solo ? files[0].source && <button className="iconbtn" aria-label="고정" title={pinTitle} onClick={() => pin()}><PinIcon size={14} /></button>
+                : <DocTail via={i === 0 ? via : undefined} onPin={files[i].source && (() => pin(i))} pinTitle={pinTitle} />}
+              {i === 0 && tools}
+            </>} />,
+        ])}
       </div>
     </aside>
   )
 }
 
-/** One end of a pair: its part, how its file stands in the review, and for the `from` end the relation's evidence. */
-function DocHead({ label, source, via, onPin, pinTitle, onStep }: {
-  label: string; source?: Source; via?: string; onPin?: () => void; pinTitle: string; onStep: (dir: -1 | 1) => void
-}) {
+/** The start of one end's row in a pair: its part (left out when it only repeats the file's name) and how its file stands in the review. */
+function DocHead({ label, source, onStep }: { label: string; source?: Source; onStep: (dir: -1 | 1) => void }) {
   const changed = useChanged(source)
-  return (
-    <div className="code-doc-head">
-      <b>{label}</b>
-      <ChangedMarks {...changed} onStep={onStep} />
-      {via && <span className="code-via" title="이 선을 그린 근거(via): 그 코드가 표시된 줄">근거: {via}</span>}
-      {onPin && <button className="iconbtn" aria-label="고정" title={pinTitle} onClick={onPin}><PinIcon size={13} /></button>}
-    </div>
-  )
+  const stem = source?.path.split('/').pop()?.replace(/\.[^.]*$/, '')
+  return <>
+    {label !== stem && <b className="code-part" title={label}>{label}</b>}
+    <ChangedMarks {...changed} onStep={onStep} />
+  </>
+}
+
+/** The end of one end's row in a pair: for the `from` end the relation's evidence, and the pin. */
+function DocTail({ via, onPin, pinTitle }: { via?: string; onPin?: () => void; pinTitle: string }) {
+  return <>
+    {via && <span className="code-via" title={`이 선을 그린 근거(via): 그 코드가 표시된 줄\n${via}`}>근거: {via}</span>}
+    {onPin && <button className="iconbtn" aria-label="고정" title={pinTitle} onClick={onPin}><PinIcon size={13} /></button>}
+  </>
 }
 
 /** ⌘ or ctrl + wheel over a column (a trackpad pinch) zooms the code, following the hand. */
@@ -440,6 +473,25 @@ function useFileText(source?: Source) {
   return { key, text: mine ? file.text : undefined, missing: Boolean(mine && file.missing), loading: !mine || (file.text === undefined && !file.missing) }
 }
 
+/** A tab per file of a part, in the row's leftover width: a wheel scrolls them sideways, and the chosen one stays in view. */
+function FileTabs({ refs, active, path, onTab }: { refs: string[]; active?: string; path?: string; onTab?: (ref: string) => void }) {
+  const strip = useRef<HTMLDivElement>(null)
+  useEffect(() => { strip.current?.querySelector('[aria-selected="true"]')?.scrollIntoView({ block: 'nearest', inline: 'nearest' }) }, [active])
+  const wheel = (e: React.WheelEvent) => {
+    if (e.ctrlKey || e.metaKey || !strip.current || Math.abs(e.deltaX) >= Math.abs(e.deltaY)) return
+    strip.current.scrollLeft += e.deltaY
+  }
+  return (
+    <div className="code-tabs" ref={strip} onWheel={wheel}>
+      {refs.map(r => (
+        <button key={r} aria-selected={r === active} title={r} onClick={() => onTab?.(r)}>
+          {r === active && path ? <span className="file-path" title={path}>{fileOfRef(r).split('/').pop()}</span> : fileOfRef(r).split('/').pop()}
+        </button>
+      ))}
+    </div>
+  )
+}
+
 /** The first row in view and how far its top sits above the view's top. */
 function readTop(b: HTMLElement): { line: number; offset: number } | undefined {
   const first = b.querySelector<HTMLElement>('tr[data-line]')
@@ -454,9 +506,11 @@ function readTop(b: HTMLElement): { line: number; offset: number } | undefined {
  * One file of a column: it opens where its view says (a declaration, a reference's lines, or where the reader left it),
  * marks the lines the map's code changed, reads like an editor, and makes the names the map draws links.
  */
-function CodeDoc({ map, file: { refs, ref, source }, seek, label, nonce, at, lead, width, settings, word, onWord, spot, head, onTab, onPeek, onChoose }: {
+function CodeDoc({ map, file: { refs, ref, source }, seek, label, nonce, at, lead, width, settings, word, onWord, spot, head, tail, rowClass, fit, style, onTab, onPeek, onChoose }: {
   map: CanvasMap; file: DocFile; seek?: Seek; label: string; nonce: number; at?: number; lead: boolean; width: number; settings: Settings
-  word?: Word; onWord: SetWord; spot?: DocSpot; head?: React.ReactNode; onTab?: (ref: string) => void; onPeek: (target?: string) => void; onChoose: (c: Choice) => void
+  word?: Word; onWord: SetWord; spot?: DocSpot; head?: React.ReactNode; tail?: React.ReactNode
+  /** `fit`: no taller than its file needs, so a short file leaves the rest to the other end. */
+  rowClass?: string; fit?: boolean; style?: React.CSSProperties; onTab?: (ref: string) => void; onPeek: (target?: string) => void; onChoose: (c: Choice) => void
 }) {
   const { base } = useReadContext()
   const { key, text, missing, loading } = useFileText(source)
@@ -562,27 +616,24 @@ function CodeDoc({ map, file: { refs, ref, source }, seek, label, nonce, at, lea
   })
 
   return (
-    <div className="code-doc" ref={root}>
-      {head}
-      {refs.length > 1 && (
-        <div className="code-tabs">
-          {refs.map(r => (
-            <button key={r} aria-selected={r === ref} title={r} onClick={() => onTab?.(r)}>{fileOfRef(r).split('/').pop()}</button>
-          ))}
+    <div className="code-doc" ref={root} style={fit && text !== undefined ? { ...style, maxHeight: `calc(${missing ? 3 : lines.length} * var(--code-line) + 44px)` } : style}>
+      {(head || tail || source || refs.length > 1) && (
+        // One row holds the part, the file (a tab per file when there are several) and what the reader is finding, so the code gets the height.
+        <div className={`code-pane-path${rowClass ? ` ${rowClass}` : ''}`}>
+          {head}
+          {refs.length > 1 ? <FileTabs refs={refs} active={ref} path={source?.path} onTab={onTab} />
+            : source && <span className="file-path code-file" title={source.path}><b className="name">{source.path.split('/').pop()}</b></span>}
+          {source && source.ref !== 'WORKTREE' && <span className="muted" title={`${source.ref}에서 읽은 파일`}>{source.ref.slice(0, 7)}</span>}
+          {word && marks.hits > 0 && <span className="muted code-hits"><code>{word.text.length > 24 ? `${word.text.slice(0, 23)}…` : word.text}</code> {marks.hits > 2000 ? '2000+' : marks.hits}곳</span>}
+          {target?.missed && <span className="code-missed" title={`«${target.missed}»`}>«{target.missed}» {seek && 'mention' in lastSeek(seek) ? '쓰는 곳을' : '선언을'} 이 파일에서 못 찾았어{refs.length > 1 ? ' · 탭의 다른 파일도 봐' : ''}</span>}
+          <span className="code-link-hint" ref={hint} />
+          {tail}
         </div>
       )}
       {!ref ? <div className="code-pane-empty muted">«{label}»에는 연결된 파일이 없어.</div>
         : !source ? <div className="code-pane-empty muted">{fileOfRef(ref)}은 작업 공간 밖에 있어서 여기서 열 수 없어.</div>
         : (
           <>
-            <div className="code-pane-path">
-              <PathLabel path={source.path} />
-              <span className="muted">{source.ref === 'WORKTREE' ? 'Working tree' : source.ref.slice(0, 7)}{text !== undefined && ` · ${lines.length}줄`}
-                {word && marks.hits > 0 && <> · <code>{word.text.length > 24 ? `${word.text.slice(0, 23)}…` : word.text}</code> {marks.hits > 2000 ? '2000+' : marks.hits}곳</>}
-              </span>
-              {target?.missed && <span className="code-missed">«{target.missed}» {seek && 'mention' in lastSeek(seek) ? '쓰는 곳을' : '선언을'} 이 파일에서 못 찾았어{refs.length > 1 ? ' · 탭의 다른 파일도 봐' : ''}</span>}
-              <span className="code-link-hint" ref={hint} />
-            </div>
             <div className="code-pane-view">
             {settings.outline && text !== undefined && !outlineWidth.hiding && <Outline items={outline} active={active} floating={floating} width={outlineWidth.value} onPick={pickOutline} />}
             {settings.outline && text !== undefined && (

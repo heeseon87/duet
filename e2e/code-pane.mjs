@@ -172,7 +172,8 @@ const topLine = () => page.evaluate(() => {
   const b = document.querySelector('.code-pane-body').getBoundingClientRect()
   return Number(document.elementFromPoint(b.left + 8, b.top + 1)?.closest('tr[data-line]')?.getAttribute('data-line'))
 })
-await page.$eval('.code-pane-body', b => { b.scrollTop = 200 }); await sleep(100)
+// Scrolled into a row rather than onto its edge, however little the file overflows the view.
+await page.$eval('.code-pane-body', b => { const h = b.querySelector('tr[data-line]').getBoundingClientRect().height, max = b.scrollHeight - b.clientHeight; b.scrollTop = Math.max(0, Math.floor(Math.min(200, max) / h) * h - h / 2) }); await sleep(100)
 const top = await topLine()
 await openMore()
 await page.click('.code-zoom button[title^="코드 확대"]'); await page.click('.code-zoom button[title^="코드 확대"]'); await sleep(200)

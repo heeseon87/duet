@@ -82,43 +82,64 @@
 .code-pane { position: relative; flex: none; display: flex; flex-direction: column; min-width: 0; border-left: 1px solid var(--line); background: var(--panel); }
 .code-pane.slide { animation: slide-in .2s var(--ease); }
 .code-columns { display: contents; }
+/* The code alone (z): the map stays laid out underneath, out of sight, and the live column takes the width the pins leave. */
+.canvas.code-only > .map-head { display: none; }
+.canvas.code-only .canvas-main { position: absolute; inset: 0; visibility: hidden; pointer-events: none; }
+.canvas.code-only .code-pane.live { flex: 1 1 auto; width: auto !important; }
+.canvas.code-only .code-pane.live .code-split { display: none; }
 .code-doc { flex: 1; display: flex; flex-direction: column; min-height: 0; }
 /* A relation's or message's two ends share the column's height, or side by side its width; each half has a short head. */
 .code-docs { flex: 1; display: flex; flex-direction: column; min-height: 0; }
 .code-docs.side { flex-direction: row; }
 .code-docs.side > .code-doc { min-width: 0; }
 .code-doc + .code-doc { border-top: 1px solid var(--line-strong); }
+/* The line between two ends one above the other: dragged, it sets their heights; a double click fits them to their files again. */
+.code-hsplit { flex: none; position: relative; height: 1px; background: var(--line-strong); cursor: row-resize; z-index: 5; }
+.code-hsplit::before { content: ''; position: absolute; inset: -4px 0; }
+.code-hsplit:hover, .code-hsplit:active { background: var(--accent); box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 30%, transparent); }
+.code-hsplit + .code-doc { border-top: 0; }
 .code-docs.side > .code-doc + .code-doc { border-top: 0; border-left: 1px solid var(--line-strong); }
-.code-doc-head { display: flex; align-items: center; gap: 6px; padding: 6px 8px 4px 14px; font-size: 12.5px; min-width: 0; }
-.code-doc-head > b { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.code-doc-head .toggle { flex: none; margin-left: 4px; }
-.code-via { flex: 0 1 auto; min-width: 0; margin-left: auto; padding: 1px 7px; border-radius: 6px; font-family: var(--font-mono); font-size: 11.5px; color: var(--accent-ink); background: var(--accent-soft); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.code-via { flex: 0 1 auto; min-width: 0; max-width: 40%; padding: 1px 7px; border-radius: 6px; font-family: var(--font-mono); font-size: 11.5px; color: var(--accent-ink); background: var(--accent-soft); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .code-pane-head .code-nav:disabled { opacity: .35; }
 .code-split { position: absolute; left: -4px; top: 0; bottom: 0; width: 8px; cursor: col-resize; z-index: 5; }
 .code-outline-split { position: absolute; top: 0; bottom: 0; width: 8px; margin-left: -4px; cursor: col-resize; z-index: 5; }
 .code-split:hover, .code-split:active, .code-outline-split:hover, .code-outline-split:active { background: color-mix(in srgb, var(--accent) 30%, transparent); }
-.code-pane-head { display: flex; align-items: center; gap: 4px; padding: 8px 8px 6px 14px; font-size: 13px; }
-.code-pane-head > b { min-width: 0; }
 .code-added { flex: none; margin-left: 4px; font-family: var(--font-mono); font-size: 11.5px; color: var(--add); font-variant-numeric: tabular-nums; }
 button.code-added { padding: 0 2px; border: 0; border-radius: 4px; background: none; cursor: pointer; }
 button.code-added:hover { background: var(--hover); }
-.code-pane-head .toggle { flex: none; margin-left: 8px; }
-.code-pane-head .code-pin-mark { flex: none; color: var(--accent-ink); margin-right: 2px; }
+.code-pane-head .code-pin-mark { flex: none; order: -3; color: var(--accent-ink); }
 .code-pane-head .code-hidden { flex: none; margin-right: 4px; font-size: 11.5px; color: var(--ink-3); white-space: nowrap; }
-.code-doc-head .iconbtn { flex: none; margin-left: auto; }
-.code-doc-head .code-via + .iconbtn { margin-left: 0; }
-.code-tabs { display: flex; gap: 2px; padding: 0 10px 6px; overflow-x: auto; flex: none; }
-.code-tabs button { border: 0; background: transparent; height: 24px; padding: 0 8px; border-radius: 6px; font-size: 12px; color: var(--ink-3); white-space: nowrap; font-family: var(--font-mono); }
+.code-tabs { display: flex; gap: 2px; flex: 1 1 auto; min-width: 64px; overflow-x: auto; scrollbar-width: none; }
+.code-tabs::-webkit-scrollbar { display: none; }
+.code-tabs button { flex: none; border: 0; background: transparent; height: 22px; padding: 0 7px; border-radius: 6px; font-size: 12px; color: var(--ink-3); white-space: nowrap; font-family: var(--font-mono); }
 .code-tabs button:hover { background: var(--hover); color: var(--ink); }
 .code-tabs button[aria-selected='true'] { background: var(--accent-soft); color: var(--accent-ink); }
-.code-pane-path { display: flex; align-items: baseline; gap: 8px; padding: 0 14px 6px; font-size: 12px; min-width: 0; border-bottom: 1px solid var(--line); }
+/* A column's one row over its code: part, file (or tabs), what the reader is finding, evidence, pin. It never wraps. */
+.code-pane-path { container-type: inline-size; display: flex; align-items: center; gap: 4px; min-height: 30px; overflow: hidden; padding: 2px 8px 2px 14px; font-size: 12px; min-width: 0; white-space: nowrap; border-bottom: 1px solid var(--line); }
 .code-pane-path .file-path { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .code-pane-path .muted { flex: none; }
+/* The part and the file lead the row whatever order they come in; the file gives way last. */
+.code-pane-path > .code-part { order: -2; flex: 0 1 auto; min-width: 32px; max-width: 35%; overflow: hidden; text-overflow: ellipsis; font-size: 12.5px; }
+.code-pane-path > .code-file, .code-pane-path > .code-tabs { order: -1; }
+/* The live column's first row also leads with back and forward and what the column shows, which gives way first. */
+.code-pane-path > .code-nav { order: -4; flex: none; }
+.code-pane-path > .code-nav + .code-nav { margin-left: -4px; }
+.code-pane-path > .code-title { order: -3; flex: 0 1000 auto; min-width: 0; margin-right: 6px; overflow: hidden; text-overflow: ellipsis; font-size: 12.5px; }
+.code-pane-path > .code-nav:not(.code-nav + .code-nav) { margin-left: -8px; }
+.code-pane-path > .code-file { flex: 0 0.2 auto; min-width: 0; max-width: 50%; }
+.code-pane-path > .code-via { min-width: 52px; }
+/* A narrow row keeps its buttons whole: the words beside the checkbox go first. */
+@container (max-width: 620px) { .code-pane-path .toggle-text { display: none; } }
+.code-pane-path > .toggle { flex: none; }
+.code-pane-path > .iconbtn { flex: none; }
+.code-pane-path > .code-hits { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .code-pane-view { flex: 1; display: flex; min-height: 0; position: relative; }
 .code-pane-body { flex: 1; overflow: auto; min-height: 0; min-width: 0; }
 .code-pane-empty { padding: 24px 16px; font-size: 12.5px; display: flex; justify-content: center; }
 /* The code's own zoom (--code-scale), apart from the map's. */
-.code-pane table.diff { font-size: calc(12px * var(--code-scale, 1)); line-height: calc(20px * var(--code-scale, 1)); }
+/* --code-line is one code row's height: the wax tile below and a stacked file's fitted height count in it. */
+.code-pane { --code-line: calc(18px * var(--code-scale, 1)); }
+.code-pane table.diff { font-size: calc(12px * var(--code-scale, 1)); line-height: var(--code-line); }
 .code-pane table.diff col.c-no { width: calc(48px * var(--code-scale, 1)); }
 /* The ⋯ menu on the pane's head: the code's font size, then the file's own actions. */
 .code-more-row { display: flex; align-items: center; gap: 8px; padding: 4px 4px 4px 8px; font-size: 13px; }
@@ -181,17 +202,17 @@ button.code-added:hover { background: var(--hover); }
 .code-pane table.diff tr.target td { background: var(--accent-soft); }
 .code-pane table.diff tr.target td.no { color: var(--accent-ink); }
 /* A changed line's mark is a crayon stroke beside its number: the wax's grain runs on from row to row, as seven rows
-   make the 140px tile (td.no is sticky, so it holds the stroke). */
+   make the tile (td.no is sticky, so it holds the stroke). */
 .code-pane table.diff tr.changed td.no::after {
   content: ''; position: absolute; top: 0; bottom: 0; right: 1px; width: 3px;
-  background: var(--wax) 0 var(--wax-y, 0px) / calc(140px * var(--code-scale, 1)) calc(140px * var(--code-scale, 1)), var(--cv-add-line);
+  background: var(--wax) 0 var(--wax-y, 0px) / calc(7 * var(--code-line)) calc(7 * var(--code-line)), var(--cv-add-line);
 }
-.code-pane table.diff tbody > tr:nth-child(7n+2) { --wax-y: calc(-20px * var(--code-scale, 1)); }
-.code-pane table.diff tbody > tr:nth-child(7n+3) { --wax-y: calc(-40px * var(--code-scale, 1)); }
-.code-pane table.diff tbody > tr:nth-child(7n+4) { --wax-y: calc(-60px * var(--code-scale, 1)); }
-.code-pane table.diff tbody > tr:nth-child(7n+5) { --wax-y: calc(-80px * var(--code-scale, 1)); }
-.code-pane table.diff tbody > tr:nth-child(7n+6) { --wax-y: calc(-100px * var(--code-scale, 1)); }
-.code-pane table.diff tbody > tr:nth-child(7n+7) { --wax-y: calc(-120px * var(--code-scale, 1)); }
+.code-pane table.diff tbody > tr:nth-child(7n+2) { --wax-y: calc(-1 * var(--code-line)); }
+.code-pane table.diff tbody > tr:nth-child(7n+3) { --wax-y: calc(-2 * var(--code-line)); }
+.code-pane table.diff tbody > tr:nth-child(7n+4) { --wax-y: calc(-3 * var(--code-line)); }
+.code-pane table.diff tbody > tr:nth-child(7n+5) { --wax-y: calc(-4 * var(--code-line)); }
+.code-pane table.diff tbody > tr:nth-child(7n+6) { --wax-y: calc(-5 * var(--code-line)); }
+.code-pane table.diff tbody > tr:nth-child(7n+7) { --wax-y: calc(-6 * var(--code-line)); }
 .stage-canvas {
   flex: 1; position: relative; overflow: hidden; cursor: grab; touch-action: none; user-select: none;
   background-color: var(--cv-bg);

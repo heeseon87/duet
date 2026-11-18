@@ -210,6 +210,15 @@ export function CanvasView() {
     if (open && !codeOpenRef.current) codeSlide.current = true
     setCodeOpen(open)
     local.set('canvas.code', open ? '1' : '0')
+    if (!open) setCodeOnly(false)
+  }
+  // The code alone: the map and its head step aside (kept laid out, so the map is where it was on the way back).
+  const [codeOnly, setCodeOnly] = useState(false)
+  const codeOnlyRef = useRef(codeOnly)
+  codeOnlyRef.current = codeOnly
+  const toggleCodeOnly = () => {
+    if (!codeOnlyRef.current && !codeOpenRef.current) showCode(true)
+    setCodeOnly(!codeOnlyRef.current)
   }
 
   useEffect(() => { if (workspace) void s.loadList() }, [workspace?.path]) // eslint-disable-line react-hooks/exhaustive-deps
@@ -260,11 +269,13 @@ export function CanvasView() {
       const k = shortcutKey(e)
       const nav = navStep(e, k)
       if (nav) { if (nav < 0) s.back(); else s.forward() }
+      else if (k === 'Escape' && codeOnlyRef.current) setCodeOnly(false)
       else if (k === 'Escape') s.select(undefined)
       else if (k === 'f' && !e.metaKey) stage.current?.fit()
       else if ((k === '=' || k === '+') && !e.metaKey) stage.current?.zoom(1.2)
       else if (k === '-' && !e.metaKey) stage.current?.zoom(1 / 1.2)
       else if (k === 'c' && !e.metaKey && !e.ctrlKey) showCode(!codeOpenRef.current)
+      else if (k === 'z' && !e.metaKey && !e.ctrlKey) toggleCodeOnly()
       else if ((k === '[' || k === ']') && !e.metaKey && !e.ctrlKey && !e.altKey) stepChanged(k === ']' ? 1 : -1)
       else if ((k === 'n' || k === 'p') && !e.metaKey && !e.ctrlKey) {
         const st = useCanvas.getState()
@@ -406,7 +417,7 @@ export function CanvasView() {
     ]
   }
   return (
-    <div className="canvas">
+    <div className={`canvas${codeOnly && codeOpen ? ' code-only' : ''}`}>
       <div className="canvas-bar map-head">
         <div className="map-head-row">
           <span className="head-ws"><WorkspaceMenu /></span>
@@ -526,7 +537,7 @@ export function CanvasView() {
           </FloatAt>
         )}
         </div>
-        {codeOpen && <CodeColumns key={stageKey} map={shownMap} slide={codeSlide.current} onPeek={setPeek} onClose={() => showCode(false)} />}
+        {codeOpen && <CodeColumns key={stageKey} map={shownMap} slide={codeSlide.current} full={codeOnly} onFull={toggleCodeOnly} onPeek={setPeek} onClose={() => showCode(false)} />}
       </div>
       {s.deciding && s.map && !s.preview && <DecisionMode key={stageKey} map={s.map} stageKey={stageKey} onClose={() => s.setDeciding(false)} />}
     </div>
